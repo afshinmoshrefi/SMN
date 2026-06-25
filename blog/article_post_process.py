@@ -1452,7 +1452,25 @@ def article_post_process(
         _q = _gqd(symbol, _ex, use_realtime=False)
         if _q and _q.get('close') is not None:
             _close = float(_q['close']); _lo = _q.get('low'); _hi = _q.get('high')
-            _ld = _fmtd(_q.get('as_of_date')) if _q.get('as_of_date') else 'the latest session'
+            # Precise as-of date + market-state from the EODHD quote: the EOD path carries a
+            # settled close date; the real-time path carries a unix trade timestamp. A trade
+            # stamped within the last 30 min means a live session (intraday); otherwise the
+            # real-time endpoint is just echoing the prior close.
+            _asof = _q.get('as_of_date'); _ts = _q.get('timestamp')
+            _nowu = _dt.datetime.now(_dt.timezone.utc)
+            _kind = 'last close'
+            if _asof:
+                _ld = _fmtd(_asof)
+            elif _ts:
+                try:
+                    _tt = _dt.datetime.fromtimestamp(int(_ts), _dt.timezone.utc)
+                    _ld = _tt.strftime('%b %-d, %Y')
+                    if (_nowu - _tt).total_seconds() < 1800:
+                        _kind = 'intraday'
+                except Exception:
+                    _ld = _nowu.strftime('%b %-d, %Y')
+            else:
+                _ld = _nowu.strftime('%b %-d, %Y')
             _P = lambda v: f"${float(v):,.2f}"
             _tol = lambda v: max(0.01, float(v) * 0.001)
             _fixed = [0]
@@ -1471,7 +1489,7 @@ def article_post_process(
                     print(f"[WARN] price-finalize: feed close {_close} outside [{_lo},{_hi}] for {symbol}")
             if 'class="price-asof"' not in html_out:
                 _line = (f'<p class="price-asof" style="font-size:.9rem;color:#5a6b7a;margin:-6px 0 16px;">'
-                         f'Price as of {_ld}: <strong>{_P(_close)}</strong> (last close).</p>')
+                         f'Price as of {_ld}: <strong>{_P(_close)}</strong> ({_kind}).</p>')
                 html_out = re.sub(r'(<p class="dek">.*?</p>)', r'\1\n' + _line, html_out, count=1, flags=re.S)
             print(f"[FIX] price-finalize: {symbol} current price set to {_P(_close)} "
                   f"(src={_q.get('source')}); {_fixed[0]} prose value(s) corrected")
