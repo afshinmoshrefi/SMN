@@ -1,0 +1,1951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ content.meta.title }}</title>
+    <meta name="description" content="{{ content.meta.description }}">
+    <meta name="keywords" content="{{ content.meta.keywords }}">
+
+    {% if content.enable_seo %}
+    <!-- SEO: Allow indexing -->
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <link rel="canonical" href="{{ content.canonical_url }}">
+    {% else %}
+    <!-- SEO: Block indexing (dev/staging) -->
+    <meta name="robots" content="noindex, nofollow">
+    {% endif %}
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="TradeWave">
+    <meta property="og:title" content="{{ content.meta.title }}">
+    <meta property="og:description" content="{{ content.meta.description }}">
+    <meta property="og:image" content="{{ content.assets.og_image }}">
+    <meta property="og:url" content="{{ content.canonical_url }}">
+    <meta property="og:locale" content="en_US">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ content.meta.title }}">
+    <meta name="twitter:description" content="{{ content.meta.description }}">
+    <meta name="twitter:image" content="{{ content.assets.og_image }}">
+
+    <link rel="icon" type="image/png" href="{{ content.assets.favicon }}">
+    <link rel="shortcut icon" href="{{ content.assets.favicon }}">
+    <link rel="apple-touch-icon" href="{{ content.assets.favicon }}">
+
+    {% if content.enable_seo %}
+    <!-- Structured Data: Organization -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "TradeWave",
+        "url": "{{ content.canonical_url }}",
+        "logo": "{{ content.assets.logo }}",
+        "description": "{{ content.meta.description }}",
+        "sameAs": []
+    }
+    </script>
+
+    <!-- Structured Data: WebSite -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "TradeWave",
+        "url": "{{ content.canonical_url }}",
+        "description": "{{ content.meta.description }}"
+    }
+    </script>
+
+    <!-- Structured Data: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "TradeWave",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Web",
+        "url": "{{ content.canonical_url }}",
+        "description": "{{ content.meta.description }}",
+        "offers": [
+            {
+                "@type": "Offer",
+                "name": "Explorer",
+                "price": "0",
+                "priceCurrency": "USD"
+            },
+            {
+                "@type": "Offer",
+                "name": "Analyst",
+                "price": "47",
+                "priceCurrency": "USD",
+                "billingIncrement": 1,
+                "unitCode": "MON"
+            },
+            {
+                "@type": "Offer",
+                "name": "Strategist",
+                "price": "149",
+                "priceCurrency": "USD",
+                "billingIncrement": 1,
+                "unitCode": "MON"
+            }
+        ]
+    }
+    </script>
+    {% endif %}
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+    <style>
+        :root {
+            --bg-primary: rgb(15,10,21);
+            --bg-secondary: rgb(25,22,35);
+            --bg-tertiary: #111936;
+            --bg-card: #0c1225;
+            --text-primary: #ffffff;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --accent: #6366f1;
+            --accent-secondary: #8b5cf6;
+            --accent-hover: #818cf8;
+            --accent-glow: rgba(99, 102, 241, 0.25);
+            --accent-glow-strong: rgba(99, 102, 241, 0.5);
+            --accent-green: rgb(100,220,140);
+            --success: #10b981;
+            --success-dark: rgba(16, 185, 129, 0.15);
+            --warning: #f59e0b;
+            --warning-glow: rgba(245, 158, 11, 0.15);
+            --danger: #ef4444;
+            --border: #1f2937;
+            --border-light: #374151;
+            --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+            --gradient-text: linear-gradient(135deg, #ffffff 0%, #c7d2fe 100%);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+        /* Market Bar */
+        .market-bar {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 0;
+            overflow-x: auto;
+            position: relative;
+            z-index: 10;
+            scrollbar-width: none;
+        }
+        .market-bar::-webkit-scrollbar { display: none; }
+        .market-bar-content {
+            display: flex;
+            gap: 24px;
+            align-items: center;
+            padding: 0 24px;
+            width: max-content;
+            min-width: 100%;
+            justify-content: center;
+        }
+        .market-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Inter', monospace;
+            font-size: 13px;
+            white-space: nowrap;
+            padding: 6px 0;
+            border-top: 2px solid transparent;
+            border-bottom: 2px solid transparent;
+            text-decoration: none;
+            transition: opacity 0.2s;
+        }
+        .market-item:hover { opacity: 0.75; }
+        .market-item.up { border-image: linear-gradient(90deg, transparent, var(--success), transparent) 1; }
+        .market-item.down { border-image: linear-gradient(90deg, transparent, var(--danger), transparent) 1; }
+        .market-symbol { color: var(--text-primary); font-weight: 700; }
+        .market-price { color: var(--text-secondary); font-weight: 600; }
+        .market-change { font-weight: 700; }
+        .market-change.up { color: var(--success); }
+        .market-change.down { color: var(--danger); }
+
+        .gradient-bg {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99,102,241,0.15), transparent),
+                radial-gradient(ellipse 60% 40% at 100% 0%, rgba(139,92,246,0.1), transparent),
+                radial-gradient(ellipse 60% 40% at 0% 100%, rgba(99,102,241,0.08), transparent);
+            pointer-events: none; z-index: 0;
+        }
+
+        .bg-primary { background: var(--bg-primary); }
+        .bg-secondary { background: var(--bg-secondary); }
+
+        /* Nav */
+        nav { background: rgba(15,10,21,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); padding: 16px 0; position: sticky; top: 0; z-index: 100; }
+        nav .container { position: relative; display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 30px; font-weight: 800; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; text-decoration: none; }
+        .hamburger { display: none; }
+        .nav-links { display: flex; gap: 32px; align-items: center; }
+        .nav-links a { color: var(--text-secondary); text-decoration: none; font-weight: 500; font-size: 14px; transition: color 0.2s; }
+        .nav-links a:hover { color: var(--text-primary); }
+
+        /* Buttons */
+        .btn { display: inline-flex; align-items: center; justify-content: center; padding: 14px 28px; border-radius: 12px; font-weight: 600; font-size: 15px; text-decoration: none; transition: all 0.3s; cursor: pointer; border: none; }
+        .hero .btn { padding: 18px 40px; font-size: 17px; }
+        .btn-primary { background: var(--gradient-primary); color: white; box-shadow: 0 4px 20px var(--accent-glow), 0 0 0 1px rgba(255,255,255,0.1) inset; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px var(--accent-glow-strong), 0 0 0 1px rgba(255,255,255,0.15) inset; }
+        .btn-secondary { background: rgba(99,102,241,0.1); color: var(--accent); border: 1px solid rgba(99,102,241,0.3); }
+        .btn-secondary:hover { background: rgba(99,102,241,0.2); border-color: var(--accent); }
+
+        /* Hero */
+        .hero { padding: 80px 0 40px; text-align: center; position: relative; z-index: 1; }
+        .hero h1 { font-size: 52px; font-weight: 800; line-height: 1.35; margin-bottom: 24px; }
+        .hero h1 .line1 { display: block; color: var(--text-primary); }
+        .hero h1 .line2 { display: block; color: var(--text-primary); }
+        .hero h1 .line3 { display: block; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .hero p.hero-body { font-size: 18px; color: var(--text-secondary); max-width: 720px; margin: 0 auto 32px; line-height: 1.7; }
+        .hero-ctas { display: flex; gap: 16px; justify-content: center; margin-bottom: 12px; }
+        .hero-reassurance { text-align: center; font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+
+        /* Trust Strip */
+        .trust-strip {
+            padding: 32px 0;
+            position: relative;
+            z-index: 1;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+        .trust-strip-content {
+            display: flex;
+            justify-content: center;
+            gap: 48px;
+            flex-wrap: wrap;
+        }
+        .trust-item {
+            text-align: center;
+        }
+        .trust-value {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--accent-green);
+            line-height: 1.2;
+        }
+        .trust-label {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        /* Section Headers */
+        .section-header { text-align: center; margin-bottom: 40px; }
+        .section-header h2 { font-size: 38px; font-weight: 700; margin-bottom: 14px; background: var(--gradient-text); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .section-header p { font-size: 17px; color: var(--text-muted); max-width: 680px; margin: 0 auto; }
+
+        /* How It Works */
+        .how-it-works { padding: 88px 0; position: relative; z-index: 1; }
+        .how-steps {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+            max-width: 1060px;
+            margin: 0 auto;
+        }
+        .how-step {
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 40px 32px;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: var(--gradient-primary);
+            color: white;
+            font-size: 16px;
+            font-weight: 800;
+            margin-bottom: 20px;
+        }
+        .how-step h3 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            line-height: 1.3;
+        }
+        .how-step p {
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        .how-cta { text-align: center; margin-top: 40px; }
+
+        /* Video Section */
+        .video-section { padding: 64px 0; position: relative; z-index: 1; }
+        .video-quote { text-align: center; max-width: 720px; margin: 0 auto 36px; font-size: 22px; font-weight: 600; font-style: italic; color: var(--text-primary); line-height: 1.5; }
+        .video-quote::before { content: '\201C'; }
+        .video-quote::after { content: '\201D'; }
+        .video-wrap {
+            max-width: 860px; margin: 0 auto; border-radius: 16px; overflow: hidden;
+            border: 1px solid rgba(99,102,241,0.3);
+            box-shadow: 0 0 60px rgba(99,102,241,0.15), 0 24px 80px rgba(0,0,0,0.5);
+        }
+        .video-wrap video { width: 100%; display: block; }
+        .video-credit { text-align: center; margin-top: 20px; padding: 0 24px; }
+        .video-credit-name { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+        .video-credit-title { font-size: 14px; color: var(--text-secondary); margin-top: 2px; }
+        .video-credit-credential { font-size: 13px; color: var(--accent-green); margin-top: 4px; font-weight: 600; }
+        .video-cta { margin-top: 24px; padding: 16px 40px; font-size: 15px; }
+
+        /* Featured Pattern SVG */
+        .featured-section { padding: 64px 0; position: relative; z-index: 1; }
+        .featured-svg-wrap {
+            max-width: 960px; margin: 0 auto 24px; border-radius: 16px; overflow: hidden;
+            border: 1px solid rgba(99,102,241,0.3);
+            box-shadow: 0 0 60px rgba(99,102,241,0.15), 0 24px 80px rgba(0,0,0,0.5);
+            cursor: pointer; transition: box-shadow 0.3s;
+        }
+        .featured-svg-wrap:hover { box-shadow: 0 0 80px rgba(99,102,241,0.25), 0 24px 80px rgba(0,0,0,0.6); }
+        .featured-svg-wrap img { width: 100%; display: block; }
+        .featured-pick-line {
+            text-align: center; color: var(--text-secondary); font-size: 16px;
+            margin-bottom: 24px; line-height: 1.7; max-width: 960px; margin-left: auto; margin-right: auto;
+        }
+        .featured-pick-line .pick-ticker { color: #fff; font-weight: 700; font-size: 18px; }
+        .featured-pick-line .pick-sep { color: rgba(255,255,255,0.25); margin: 0 10px; }
+        .featured-story { text-align: center; color: var(--text-secondary); font-size: 16px; margin-bottom: 16px; line-height: 1.7; }
+        .featured-story .featured-stat { color: var(--accent-green); font-weight: 700; }
+        .featured-cta { text-align: center; }
+        .featured-scorecard-stats {
+            display: flex;
+            justify-content: center;
+            gap: 48px;
+            margin-bottom: 24px;
+        }
+        .scorecard-stat {
+            text-align: center;
+        }
+        .scorecard-stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--accent-green);
+        }
+        .scorecard-stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        /* Email Capture Strip */
+        .email-capture-strip {
+            padding: 32px 0;
+            position: relative;
+            z-index: 1;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            background: rgba(99,102,241,0.04);
+        }
+        .email-capture-inner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .email-capture-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .email-capture-form {
+            display: flex;
+            gap: 8px;
+        }
+        .email-capture-input {
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border-light);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            width: 240px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .email-capture-input:focus {
+            border-color: var(--accent);
+        }
+        .email-capture-input::placeholder {
+            color: var(--text-muted);
+        }
+        .email-capture-btn {
+            padding: 12px 20px;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        /* AI Pick: pills */
+        .pick-pills {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 28px;
+        }
+        .pick-pill {
+            display: inline-block;
+            padding: 8px 18px;
+            background: rgba(99,102,241,0.1);
+            border: 1px solid rgba(99,102,241,0.25);
+            border-radius: 100px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .pick-pill strong { color: var(--text-primary); font-weight: 700; }
+        .pick-pill.pill-highlight {
+            background: rgba(100,220,140,0.12);
+            border-color: rgba(100,220,140,0.3);
+            color: var(--accent-green);
+            font-weight: 700;
+        }
+
+        /* AI Pick: timestamp */
+        .pick-timestamp {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-top: 8px;
+        }
+        .pick-timestamp a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .pick-timestamp a:hover { text-decoration: underline; }
+
+        /* AI Pick: urgency */
+        .pick-urgency {
+            text-align: center;
+            font-size: 14px;
+            color: var(--warning);
+            font-weight: 600;
+            margin: 16px 0;
+            padding: 10px 20px;
+            background: var(--warning-glow);
+            border-radius: 8px;
+            display: inline-block;
+            margin-left: auto;
+            margin-right: auto;
+            width: 100%;
+        }
+
+        /* AI Pick: email line */
+        .pick-email-line {
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-top: 14px;
+        }
+
+        /* Track Record */
+        .track-record { padding: 88px 0; position: relative; z-index: 1; }
+        .track-table-wrap {
+            max-width: 800px;
+            margin: 0 auto 32px;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .track-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .track-table th {
+            background: var(--bg-primary);
+            padding: 14px 16px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+        .track-table td {
+            padding: 12px 16px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+        .track-table tbody tr:last-child td { border-bottom: none; }
+        .track-table .year-col { font-weight: 700; color: var(--text-primary); }
+        .track-table .base-wr { color: var(--text-secondary); }
+        .track-table .ai-wr { color: var(--accent-green); font-weight: 700; }
+        .track-table .lift-col { color: var(--accent); font-weight: 600; }
+        .track-callout {
+            text-align: center;
+            font-size: 16px;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto 24px;
+            line-height: 1.7;
+        }
+        .track-callout strong { color: var(--accent-green); }
+        .track-institutional {
+            text-align: center;
+            margin-top: 24px;
+            padding: 20px 32px;
+            background: rgba(99,102,241,0.06);
+            border: 1px solid rgba(99,102,241,0.2);
+            border-radius: 12px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .track-institutional p {
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+        .track-institutional a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .track-institutional a:hover { text-decoration: underline; }
+        .track-cta { text-align: center; margin-top: 32px; }
+
+        /* Founder Section */
+        .founder-section { padding: 72px 0; position: relative; z-index: 1; }
+        .founder-card {
+            display: flex;
+            align-items: center;
+            gap: 40px;
+            max-width: 860px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 40px;
+            border: 1px solid var(--border);
+        }
+        .founder-photo {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid var(--accent);
+            flex-shrink: 0;
+        }
+        .founder-info { flex: 1; }
+        .founder-name {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        .founder-title {
+            font-size: 14px;
+            color: var(--accent);
+            font-weight: 600;
+            margin-bottom: 14px;
+        }
+        .founder-bio {
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            margin-bottom: 16px;
+        }
+        .founder-links {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .founder-links a {
+            font-size: 14px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        .founder-links a:hover { color: var(--accent); }
+        .founder-book-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: rgba(99,102,241,0.1);
+            border: 1px solid rgba(99,102,241,0.25);
+            border-radius: 8px;
+        }
+        .founder-book-link:hover { background: rgba(99,102,241,0.2); border-color: var(--accent); }
+        @media (max-width: 768px) {
+            .founder-card { flex-direction: column; text-align: center; padding: 28px 20px; gap: 20px; }
+            .founder-photo { width: 110px; height: 110px; }
+            .founder-links { justify-content: center; }
+        }
+
+        /* Product Demo */
+        .product-demo { padding: 88px 0; position: relative; z-index: 1; }
+        .demo-image-wrap {
+            max-width: 1060px;
+            margin: 0 auto 40px;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid rgba(99,102,241,0.3);
+            box-shadow: 0 0 60px rgba(99,102,241,0.15), 0 24px 80px rgba(0,0,0,0.5);
+        }
+        .demo-image-wrap img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .demo-features {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            max-width: 800px;
+            margin: 0 auto 32px;
+        }
+        .demo-feature {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .demo-feature::before {
+            content: '\2713';
+            color: var(--success);
+            font-weight: 700;
+            font-size: 15px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+        .demo-cta { text-align: center; }
+
+        /* Opportunities */
+        .opportunities-section { padding: 48px 0 72px; position: relative; z-index: 1; }
+        .opp-header-row { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+        .opp-context { text-align: center; color: var(--text-secondary); font-size: 15px; margin-bottom: 28px; line-height: 1.7; }
+
+        .opp-election-link { font-size: 13px; color: var(--accent); text-decoration: none; font-weight: 500; cursor: pointer; white-space: nowrap; }
+        .opp-election-link:hover { text-decoration: underline; }
+        .opp-election-link.active { color: var(--warning); }
+
+        .opp-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .opp-tab-btn { padding: 10px 20px; background: var(--bg-tertiary); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--text-primary); transition: all 0.2s; font-family: inherit; }
+        .opp-tab-btn:hover { border-color: var(--accent); }
+        .opp-tab-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+        .opp-table-wrap { display: none; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .opp-table-wrap.active { display: block; }
+        .opp-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--bg-tertiary); border-radius: 12px; overflow: hidden; }
+        .opp-table th { background: var(--bg-primary); padding: 14px 12px; text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+        .opp-table td { padding: 14px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .opp-table tbody tr { cursor: pointer; transition: background 0.15s; }
+        .opp-table tbody tr:hover { background: rgba(99,102,241,0.08); }
+        .opp-table tbody tr:last-child td { border-bottom: none; }
+        .opp-table tbody tr.filtered-out { display: none; }
+
+        .opp-ticker { font-weight: 700; color: var(--text-primary); }
+        .opp-company { font-size: 11px; color: var(--text-muted); }
+        .opp-return { font-weight: 700; color: var(--success); }
+        .opp-return.short { color: var(--danger); }
+        .opp-direction { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .opp-direction.long { background: var(--success-dark); color: var(--success); }
+        .opp-direction.short { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .opp-days-badge { display: inline-block; padding: 2px 8px; background: rgba(99,102,241,0.2); color: var(--accent); border-radius: 4px; font-size: 12px; font-weight: 600; }
+
+        .opp-view-btn { display: inline-flex; align-items: center; padding: 6px 14px; background: rgba(99,102,241,0.1); color: var(--accent); border: 1px solid rgba(99,102,241,0.3); border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; transition: all 0.2s; white-space: nowrap; }
+        .opp-view-btn:hover { background: rgba(99,102,241,0.2); border-color: var(--accent); }
+
+        .opp-52w-bar { width: 60px; height: 6px; background: var(--bg-primary); border-radius: 3px; overflow: hidden; }
+        .opp-52w-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+        .opp-price-change { font-size: 11px; }
+        .opp-price-change.positive { color: var(--success); }
+        .opp-price-change.negative { color: var(--danger); }
+        .opp-sma { font-size: 11px; font-weight: 600; }
+        .opp-sma.above { color: var(--success); }
+        .opp-sma.below { color: var(--danger); }
+
+        .opp-signup-prompt { text-align: center; margin-top: 28px; padding: 18px; border: 1px dashed var(--border-light); border-radius: 12px; color: var(--text-secondary); font-size: 15px; }
+        .opp-signup-prompt a { color: var(--accent); text-decoration: none; font-weight: 600; }
+        .opp-signup-prompt a:hover { text-decoration: underline; }
+
+        /* Pricing */
+        .pricing { padding: 88px 0; position: relative; z-index: 1; }
+
+        .pricing-toggle {
+            display: flex; justify-content: center; gap: 0; margin-bottom: 40px;
+        }
+        .pricing-toggle-btn {
+            padding: 10px 28px; font-size: 14px; font-weight: 600;
+            cursor: pointer; border: 1px solid var(--border); transition: all 0.2s;
+            font-family: inherit; color: var(--text-secondary); background: var(--bg-card);
+        }
+        .pricing-toggle-btn:first-child { border-radius: 8px 0 0 8px; }
+        .pricing-toggle-btn:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+        .pricing-toggle-btn.active {
+            background: var(--accent); border-color: var(--accent); color: white;
+        }
+
+        .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1060px; margin: 0 auto; }
+        .pricing-card { background: var(--bg-card); border-radius: 24px; padding: 40px; border: 1px solid var(--border); position: relative; display: flex; flex-direction: column; }
+        .pricing-card.highlighted { border-color: var(--accent); box-shadow: 0 0 60px var(--accent-glow); }
+        .pricing-card.highlighted::before { content: 'Best Value'; position: absolute; top: -14px; left: 50%; transform: translateX(-50%); background: var(--gradient-primary); color: white; padding: 6px 20px; border-radius: 100px; font-size: 12px; font-weight: 600; }
+        .pricing-name { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); }
+        .pricing-launch-banner {
+            background: var(--accent);
+            color: #fff;
+            text-align: center;
+            padding: 14px 24px;
+            border-radius: 10px;
+            font-size: 17px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: 0.2px;
+        }
+        .pricing-countdown {
+            text-align: center;
+            font-size: 15px;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+            font-variant-numeric: tabular-nums;
+        }
+        .pricing-countdown .cd-value { color: #fff; font-weight: 700; }
+        .pricing-price-row { margin-bottom: 4px; }
+        .pricing-original { font-size: 20px; color: var(--text-muted); text-decoration: line-through; margin-right: 8px; }
+        .pricing-price { font-size: 48px; font-weight: 800; color: var(--accent-green); }
+        .pricing-period { font-size: 16px; color: var(--text-muted); }
+        .pricing-after-launch { font-size: 13px; color: var(--text-muted); margin-top: 4px; margin-bottom: 8px; }
+        .pricing-after-launch span { text-decoration: line-through; }
+        .pricing-lock-line {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 15px;
+            margin-top: 28px;
+            font-weight: 500;
+        }
+        .pricing-description { color: var(--text-secondary); margin: 14px 0; font-size: 14px; }
+        .pricing-trial-badge {
+            display: inline-block; margin: 8px 0 12px; padding: 6px 16px;
+            background: rgba(100,220,140,0.1); border: 1px solid rgba(100,220,140,0.3);
+            border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--accent-green);
+        }
+        .pricing-features { list-style: none; margin: 28px 0; flex: 1; }
+        .pricing-features li { padding: 8px 0; color: var(--text-secondary); display: flex; align-items: center; gap: 12px; font-size: 14px; }
+        .pricing-features li::before { content: '\2713'; color: var(--success); font-weight: 700; font-size: 15px; }
+        .pricing-features li.excluded { opacity: 0.5; }
+        .pricing-features li.excluded::before { content: '\2717'; color: var(--danger); }
+        .pricing-features li.spacer { visibility: hidden; }
+        .pricing-features li.spacer::before { display: none; }
+        .pricing-features li.half-spacer { visibility: hidden; padding: 0; height: 11px; }
+        .pricing-features li.half-spacer::before { display: none; }
+        .pricing-card .btn { width: 100%; margin-top: 16px; padding: 14px 24px; font-size: 14px; }
+
+        .pricing-api-line {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        .pricing-api-line a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .pricing-api-line a:hover { text-decoration: underline; }
+
+        /* FAQ */
+        .faq-section { padding: 88px 0; position: relative; z-index: 1; }
+        .faq-list {
+            max-width: 740px;
+            margin: 0 auto;
+        }
+        .faq-item {
+            border-bottom: 1px solid var(--border);
+            padding: 0;
+        }
+        .faq-question {
+            padding: 20px 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .faq-question::-webkit-details-marker { display: none; }
+        .faq-question::after {
+            content: '+';
+            font-size: 22px;
+            color: var(--text-muted);
+            font-weight: 400;
+            flex-shrink: 0;
+            margin-left: 16px;
+        }
+        details[open] .faq-question::after { content: '\2212'; }
+        .faq-answer {
+            padding: 0 0 20px;
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+
+        /* Institutional / API Section */
+        .institutional-section { padding: 88px 0; position: relative; z-index: 1; }
+        .institutional-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+            max-width: 1060px;
+            margin: 0 auto 40px;
+        }
+        .institutional-card {
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 36px 28px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        .institutional-card h3 {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+        .institutional-card p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        .institutional-card .card-icon {
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+        .institutional-cta { text-align: center; }
+
+        /* Footer */
+        footer { background: var(--bg-secondary); border-top: 1px solid var(--border); padding: 48px 0 36px; position: relative; z-index: 1; }
+        .footer-bottom { text-align: center; }
+        .footer-copyright { font-size: 13px; color: var(--text-muted); }
+        .footer-disclaimer { font-size: 11px; color: var(--text-muted); margin-top: 16px; max-width: 800px; margin-left: auto; margin-right: auto; line-height: 1.9; opacity: 0.65; }
+        .footer-account { margin-top: 16px; }
+        .footer-account a { color: var(--text-muted); text-decoration: none; font-size: 13px; }
+        .footer-account a:hover { color: var(--text-secondary); }
+
+        /* Scroll fade-in */
+        .scroll-fade { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
+        .scroll-fade.visible { opacity: 1; transform: translateY(0); }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container { padding: 0 16px; }
+            .hero .container { padding: 0 8px; }
+            .hero { padding: 40px 0 24px; }
+            .hero .btn { padding: 16px 32px; font-size: 16px; }
+            .hero h1 { font-size: 22px; }
+            .hero p.hero-body { font-size: 15px; margin-bottom: 20px; }
+            .hero-ctas { flex-direction: column; align-items: center; }
+            .hero-ctas .btn { width: 100%; max-width: 340px; min-height: 48px; }
+            .nav-links { display: none; }
+            .nav-links.open { display: flex; flex-direction: column; gap: 0; position: absolute; top: calc(100% + 8px); right: 16px; left: auto; width: 66%; background: var(--bg-tertiary); border: 1px solid var(--border-light); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.1); padding: 8px 0; z-index: 200; }
+            .nav-links.open a { display: block; padding: 14px 20px; font-size: 15px; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+            .nav-links.open a:last-child { border-bottom: none; }
+            .nav-links.open a:hover, .nav-links.open a:active { background: rgba(99,102,241,0.1); color: var(--text-primary); }
+            .nav-links.open .btn.btn-primary { margin: 8px 12px; border-radius: 10px; text-align: center; padding: 12px 20px; border-bottom: none; color: white; }
+            .hamburger { display: flex; flex-direction: column; gap: 5px; cursor: pointer; z-index: 201; background: none; border: none; padding: 8px; }
+            .hamburger span { display: block; width: 24px; height: 2px; background: var(--text-primary); border-radius: 2px; transition: all 0.3s; }
+            .hamburger.open span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+            .hamburger.open span:nth-child(2) { opacity: 0; }
+            .hamburger.open span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
+            .section-header h2 { font-size: 28px; }
+            .trust-strip-content { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 16px; }
+            .trust-item:last-child { grid-column: 1 / -1; }
+            .trust-value { font-size: 22px; }
+            .how-steps { grid-template-columns: 1fr; max-width: 480px; }
+            .track-table { font-size: 12px; }
+            .track-table th, .track-table td { padding: 10px 8px; }
+            .demo-features { grid-template-columns: 1fr; }
+            .pricing-grid { grid-template-columns: 1fr; max-width: 100%; }
+            .pricing-card { padding: 24px 16px; }
+            .pricing-price { font-size: 36px; }
+            .pricing-toggle-btn { padding: 10px 20px; font-size: 13px; }
+            .email-capture-inner { flex-direction: column; text-align: center; }
+            .email-capture-form { width: 100%; max-width: 340px; }
+            .email-capture-input { width: 100%; flex: 1; }
+            .institutional-cards { grid-template-columns: 1fr; max-width: 480px; }
+            .opp-header-row { flex-direction: column; align-items: flex-start; }
+            .opp-table th.hide-mobile, .opp-table td.hide-mobile { display: none; }
+            .opp-table th:nth-child(6), .opp-table td:nth-child(6) { display: none; }
+            .opp-tabs { gap: 6px; }
+            .opp-tab-btn { padding: 12px 16px; font-size: 13px; min-height: 48px; flex: 1 1 auto; }
+            .opp-blur-gate-card { display: block; padding: 24px 16px; margin: 0 8px; }
+            .video-wrap { border-radius: 12px; }
+            .featured-scorecard-stats { gap: 12px; flex-wrap: wrap; }
+            .scorecard-stat { min-width: 80px; }
+            .scorecard-stat-value { font-size: 24px; }
+            .pick-pills { gap: 6px; }
+            .pick-pill { padding: 6px 12px; font-size: 12px; }
+            .faq-question { padding: 16px 0; min-height: 48px; }
+        }
+
+        /* Dual testimonial cards */
+        .testimonials-section { padding: 64px 0; position: relative; z-index: 1; }
+        .testimonial-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; max-width: 960px; margin: 0 auto; }
+        .testimonial-card {
+            background: var(--bg-card); border-radius: 20px; padding: 32px;
+            border: 1px solid var(--border); display: flex; flex-direction: column;
+        }
+        .testimonial-quote {
+            font-size: 17px; font-style: italic; color: var(--text-primary);
+            line-height: 1.6; margin-bottom: 20px; flex: 1;
+        }
+        .testimonial-quote::before { content: '\201C'; }
+        .testimonial-quote::after { content: '\201D'; }
+        .testimonial-author { display: flex; align-items: center; gap: 12px; }
+        .testimonial-video-thumb {
+            width: 56px; height: 56px; border-radius: 50%; overflow: hidden;
+            border: 2px solid var(--accent); cursor: pointer; position: relative;
+            flex-shrink: 0;
+        }
+        .testimonial-video-thumb::after {
+            content: '\25B6'; position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 14px; background: rgba(0,0,0,0.4);
+        }
+        .testimonial-video-thumb video { width: 100%; height: 100%; object-fit: cover; }
+        .testimonial-name { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+        .testimonial-title { font-size: 13px; color: var(--text-secondary); }
+        .testimonial-credential { font-size: 12px; color: var(--accent-green); font-weight: 600; }
+
+        /* Pricing: daily cost */
+        .pricing-daily-cost {
+            font-size: 13px; color: var(--text-muted); margin-top: 2px;
+        }
+
+        /* Pricing: card testimonial */
+        .pricing-card-testimonial {
+            font-size: 13px; font-style: italic; color: var(--text-secondary);
+            line-height: 1.6; padding: 12px 0; margin: 8px 0;
+            border-left: 3px solid var(--accent); padding-left: 14px;
+        }
+
+        /* Pricing: ROI anchor inside card */
+        .pricing-roi-anchor {
+            font-size: 13px; font-weight: 600; color: var(--accent-green);
+            text-align: center; padding: 10px 12px; margin: 8px 0;
+            background: rgba(100,220,140,0.08); border-radius: 8px;
+            border: 1px solid rgba(100,220,140,0.15);
+        }
+
+        /* Pricing: upgrade link in Explorer */
+        .pricing-features li.upgrade-link { opacity: 1; }
+        .pricing-features li.upgrade-link::before { content: '\2191'; color: var(--accent); }
+        .pricing-features li.upgrade-link a { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 13px; }
+        .pricing-features li.upgrade-link a:hover { text-decoration: underline; }
+
+        /* Pricing: savings badge on toggle */
+        .toggle-save-badge {
+            font-size: 11px; font-weight: 700; color: var(--accent-green);
+            margin-left: 6px;
+        }
+
+        /* Cancel anytime line */
+        .cta-reassurance {
+            text-align: center; font-size: 13px; color: var(--text-muted);
+            margin-top: 8px;
+        }
+
+        /* Data transparency */
+        .data-transparency {
+            text-align: center; font-size: 14px; color: var(--text-muted);
+            padding: 16px 0; margin-top: 16px;
+        }
+        .data-transparency strong { color: var(--text-secondary); }
+
+        /* Share button */
+        .share-pick-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 18px; font-size: 13px; font-weight: 600;
+            color: var(--text-muted); background: rgba(99,102,241,0.08);
+            border: 1px solid var(--border); border-radius: 8px;
+            text-decoration: none; transition: all 0.2s; margin-left: 12px;
+        }
+        .share-pick-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+        /* Opp table blur gate */
+        .opp-blur-gate {
+            position: relative; margin-top: -80px; padding-top: 80px;
+            text-align: center; z-index: 2;
+        }
+        .opp-blur-gate-card {
+            background: var(--bg-card); border: 1px solid var(--accent);
+            border-radius: 16px; padding: 28px 36px; display: inline-block;
+            box-shadow: 0 0 40px var(--accent-glow);
+        }
+        .opp-blur-gate-card p { font-size: 16px; color: var(--text-primary); margin-bottom: 14px; }
+        .opp-blur-gate-card .btn { padding: 10px 28px; font-size: 14px; }
+        .opp-row-blurred td { filter: blur(4px); pointer-events: none; user-select: none; }
+
+        /* Market hours badge */
+        .market-hours-badge {
+            display: inline-block; padding: 4px 14px; border-radius: 100px;
+            font-size: 12px; font-weight: 600; margin-bottom: 8px;
+        }
+        .market-hours-badge.pre-market { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .market-hours-badge.market-open { background: var(--success-dark); color: var(--success); }
+        .market-hours-badge.market-closed { background: rgba(99,102,241,0.1); color: var(--accent); }
+
+        @media (max-width: 768px) {
+            .testimonial-grid { grid-template-columns: 1fr; max-width: 480px; }
+            .share-pick-btn { margin-left: 0; margin-top: 8px; }
+        }
+
+        html { scroll-behavior: smooth; }
+    </style>
+</head>
+<body>
+    <!-- Market Bar -->
+    {% if content.market_bar %}
+    <div class="market-bar">
+        <div class="market-bar-content">
+            {% for item in content.market_bar %}
+            <a href="{{ item.url }}" class="market-item {{ item.direction }}">
+                <span class="market-symbol">{{ item.label }}</span>
+                {% if item.price %}<span class="market-price">{{ item.price }}</span>{% endif %}
+                {% if item.change %}<span class="market-change {{ item.direction }}">{{ item.change }}</span>{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="gradient-bg"></div>
+
+    <!-- 1. Nav -->
+    <nav>
+        <div class="container">
+            <a href="/" class="logo">TradeWave</a>
+            <button class="hamburger" id="hamburger-btn" aria-label="Menu">
+                <span></span><span></span><span></span>
+            </button>
+            <div class="nav-links" id="nav-links">
+                {% for link in content.nav.links %}
+                <a href="{{ link.url }}"{% if link.target %} target="{{ link.target }}" rel="noopener"{% endif %}>{{ link.text }}</a>
+                {% endfor %}
+                <!-- Logged-out state (default, hidden by JS when logged in) -->
+                <a href="{{ content.nav.login_url }}" class="nav-logged-out">Log In</a>
+                <a href="{{ content.nav.signup_url }}" class="btn btn-primary nav-logged-out">Start Free Trial</a>
+                <!-- Logged-in state (hidden by default, shown by JS) -->
+                <a href="{{ content.nav.upgrade_url }}" class="btn btn-primary nav-logged-in nav-logged-in-cta" style="display:none;">Upgrade</a>
+                <a href="{{ content.nav.logout_url }}" class="nav-logged-in" style="display:none;">Log Out</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 2. Hero -->
+    <section class="hero">
+        <div class="container">
+            <div id="market-hours-badge" class="market-hours-badge" style="display:none;"></div>
+            <h1>
+                <span class="line1">{{ content.hero.headline }}</span>
+                <span class="line2">{{ content.hero.headline2 }}</span>
+                <span class="line3">{{ content.hero.headline3 }}</span>
+            </h1>
+            <p class="hero-body">{{ content.hero.subheadline }}</p>
+            <div class="hero-ctas">
+                <a href="{{ content.hero.cta_primary_url }}" class="btn btn-primary pricing-signup-btn" data-upgrade-url="{{ content.nav.upgrade_url }}" data-strategist-href="{{ content.hero.cta_wave_viewer_url }}" data-strategist-text="Launch Wave Viewer">{{ content.hero.cta_primary }}</a>
+                {% if content.hero.cta_secondary %}
+                <a href="{{ content.hero.cta_secondary_url }}" class="btn btn-secondary">{{ content.hero.cta_secondary }}</a>
+                {% endif %}
+            </div>
+            <p class="hero-reassurance nav-logged-out">No credit card required. Free plan includes today's top patterns, AI scores, and the live scorecard.</p>
+        </div>
+    </section>
+
+    <!-- 3. Trust Strip -->
+    <div class="trust-strip">
+        <div class="container">
+            <div class="trust-strip-content">
+                <div class="trust-item">
+                    <div class="trust-value">100 Years</div>
+                    <div class="trust-label">of Market History</div>
+                </div>
+                <div class="trust-item">
+                    <div class="trust-value">78-86%</div>
+                    <div class="trust-label">AI Win Rate</div>
+                </div>
+                <div class="trust-item">
+                    <div class="trust-value">475+</div>
+                    <div class="trust-label">S&amp;P 500 Scanned Daily</div>
+                </div>
+                <div class="trust-item">
+                    <div class="trust-value">8/8</div>
+                    <div class="trust-label">Winning Years, Tested Live</div>
+                </div>
+                <div class="trust-item">
+                    <div class="trust-value">Prop Firm</div>
+                    <div class="trust-label">Strategy Live</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Today's AI Pick -->
+    {% if content.featured_pattern and content.featured_pattern.show %}
+    <section class="featured-section bg-secondary scroll-fade">
+        <div class="container">
+            <!-- Scorecard stats at top as social proof -->
+            {% if content.scorecard_stats %}
+            <div class="featured-scorecard-stats">
+                <div class="scorecard-stat">
+                    <div class="scorecard-stat-value">{{ content.scorecard_stats.total_picks }}</div>
+                    <div class="scorecard-stat-label">AI Picks Published</div>
+                </div>
+                <div class="scorecard-stat">
+                    <div class="scorecard-stat-value">{{ content.scorecard_stats.win_rate }}%</div>
+                    <div class="scorecard-stat-label">Win Rate (Closed Picks)</div>
+                </div>
+                <div class="scorecard-stat">
+                    <div class="scorecard-stat-value">+{{ content.scorecard_stats.avg_peak_return }}%</div>
+                    <div class="scorecard-stat-label">Avg Peak Return</div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="section-header">
+                <h2>Today's AI Pick</h2>
+                <p class="pick-timestamp">Published at {{ content.featured_pattern.published_time }} before anyone could trade it. <a href="{{ content.scorecard_url }}" target="_blank" rel="noopener">View full track record &rarr;</a></p>
+            </div>
+
+            <!-- Pill-style stats -->
+            <div class="pick-pills">
+                <span class="pick-pill"><strong>{{ content.featured_pattern.symbol }}</strong> {{ content.featured_pattern.direction }}</span>
+                <span class="pick-pill pill-highlight">AI Score: {{ content.featured_pattern.ml_score }}</span>
+                <span class="pick-pill">{{ content.featured_pattern.win_prob }}% Win Prob</span>
+                <span class="pick-pill">+{{ content.featured_pattern.pred_return }}% Predicted</span>
+                <span class="pick-pill">+{{ content.featured_pattern.pred_mfe }}% Peak</span>
+            </div>
+
+            <a href="{{ content.featured_pattern.wave_viewer_url }}" class="featured-svg-wrap">
+                <img src="{{ content.featured_pattern.svg_url }}" alt="TradeWave seasonal pattern chart for {{ content.featured_pattern.symbol }}">
+            </a>
+
+            <!-- Urgency line -->
+            {% if content.featured_pattern.days_remaining > 0 %}
+            <p class="pick-urgency">Pattern window closes {{ content.featured_pattern.end_date_formatted }}. {{ content.featured_pattern.days_remaining }} trading days remaining.</p>
+            {% endif %}
+
+            <p class="featured-story">{{ content.featured_pattern.story }}</p>
+
+            <div class="featured-cta">
+                <a href="{{ content.nav.signup_url }}" class="btn btn-primary pricing-signup-btn" data-upgrade-url="{{ content.nav.upgrade_url }}" data-strategist-href="{{ content.hero.cta_wave_viewer_url }}" data-strategist-text="Launch Wave Viewer">Get Tomorrow's Pick Before Market Open</a>
+                <p class="pick-email-line">Every pick delivered before market open. Cancel anytime, no contracts.
+                    <a href="https://twitter.com/intent/tweet?text=Check%20out%20today's%20AI%20pick%20on%20TradeWave%3A%20%24{{ content.featured_pattern.symbol }}%20{{ content.featured_pattern.direction }}%20%7C%20{{ content.featured_pattern.win_prob }}%25%20win%20probability&url=https%3A%2F%2Ftradewave.ai" target="_blank" rel="noopener" class="share-pick-btn">Share on X</a>
+                </p>
+            </div>
+        </div>
+    </section>
+    {% elif content.scorecard_stats %}
+    <!-- No featured history at all: show scorecard stats only -->
+    <section class="featured-section bg-secondary scroll-fade">
+        <div class="container">
+            <div class="featured-scorecard-stats">
+                <div class="scorecard-stat">
+                    <div class="scorecard-stat-value">{{ content.scorecard_stats.total_picks }}</div>
+                    <div class="scorecard-stat-label">AI Picks Published</div>
+                </div>
+                <div class="scorecard-stat">
+                    <div class="scorecard-stat-value">{{ content.scorecard_stats.win_rate }}%</div>
+                    <div class="scorecard-stat-label">Win Rate (Closed Picks)</div>
+                </div>
+                <div class="scorecard-stat">
+                    <div class="scorecard-stat-value">+{{ content.scorecard_stats.avg_peak_return }}%</div>
+                    <div class="scorecard-stat-label">Avg Peak Return</div>
+                </div>
+            </div>
+            <div class="section-header">
+                <h2>The AI Picks a New Pattern Every Trading Day</h2>
+                <p>Each pick is published before market open, scored by a 62-feature model, and tracked on our live scorecard.</p>
+            </div>
+            <div class="featured-cta">
+                <a href="{{ content.scorecard_url }}" class="btn btn-secondary" target="_blank" rel="noopener">View Full Track Record &rarr;</a>
+                <p class="pick-email-line" style="margin-top: 16px;">
+                    <a href="{{ content.nav.signup_url }}" class="btn btn-primary pricing-signup-btn" data-upgrade-url="{{ content.nav.upgrade_url }}" data-strategist-href="{{ content.hero.cta_wave_viewer_url }}" data-strategist-text="Launch Wave Viewer" style="margin-top: 12px;">Get Tomorrow's Pick Before Market Open</a>
+                </p>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- Email Capture Strip -->
+    <div class="email-capture-strip scroll-fade">
+        <div class="container">
+            <div class="email-capture-inner">
+                <p class="email-capture-text">Get tomorrow's AI pick before market open. No account required.</p>
+                <form class="email-capture-form" action="https://assets.mailerlite.com/jsonp/871495/forms/131498498498498077/subscribe" method="post" target="_blank">
+                    <input type="email" name="fields[email]" placeholder="Your email" required class="email-capture-input">
+                    <button type="submit" class="btn btn-primary email-capture-btn">Send It to Me</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. How It Works -->
+    <section class="how-it-works bg-primary scroll-fade">
+        <div class="container">
+            <div class="section-header">
+                <h2>How TradeWave Works</h2>
+            </div>
+            <div class="how-steps">
+                <div class="how-step">
+                    <div class="step-number">1</div>
+                    <h3>Before Market Open: Your Top Picks Are Ready</h3>
+                    <p>Every trading day, TradeWave scans 475 S&P 500 securities for recurring seasonal patterns, including election-cycle patterns spanning nearly a century of data.</p>
+                </div>
+                <div class="how-step">
+                    <div class="step-number">2</div>
+                    <h3>Check the Proof: Every Pattern Shows Year-by-Year History</h3>
+                    <p>The AI scores each pattern against current market conditions, price action, and timing. Patterns that don't meet the quality bar are filtered out before you ever see them.</p>
+                </div>
+                <div class="how-step">
+                    <div class="step-number">3</div>
+                    <h3>Make Your Decision: AI Score, Win Probability, Predicted Return</h3>
+                    <p>Every pattern comes with an AI Score, Win Probability, Predicted Return, and Predicted Peak. Ranked, scored, and ready for your own analysis.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 6. Testimonials (before track record so endorsement precedes data) -->
+    {% if content.video %}
+    <section class="testimonials-section bg-secondary scroll-fade" id="testimonials">
+        <div class="container">
+            <div class="section-header">
+                <h2>What Traders Say</h2>
+            </div>
+            <div class="testimonial-grid">
+                <!-- Anne-Marie -->
+                <div class="testimonial-card">
+                    <p class="testimonial-quote">{{ content.video.quote }}</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-video-thumb" onclick="this.closest('.testimonial-card').querySelector('.testimonial-video-full').style.display='block'; this.closest('.testimonial-card').querySelector('.testimonial-video-full video').play();">
+                            <video preload="none" muted data-src="{{ content.video.src }}"><source data-src="{{ content.video.src }}" type="video/mp4"></video>
+                        </div>
+                        <div>
+                            <div class="testimonial-name">{{ content.video.author }}</div>
+                            <div class="testimonial-title">{{ content.video.title }}</div>
+                            <div class="testimonial-credential">{{ content.video.credential }}</div>
+                        </div>
+                    </div>
+                    <div class="testimonial-video-full" style="display:none; margin-top: 20px;">
+                        <div class="video-wrap">
+                            <video controls playsinline preload="none">
+                                <source src="{{ content.video.src }}" type="video/mp4">
+                            </video>
+                        </div>
+                    </div>
+                </div>
+                <!-- Erin -->
+                {% if content.video2 %}
+                <div class="testimonial-card">
+                    <p class="testimonial-quote">{{ content.video2.quote }}</p>
+                    <div class="testimonial-author">
+                        <div class="testimonial-video-thumb" onclick="this.closest('.testimonial-card').querySelector('.testimonial-video-full').style.display='block'; this.closest('.testimonial-card').querySelector('.testimonial-video-full video').play();">
+                            <video preload="none" muted data-src="{{ content.video2.src }}"><source data-src="{{ content.video2.src }}" type="video/mp4"></video>
+                        </div>
+                        <div>
+                            <div class="testimonial-name">{{ content.video2.author }}</div>
+                            <div class="testimonial-title">{{ content.video2.title }}</div>
+                            <div class="testimonial-credential">{{ content.video2.credential }}</div>
+                        </div>
+                    </div>
+                    <div class="testimonial-video-full" style="display:none; margin-top: 20px;">
+                        <div class="video-wrap">
+                            <video controls playsinline preload="none">
+                                <source src="{{ content.video2.src }}" type="video/mp4">
+                            </video>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- 7. 8-Year Track Record -->
+    <section class="track-record bg-primary scroll-fade">
+        <div class="container">
+            <div class="section-header">
+                <h2>8 Years. 8 Wins. Zero Losing Years.</h2>
+                <p>Each year below was scored on data the model had never seen. No lookahead, no curve-fitting. Just the AI versus the market, year after year.</p>
+            </div>
+            <div class="track-table-wrap">
+                <table class="track-table">
+                    <thead>
+                        <tr>
+                            <th>Year</th>
+                            <th>Baseline Win Rate</th>
+                            <th>AI Win Rate</th>
+                            <th>AI Lift</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td class="year-col">2018</td><td class="base-wr">71.7%</td><td class="ai-wr">77.8%</td><td class="lift-col">+43%</td></tr>
+                        <tr><td class="year-col">2019</td><td class="base-wr">64.2%</td><td class="ai-wr">77.8%</td><td class="lift-col">+113%</td></tr>
+                        <tr><td class="year-col">2020</td><td class="base-wr">62.4%</td><td class="ai-wr">78.2%</td><td class="lift-col">+291%</td></tr>
+                        <tr><td class="year-col">2021</td><td class="base-wr">68.9%</td><td class="ai-wr">78.8%</td><td class="lift-col">+63%</td></tr>
+                        <tr><td class="year-col">2022</td><td class="base-wr">81.6%</td><td class="ai-wr">86.0%</td><td class="lift-col">+32%</td></tr>
+                        <tr><td class="year-col">2023</td><td class="base-wr">65.0%</td><td class="ai-wr">79.7%</td><td class="lift-col">+121%</td></tr>
+                        <tr><td class="year-col">2024</td><td class="base-wr">65.9%</td><td class="ai-wr">77.8%</td><td class="lift-col">+85%</td></tr>
+                        <tr><td class="year-col">2025</td><td class="base-wr">61.5%</td><td class="ai-wr">78.1%</td><td class="lift-col">+220%</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="track-callout">Strongest year was the market's worst. During COVID (2020), the AI lifted risk-adjusted returns by <strong>291%</strong>.</p>
+            <p class="track-callout">Every pick since launch has been published before market open and tracked on our <a href="{{ content.scorecard_url }}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none; font-weight: 600;">live public scorecard</a>. No deleted picks. No revised entries. The full record is open for anyone to audit.</p>
+            <div class="track-institutional">
+                <p>Built by Tara Data Research. Powering a live proprietary trading strategy. 250+ active traders. <a href="{{ content.contact_url }}">Contact us for institutional inquiries</a>.</p>
+            </div>
+            <p class="data-transparency">Patterns derived from <strong>SEC EDGAR</strong> filing data and <strong>EODHD</strong> institutional price feeds across 15 markets.</p>
+        </div>
+    </section>
+
+    <!-- Founder -->
+    {% if content.founder %}
+    <section class="founder-section bg-secondary scroll-fade">
+        <div class="container">
+            <div class="founder-card">
+                <img src="{{ content.founder.photo }}" alt="{{ content.founder.name }}" class="founder-photo" width="140" height="140" loading="lazy">
+                <div class="founder-info">
+                    <div class="founder-name">{{ content.founder.name }}</div>
+                    <div class="founder-title">{{ content.founder.title }}</div>
+                    <p class="founder-bio">{{ content.founder.bio }}</p>
+                    <div class="founder-links">
+                        <a href="{{ content.founder.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>
+                        <a href="{{ content.founder.book_url }}" target="_blank" rel="noopener" class="founder-book-link">&#128214; {{ content.founder.book_title }}</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- 8. Pricing (moved up for visibility) -->
+    <section class="pricing bg-secondary scroll-fade" id="pricing">
+        <div class="container">
+            <div class="pricing-launch-banner">Analyst goes from $37 to $58. Strategist goes from $99 to $199. That happens April 30.</div>
+            <div class="pricing-countdown" id="launch-countdown"></div>
+            <div class="section-header">
+                <h2>{{ content.pricing.headline }}</h2>
+                <p>{{ content.pricing.subheadline }}</p>
+            </div>
+
+            <div class="pricing-toggle">
+                <button class="pricing-toggle-btn {% if content.pricing.default_billing == 'monthly' %}active{% endif %}" data-billing="monthly">Monthly</button>
+                <button class="pricing-toggle-btn {% if content.pricing.default_billing == 'yearly' %}active{% endif %}" data-billing="yearly">Yearly <span class="toggle-save-badge">Save up to 34%</span></button>
+            </div>
+
+            <div class="pricing-grid">
+                {% for tier in content.pricing.tiers %}
+                <div class="pricing-card {% if tier.highlighted %}highlighted{% endif %}">
+                    <div class="pricing-name">{{ tier.name }}</div>
+                    <div class="pricing-price-row">
+                        {% if content.pricing.default_billing == 'monthly' and tier.monthly_original %}
+                        <span class="pricing-original" data-monthly-original="{{ tier.monthly_original }}" data-yearly-original="{{ tier.yearly_original }}">{{ tier.monthly_original }}</span>
+                        {% elif content.pricing.default_billing == 'yearly' and tier.yearly_original %}
+                        <span class="pricing-original" data-monthly-original="{{ tier.monthly_original }}" data-yearly-original="{{ tier.yearly_original }}">{{ tier.yearly_original }}</span>
+                        {% endif %}
+                        <span class="pricing-price"
+                              data-monthly-price="{{ tier.monthly_price }}"
+                              data-yearly-price="{{ tier.yearly_price }}">
+                            {% if content.pricing.default_billing == 'monthly' %}{{ tier.monthly_price }}{% else %}{{ tier.yearly_price }}{% endif %}
+                        </span>
+                        <span class="pricing-period"
+                              data-monthly-period="{{ tier.monthly_period }}"
+                              data-yearly-period="{{ tier.yearly_period }}">
+                            {% if content.pricing.default_billing == 'monthly' %}{{ tier.monthly_period }}{% else %}{{ tier.yearly_period }}{% endif %}
+                        </span>
+                    </div>
+                    {% if tier.after_launch_price %}
+                    <div class="pricing-after-launch">After April 30: <span>{{ tier.after_launch_price }}</span></div>
+                    {% endif %}
+                    {% if tier.yearly_daily %}
+                    <div class="pricing-daily-cost" data-daily="{{ tier.yearly_daily }}" {% if content.pricing.default_billing != 'yearly' %}style="display:none"{% endif %}>{{ tier.yearly_daily }}</div>
+                    {% endif %}
+                    {% if tier.trial_badge %}
+                    <div class="pricing-trial-badge">{{ tier.trial_badge }}</div>
+                    {% endif %}
+                    <p class="pricing-description">{{ tier.description }}</p>
+                    <ul class="pricing-features">
+                        {% for feature in tier.features %}
+                        {% if feature == '' %}
+                        <li class="spacer">&nbsp;</li>
+                        {% elif feature == '~' %}
+                        <li class="half-spacer">&nbsp;</li>
+                        {% elif feature.startswith('!') %}
+                        <li class="excluded">{{ feature[1:] }}</li>
+                        {% elif feature.startswith('~upgrade:') %}
+                        <li class="upgrade-link"><a href="#pricing">{{ feature[9:] }}</a></li>
+                        {% else %}
+                        <li>{{ feature }}</li>
+                        {% endif %}
+                        {% endfor %}
+                    </ul>
+                    {% if tier.card_testimonial %}
+                    <div class="pricing-card-testimonial">{{ tier.card_testimonial }}</div>
+                    {% endif %}
+                    {% if tier.roi_anchor %}
+                    <div class="pricing-roi-anchor">{{ tier.roi_anchor }}</div>
+                    {% endif %}
+                    <a href="{% if content.pricing.default_billing == 'monthly' %}{{ tier.monthly_url }}{% else %}{{ tier.yearly_url }}{% endif %}"
+                       class="btn {% if tier.highlighted %}btn-primary{% else %}btn-secondary{% endif %} pricing-signup-btn"
+                       data-monthly-url="{{ tier.monthly_url }}"
+                       data-yearly-url="{{ tier.yearly_url }}"
+                       data-upgrade-url="{{ content.nav.upgrade_url }}">
+                        {{ tier.cta }}
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+            <p class="pricing-lock-line">Lock in today's price for as long as you stay subscribed. No surprise increases.</p>
+            <p class="cta-reassurance" style="margin-top:12px;">Cancel anytime. No contracts. No credit card for free plan.</p>
+            <p class="pricing-api-line">Need API access to pattern data and AI predictions? <a href="{{ content.contact_url }}">Contact us for institutional pricing</a>.</p>
+        </div>
+    </section>
+
+    <!-- 9. Product Demo -->
+    <section class="product-demo bg-primary scroll-fade">
+        <div class="container">
+            <div class="section-header">
+                <h2>See the Data Behind Every Pick</h2>
+                <p>AI scores, historical proof, price projections, and portfolio tracking. All in one view.</p>
+            </div>
+            <div class="demo-image-wrap">
+                <img src="/_static/product-demo.webp" width="1920" height="917" loading="lazy" alt="TradeWave Wave Viewer showing AI-scored opportunities, projected price moves, and historical proof">
+            </div>
+            <div class="demo-features">
+                <div class="demo-feature">AI-scored opportunity table with Win Probability, Predicted Return, and Predicted Peak</div>
+                <div class="demo-feature">Price chart with projected seasonal move and earnings dates</div>
+                <div class="demo-feature">Year-by-year historical proof for every pattern</div>
+                <div class="demo-feature">Full statistics, trend analysis, and portfolio management</div>
+                <div class="demo-feature">Election-cycle pattern overlay spanning nearly 100 years</div>
+                <div class="demo-feature">Questions about a pattern? Ask Tara, our AI assistant, right inside the Wave Viewer</div>
+            </div>
+            <p class="data-transparency">98 years of history. 15 markets. AI scoring. Portfolio management. Election-cycle filtering. The deepest seasonal research platform available.</p>
+            <div class="demo-cta">
+                <a href="{{ content.hero.cta_primary_url }}" class="btn btn-primary pricing-signup-btn" data-upgrade-url="{{ content.nav.upgrade_url }}" data-strategist-href="{{ content.hero.cta_wave_viewer_url }}" data-strategist-text="Launch Wave Viewer">Start Free, Explore the Full Platform</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 9. FAQ -->
+    <section class="faq-section bg-secondary scroll-fade">
+        <div class="container">
+            <div class="section-header">
+                <h2>Common Questions</h2>
+            </div>
+            <div class="faq-list">
+                <details class="faq-item">
+                    <summary class="faq-question">78-86% win rate sounds too good to be true. What does that actually mean?</summary>
+                    <p class="faq-answer">Win rate measures whether a pattern closed higher than its entry. The average holding period is about 20 days. Not every pattern wins by the same amount, and the AI does not control position sizing or stop-losses. The worst individual test year (2025) had a baseline win rate of 61.5% before AI filtering lifted it to 78.1%. Every year in the track record table was scored on data the model had never seen.</p>
+                </details>
+                <details class="faq-item">
+                    <summary class="faq-question">What happens when a pick loses?</summary>
+                    <p class="faq-answer">Not every pick wins. When one misses, the AI Score, Win Probability, and year-by-year historical proof are all visible before you enter. You decide position size and risk management. We give you the edge. You control the risk.</p>
+                </details>
+                <details class="faq-item">
+                    <summary class="faq-question">I can see seasonal patterns on TradingView for free. Why pay for TradeWave?</summary>
+                    <p class="faq-answer">Raw seasonal charts show you what happened. TradeWave's AI scores which patterns are most likely to repeat given today's trend, volatility, and market conditions. That is the gap between historical data and a trading decision. We also provide election-cycle pattern analysis spanning nearly 100 years, which no free tool offers.</p>
+                </details>
+                <details class="faq-item">
+                    <summary class="faq-question">Can the patterns stop working?</summary>
+                    <p class="faq-answer">Market regimes change. That is why the AI retrains and re-evaluates patterns against current conditions every day. During COVID (2020), when most seasonal strategies broke down, the AI actually delivered its strongest performance, lifting risk-adjusted returns by 291%. The model adapts because it scores against live market data, not just historical averages.</p>
+                </details>
+                <details class="faq-item">
+                    <summary class="faq-question">What if I subscribe and don't have time to use it?</summary>
+                    <p class="faq-answer">Every morning before market open, you get one AI pick delivered by email with the ticker, direction, AI Score, and key stats. The entire decision takes under 2 minutes. Most members spend less time on TradeWave than they do checking the weather. And if life gets busy, cancel with one click from your account page. No calls, no retention tricks.</p>
+                </details>
+                <details class="faq-item">
+                    <summary class="faq-question">Is this just backtested data?</summary>
+                    <p class="faq-answer">No. Every year in the track record was scored on data the model had never seen during training, using strict walk-forward validation. The model retrains against current market conditions. It also powers a live proprietary trading strategy. Every pick is published before market open and tracked on our public scorecard. No deleted picks, no revised entries.</p>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- 10. Opportunities Table -->
+    {% if content.show_opportunities and content.opportunities.tabs %}
+    <section class="opportunities-section bg-primary scroll-fade" id="opportunities">
+        <div class="container">
+            <div class="opp-header-row">
+                <div class="section-header" style="text-align:left; margin-bottom:0;">
+                    <h2 style="font-size:32px;">{{ content.opportunities.headline }}</h2>
+                </div>
+                {% if content.opportunities.show_election_compare %}
+                <a href="#" class="opp-election-link" id="election-compare-toggle">
+                    {{ content.opportunities.election_compare_label }}
+                </a>
+                {% endif %}
+            </div>
+
+            <p class="opp-context">{{ content.opportunities.context }}</p>
+
+            <div class="opp-tabs">
+                {% for tab_id, tab_data in content.opportunities.tabs.items() %}
+                <button class="opp-tab-btn {% if tab_id == content.opportunities.default_tab %}active{% endif %}"
+                        data-opptab="{{ tab_id }}">
+                    {{ tab_data.label }} ({{ tab_data.count }})
+                </button>
+                {% endfor %}
+            </div>
+
+            {% for tab_id, tab_data in content.opportunities.tabs.items() %}
+            <div class="opp-table-wrap {% if tab_id == content.opportunities.default_tab %}active{% endif %}"
+                 data-oppdata="{{ tab_id }}">
+                <table class="opp-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th class="hide-mobile">Dates</th>
+                            <th>Days</th>
+                            <th>Dir</th>
+                            <th>Avg Return</th>
+                            <th>Sharpe</th>
+                            <th class="hide-mobile">52W</th>
+                            <th class="hide-mobile">SMA 50</th>
+                            <th class="hide-mobile">Price</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for opp in tab_data.opportunities %}
+                        <tr onclick="window.location='{{ opp.wave_viewer_url }}'" data-mode="{{ opp.mode }}" {% if loop.index > 3 %}class="opp-row-blurred nav-logged-out"{% endif %}>
+                            <td>
+                                <div class="opp-ticker">{{ opp.symbol }}</div>
+                                <div class="opp-company">{{ opp.company_name }}</div>
+                            </td>
+                            <td class="hide-mobile">{{ opp.start_date_formatted }} &rarr; {{ opp.end_date_formatted }}</td>
+                            <td><span class="opp-days-badge">{{ opp.days }}d</span></td>
+                            <td>
+                                <span class="opp-direction {{ opp.direction|lower }}">{{ opp.direction }}</span>
+                            </td>
+                            <td>
+                                <span class="opp-return {% if opp.direction|lower == 'short' %}short{% endif %}">
+                                    {% if opp.direction|lower == 'long' %}+{% else %}-{% endif %}{{ "%.1f"|format(opp.avg_return) }}%
+                                </span>
+                            </td>
+                            <td>{{ "%.2f"|format(opp.sharpe_ratio) }}</td>
+                            <td class="hide-mobile">
+                                <div class="opp-52w-bar">
+                                    <div class="opp-52w-fill" style="width: {{ opp.week_52_position }}%"></div>
+                                </div>
+                            </td>
+                            <td class="hide-mobile">
+                                {% if opp.above_sma_50 is not none %}
+                                <span class="opp-sma {% if opp.above_sma_50 %}above{% else %}below{% endif %}">
+                                    {% if opp.above_sma_50 %}Above{% else %}Below{% endif %}
+                                </span>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td class="hide-mobile">
+                                {% if opp.has_live_data %}
+                                <div>${{ "%.2f"|format(opp.price) }}</div>
+                                {% if opp.price_change_1d %}
+                                <div class="opp-price-change {% if opp.price_change_1d > 0 %}positive{% else %}negative{% endif %}">
+                                    {{ "%+.1f"|format(opp.price_change_1d) }}%
+                                </div>
+                                {% endif %}
+                                {% else %}
+                                <div>-</div>
+                                {% endif %}
+                            </td>
+                            <td><a href="{{ opp.wave_viewer_url }}" class="opp-view-btn" onclick="event.stopPropagation()">View</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+
+            <div class="opp-blur-gate nav-logged-out">
+                <div class="opp-blur-gate-card">
+                    <p>{{ content.opportunities.total_count - 3 }} more patterns are hidden. Active windows close every day you wait.</p>
+                    <a href="{{ content.opportunities.signup_url }}" class="btn btn-primary pricing-signup-btn" data-upgrade-url="{{ content.nav.upgrade_url }}" data-strategist-href="{{ content.hero.cta_wave_viewer_url }}" data-strategist-text="Launch Wave Viewer">Unlock All Patterns Free</a>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- 11. Institutional & API Access -->
+    <section class="institutional-section bg-secondary scroll-fade">
+        <div class="container">
+            <div class="section-header">
+                <h2>Institutional &amp; API Access</h2>
+                <p>The same pattern data and AI predictions that power our platform, available as data feeds for your models and systems.</p>
+            </div>
+            <div class="institutional-cards">
+                <div class="institutional-card">
+                    <div class="card-icon">&#128202;</div>
+                    <h3>Historical Pattern Library</h3>
+                    <p>100 years of seasonal pattern data across all major U.S. markets. Election-cycle overlays, consecutive-year patterns, and statistical summaries.</p>
+                </div>
+                <div class="institutional-card">
+                    <div class="card-icon">&#129302;</div>
+                    <h3>AI Prediction Feed</h3>
+                    <p>Daily AI scores, win probabilities, predicted returns, and predicted peak values for every qualifying pattern. Real-time updates via REST API.</p>
+                </div>
+                <div class="institutional-card">
+                    <div class="card-icon">&#128736;</div>
+                    <h3>Custom Data Solutions</h3>
+                    <p>Need coverage for specific markets, custom feature sets, or integration with your existing infrastructure? We build to your specification.</p>
+                </div>
+            </div>
+            <div class="institutional-cta">
+                <a href="{{ content.contact_url }}" class="btn btn-secondary">Contact Our Data Team &rarr;</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 12. Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-bottom">
+                <p class="footer-copyright">{{ content.footer.legal.copyright }}</p>
+                <p class="footer-disclaimer">{{ content.footer.legal.disclaimer }}</p>
+                <div class="footer-account nav-logged-in" style="display:none;">
+                    <a href="{{ content.nav.dashboard_url }}">My Account</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.opp-tab-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var tabId = this.getAttribute('data-opptab');
+                document.querySelectorAll('.opp-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                document.querySelectorAll('.opp-table-wrap').forEach(function(t) { t.classList.remove('active'); });
+                var target = document.querySelector('[data-oppdata="' + tabId + '"]');
+                if (target) target.classList.add('active');
+            });
+        });
+
+        // Compare election cycle: filter rows to show only PE mode
+        var electionToggle = document.getElementById('election-compare-toggle');
+        if (electionToggle) {
+            var filterActive = false;
+            electionToggle.addEventListener('click', function(e) {
+                e.preventDefault();
+                filterActive = !filterActive;
+
+                if (filterActive) {
+                    this.classList.add('active');
+                    this.textContent = 'Show all patterns';
+                } else {
+                    this.classList.remove('active');
+                    this.textContent = '{{ content.opportunities.election_compare_label }}';
+                }
+
+                document.querySelectorAll('.opp-table tbody tr').forEach(function(row) {
+                    if (filterActive) {
+                        if (row.getAttribute('data-mode') !== 'pe') {
+                            row.classList.add('filtered-out');
+                        } else {
+                            row.classList.remove('filtered-out');
+                        }
+                    } else {
+                        row.classList.remove('filtered-out');
+                    }
+                });
+            });
+        }
+
+        // Auth state: check WordPress login via PHP endpoint (with sessionStorage cache)
+        (function() {
+            function applyAuth(data) {
+                if (!data.logged_in) return;
+                var level = data.level || 'free';
+                document.querySelectorAll('.nav-logged-out').forEach(function(el) { el.style.display = 'none'; });
+                document.querySelectorAll('.nav-logged-in').forEach(function(el) { el.style.display = ''; });
+                document.querySelectorAll('.pricing-signup-btn').forEach(function(el) {
+                    if (level === 'strategist') {
+                        el.setAttribute('href', el.getAttribute('data-strategist-href') || '/wave-viewer');
+                        el.textContent = el.getAttribute('data-strategist-text') || 'Launch Wave Viewer';
+                    } else if (level === 'analyst') {
+                        el.setAttribute('href', el.getAttribute('data-upgrade-url') || '/my-account/?ihc_ap_menu=subscription');
+                        el.textContent = el.getAttribute('data-analyst-text') || 'Upgrade to Strategist';
+                    } else {
+                        el.setAttribute('href', el.getAttribute('data-upgrade-url') || '/my-account/?ihc_ap_menu=subscription');
+                        el.textContent = el.getAttribute('data-free-text') || 'Upgrade';
+                    }
+                });
+                var navCta = document.querySelector('.nav-logged-in-cta');
+                if (navCta) {
+                    if (level === 'strategist') {
+                        navCta.setAttribute('href', '/wave-viewer');
+                        navCta.textContent = 'Wave Viewer';
+                    } else {
+                        navCta.setAttribute('href', '{{ content.nav.upgrade_url }}');
+                        navCta.textContent = 'Upgrade';
+                    }
+                }
+            }
+            var cached = sessionStorage.getItem('tw_auth');
+            if (cached) { try { applyAuth(JSON.parse(cached)); } catch(e) {} }
+            fetch('/tw-auth-check.php', { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    sessionStorage.setItem('tw_auth', JSON.stringify(data));
+                    applyAuth(data);
+                })
+                .catch(function() {});
+        })();
+
+        // Hamburger menu
+        (function() {
+            var btn = document.getElementById('hamburger-btn');
+            var nav = document.getElementById('nav-links');
+            if (btn && nav) {
+                btn.addEventListener('click', function() {
+                    btn.classList.toggle('open');
+                    nav.classList.toggle('open');
+                });
+                nav.querySelectorAll('a').forEach(function(link) {
+                    link.addEventListener('click', function() {
+                        btn.classList.remove('open');
+                        nav.classList.remove('open');
+                    });
+                });
+            }
+        })();
+
+        // Pricing toggle: monthly / yearly
+        document.querySelectorAll('.pricing-toggle-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var billing = this.getAttribute('data-billing');
+
+                document.querySelectorAll('.pricing-toggle-btn').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+
+                document.querySelectorAll('.pricing-price').forEach(function(el) {
+                    if (billing === 'yearly') {
+                        el.textContent = el.getAttribute('data-yearly-price');
+                    } else {
+                        el.textContent = el.getAttribute('data-monthly-price');
+                    }
+                });
+
+                document.querySelectorAll('.pricing-period').forEach(function(el) {
+                    if (billing === 'yearly') {
+                        el.textContent = el.getAttribute('data-yearly-period');
+                    } else {
+                        el.textContent = el.getAttribute('data-monthly-period');
+                    }
+                });
+
+                document.querySelectorAll('.pricing-original').forEach(function(el) {
+                    if (billing === 'yearly') {
+                        el.textContent = el.getAttribute('data-yearly-original') || '';
+                    } else {
+                        el.textContent = el.getAttribute('data-monthly-original') || '';
+                    }
+                });
+
+                document.querySelectorAll('.pricing-card .btn').forEach(function(el) {
+                    if (billing === 'yearly' && el.getAttribute('data-yearly-url')) {
+                        el.setAttribute('href', el.getAttribute('data-yearly-url'));
+                    } else if (el.getAttribute('data-monthly-url')) {
+                        el.setAttribute('href', el.getAttribute('data-monthly-url'));
+                    }
+                });
+
+                document.querySelectorAll('.pricing-daily-cost').forEach(function(el) {
+                    el.style.display = billing === 'yearly' ? '' : 'none';
+                });
+            });
+        });
+
+        // Launch pricing countdown
+        (function() {
+            var target = new Date('2026-04-30T23:59:59').getTime();
+            var el = document.getElementById('launch-countdown');
+            if (!el) return;
+            function update() {
+                var now = new Date().getTime();
+                var diff = target - now;
+                if (diff <= 0) { el.textContent = 'Launch pricing has ended.'; return; }
+                var d = Math.floor(diff / 86400000);
+                var h = Math.floor((diff % 86400000) / 3600000);
+                var m = Math.floor((diff % 3600000) / 60000);
+                el.innerHTML = '<span class="cd-value">' + d + '</span> days <span class="cd-value">' + h + '</span> hours <span class="cd-value">' + m + '</span> minutes remaining';
+            }
+            update();
+            setInterval(update, 60000);
+        })();
+
+        // Scroll fade-in
+        (function() {
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                    }
+                });
+            }, { threshold: 0.1 });
+            document.querySelectorAll('.scroll-fade').forEach(function(el) {
+                observer.observe(el);
+            });
+        })();
+
+        // Market hours badge
+        (function() {
+            var badge = document.getElementById('market-hours-badge');
+            if (!badge) return;
+            var now = new Date();
+            var utc = now.getTime() + now.getTimezoneOffset() * 60000;
+            var et = new Date(utc + -5 * 3600000);
+            var h = et.getHours(), m = et.getMinutes(), day = et.getDay();
+            var mins = h * 60 + m;
+            if (day === 0 || day === 6) {
+                badge.textContent = 'Markets reopen Monday. Review the weekend watchlist.';
+                badge.className = 'market-hours-badge market-closed';
+            } else if (mins < 570) {
+                badge.textContent = 'Pre-market is live. AI pick updated.';
+                badge.className = 'market-hours-badge pre-market';
+            } else if (mins < 960) {
+                badge.textContent = 'Markets are open. Today\'s AI pick is live.';
+                badge.className = 'market-hours-badge market-open';
+            } else {
+                badge.textContent = 'Markets closed. Tomorrow\'s pick is being scored.';
+                badge.className = 'market-hours-badge market-closed';
+            }
+            badge.style.display = '';
+        })();
+
+        // Returning visitor copy swap
+        (function() {
+            var visits = parseInt(localStorage.getItem('tw_visits') || '0', 10);
+            localStorage.setItem('tw_visits', String(visits + 1));
+            if (visits >= 2) {
+                var body = document.querySelector('.hero-body');
+                if (body) body.innerHTML = 'Welcome back. ${{ content.recent_picks | join(", $") }} were recently picked by the AI. <a href="{{ content.scorecard_url }}" style="color:var(--accent);text-decoration:none;font-weight:600;" target="_blank">See how they are doing on the live scorecard \u2192</a>';
+            }
+        })();
+
+        // Tab unfocus re-engagement (skip for paying users)
+        (function() {
+            var auth = JSON.parse(sessionStorage.getItem('tw_auth') || '{}');
+            if (auth.logged_in && (auth.level === 'analyst' || auth.level === 'strategist')) return;
+            var orig = document.title;
+            var msg = 'Free daily AI pick waiting...';
+            var flash;
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    flash = setInterval(function() {
+                        document.title = document.title === orig ? msg : orig;
+                    }, 1500);
+                } else {
+                    clearInterval(flash);
+                    document.title = orig;
+                }
+            });
+        })();
+
+        // Sticky bottom bar (appears after 60% scroll, skip for paying users)
+        (function() {
+            var auth = JSON.parse(sessionStorage.getItem('tw_auth') || '{}');
+            if (auth.logged_in && (auth.level === 'analyst' || auth.level === 'strategist')) return;
+            if (sessionStorage.getItem('sb_dismissed')) return;
+            var bar = document.createElement('div');
+            bar.id = 'sticky-bar';
+            bar.style.cssText = 'display:none;position:fixed;bottom:0;left:0;right:0;z-index:9990;background:#0c1225;border-top:1px solid #374151;padding:14px 24px;box-shadow:0 -4px 30px rgba(99,102,241,0.18);';
+            bar.innerHTML = '<div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">' +
+                '<p style="margin:0;color:#9ca3af;font-size:14px;"><strong style="color:#fff;">78-86% win rate.</strong> 8 years tested. Free tier available.</p>' +
+                '<div style="display:flex;gap:10px;align-items:center;">' +
+                '<a href="{{ content.hero.cta_primary_url }}" class="btn btn-primary pricing-signup-btn" data-upgrade-url="{{ content.nav.upgrade_url }}" data-strategist-href="{{ content.hero.cta_wave_viewer_url }}" data-strategist-text="Launch Wave Viewer" style="white-space:nowrap;padding:9px 20px;font-size:14px;">Start Free</a>' +
+                '<button onclick="document.getElementById(\'sticky-bar\').remove();sessionStorage.setItem(\'sb_dismissed\',\'1\');" style="background:none;border:none;color:#6b7280;font-size:20px;cursor:pointer;padding:0 4px;line-height:1;">&times;</button>' +
+                '</div></div>';
+            document.body.appendChild(bar);
+            var shown = false;
+            window.addEventListener('scroll', function() {
+                if (shown) return;
+                var pct = (window.scrollY + window.innerHeight) / document.body.scrollHeight;
+                if (pct >= 0.60) { shown = true; bar.style.display = 'block'; }
+            });
+        })();
+
+        // Mark visitor as subscribed when they submit any MailerLite free-pick form on this page.
+        document.addEventListener('submit', function(e) {
+            var form = e.target;
+            if (form && form.action && form.action.indexOf('assets.mailerlite.com') !== -1) {
+                try { localStorage.setItem('tw_free_pick_subscribed', '1'); } catch (err) {}
+            }
+        }, true);
+
+        // Exit-intent popup (desktop only, after 15s, skip for paying users and free-list subscribers)
+        (function() {
+            var auth = JSON.parse(sessionStorage.getItem('tw_auth') || '{}');
+            if (auth.logged_in && (auth.level === 'analyst' || auth.level === 'strategist')) return;
+            try { if (localStorage.getItem('tw_free_pick_subscribed')) return; } catch (err) {}
+            if (sessionStorage.getItem('ep_dismissed')) return;
+            var ready = false;
+            setTimeout(function() { ready = true; }, 15000);
+            document.addEventListener('mouseleave', function(e) {
+                if (!ready || e.clientY > 10 || sessionStorage.getItem('ep_dismissed')) return;
+                sessionStorage.setItem('ep_dismissed', '1');
+                var popup = document.createElement('div');
+                popup.id = 'exit-popup';
+                popup.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(10,8,18,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;';
+                popup.innerHTML = '<div style="background:#0c1225;border:1px solid #374151;border-radius:16px;padding:40px 36px;max-width:440px;width:90%;position:relative;text-align:center;box-shadow:0 0 60px rgba(99,102,241,0.25);">' +
+                    '<button onclick="document.getElementById(\'exit-popup\').remove();" style="position:absolute;top:12px;right:16px;background:none;border:none;color:#6b7280;font-size:20px;cursor:pointer;line-height:1;">&times;</button>' +
+                    '<div style="font-size:13px;color:#6366f1;font-weight:700;letter-spacing:.08em;margin-bottom:12px;">BEFORE YOU GO</div>' +
+                    '<h2 style="font-size:22px;font-weight:800;color:#fff;margin-bottom:10px;">Get Tomorrow\'s AI Pick<br>Before Market Open</h2>' +
+                    '<p style="color:#9ca3af;font-size:14px;margin-bottom:24px;">78-86% win rate. 8 years tested. Delivered free, every morning.</p>' +
+                    '<form action="https://assets.mailerlite.com/jsonp/871495/forms/131498498498498077/subscribe" method="post" target="_blank">' +
+                    '<input type="email" name="fields[email]" placeholder="your@email.com" required style="width:100%;padding:12px 16px;background:#111936;border:1px solid #374151;border-radius:8px;color:#fff;font-size:15px;margin-bottom:12px;box-sizing:border-box;">' +
+                    '<button type="submit" style="width:100%;padding:13px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:8px;color:#fff;font-weight:700;font-size:15px;cursor:pointer;">Send Me the Free Pick</button>' +
+                    '</form>' +
+                    '<p style="color:#6b7280;font-size:12px;margin-top:12px;">No credit card. Unsubscribe anytime.</p>' +
+                    '</div>';
+                document.body.appendChild(popup);
+            });
+        })();
+    </script>
+</body>
+</html>

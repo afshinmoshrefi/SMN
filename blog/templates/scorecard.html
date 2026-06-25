@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeWave AI Track Record</title>
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/png" href="{{ content.favicon }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: rgb(15,10,21);
+            --bg-secondary: rgb(25,22,35);
+            --bg-tertiary: #111936;
+            --bg-card: #0c1225;
+            --text-primary: #ffffff;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --accent-green: rgb(100,220,140);
+            --success: #10b981;
+            --success-dark: rgba(16, 185, 129, 0.15);
+            --danger: #ef4444;
+            --danger-dark: rgba(239, 68, 68, 0.12);
+            --border: #1f2937;
+            --border-light: #374151;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+        /* Header */
+        .sc-header {
+            text-align: center;
+            padding: 64px 0 24px;
+        }
+        .sc-header h1 {
+            font-size: 36px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+        }
+        .sc-header p {
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+
+        /* Stat boxes */
+        .stat-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .stat-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 20px;
+            text-align: center;
+        }
+        .stat-box .stat-value {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            line-height: 1.1;
+            margin-bottom: 4px;
+        }
+        .stat-box .stat-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Trust line */
+        .trust-line {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 48px;
+            padding: 0 20px;
+        }
+        .trust-line a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .trust-line a:hover {
+            color: var(--accent-hover);
+        }
+        .disclaimer-line {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-style: italic;
+            margin-top: -8px;
+            margin-bottom: 24px;
+            padding: 0 20px;
+            opacity: 0.75;
+        }
+        .live-badge {
+            display: inline-block;
+            background: #16a34a22;
+            color: #4ade80;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 1px 5px;
+            border-radius: 3px;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+
+        /* Section headers */
+        .section-title {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .section-subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        /* Tables */
+        .sc-table-wrap {
+            overflow-x: auto;
+            margin-bottom: 48px;
+        }
+        .sc-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .sc-table thead th {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 12px 16px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .sc-table tbody tr {
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .sc-table tbody tr:hover {
+            background: rgba(99, 102, 241, 0.06);
+        }
+        .sc-table tbody td {
+            padding: 14px 16px;
+            white-space: nowrap;
+            text-align: center;
+        }
+
+        /* Row win/loss indicators for closed table */
+        .sc-table tbody tr.row-win {
+            border-left: 3px solid var(--success);
+        }
+        .sc-table tbody tr.row-loss {
+            border-left: 3px solid var(--danger);
+        }
+
+        /* Return value colors */
+        .return-positive { color: var(--accent-green); font-weight: 600; }
+        .return-negative { color: var(--danger); font-weight: 600; }
+        .return-neutral { color: var(--text-secondary); }
+
+        /* W/L badge */
+        .wl-badge {
+            display: inline-block;
+            min-width: 28px;
+            height: 22px;
+            line-height: 22px;
+            text-align: center;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 0 6px;
+            white-space: nowrap;
+        }
+        .wl-win {
+            background: var(--success-dark);
+            color: var(--success);
+        }
+        .wl-loss {
+            background: var(--danger-dark);
+            color: var(--danger);
+        }
+
+        /* Direction badge */
+        .dir-long { color: var(--accent-green); font-weight: 600; }
+        .dir-short { color: #f472b6; font-weight: 600; }
+
+        /* Success column */
+        .success-yes { color: var(--success); font-size: 18px; font-weight: 700; }
+        .success-no { color: var(--danger); font-size: 18px; font-weight: 700; }
+        .success-pending { color: var(--text-muted); }
+
+        /* Bottom CTA */
+        .sc-cta {
+            border-top: 1px solid var(--border);
+            padding: 48px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 32px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 15px;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        /* Email signup */
+        .email-signup {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px 28px;
+            text-align: center;
+        }
+        .email-signup p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        .email-signup .signup-row {
+            display: flex;
+            gap: 8px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .email-signup .signup-email {
+            flex: 1;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border-light);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+        }
+        .email-signup .signup-email:focus {
+            border-color: var(--accent);
+        }
+        .email-signup .signup-btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            background: var(--accent);
+            color: #fff;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .email-signup .signup-btn:hover {
+            background: var(--accent-hover);
+        }
+        .email-signup .signup-error {
+            color: var(--danger);
+            font-size: 12px;
+            margin-top: 8px;
+            display: none;
+        }
+        .email-signup .signup-success {
+            color: var(--success);
+            font-size: 14px;
+            display: none;
+        }
+
+        /* Footer */
+        .sc-footer {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 32px 0;
+            text-align: center;
+        }
+        .sc-footer p {
+            color: var(--text-muted);
+            font-size: 11px;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.8;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+            font-size: 15px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .stat-row { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .stat-box .stat-value { font-size: 32px; }
+            .sc-header h1 { font-size: 28px; }
+            .sc-cta { flex-direction: column; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="container">
+        <div class="sc-header">
+            <h1>TradeWave AI Track Record</h1>
+            <p>Every pick selected by AI pattern scoring, published before market open</p>
+        </div>
+
+        <!-- Stat Boxes -->
+        <div class="stat-row">
+            <div class="stat-box">
+                <div class="stat-value">{{ content.stats.total_picks }}</div>
+                <div class="stat-label">Total Picks</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">{{ content.stats.win_rate }}%</div>
+                <div class="stat-label">Win Rate</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">{{ content.stats.avg_return }}%</div>
+                <div class="stat-label">Median Return</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">{{ content.stats.current_streak }}</div>
+                <div class="stat-label">Current Streak</div>
+            </div>
+        </div>
+
+        <!-- Trust Line -->
+        <p class="trust-line">
+            Every pick was published on <a href="{{ content.x_profile_url }}" target="_blank" rel="noopener">X (@TradeWave)</a> before market open. Verify any call.
+        </p>
+
+        <!-- Open Positions -->
+        <h2 class="section-title">Open Positions</h2>
+        <p class="section-subtitle">Active picks where the seasonal window has not yet closed.</p>
+        <p class="disclaimer-line">Positions are scored on a 19-30 day window. Current return reflects mid-pattern performance, not final results.</p>
+
+        {% if content.open_positions %}
+        <div class="sc-table-wrap">
+            <table class="sc-table">
+                <thead>
+                    <tr>
+                        <th>Date Flagged</th>
+                        <th>Ticker</th>
+                        <th>Direction</th>
+                        <th>Days</th>
+                        <th>Win Prob</th>
+                        <th>Predicted Return</th>
+                        <th>Current Return</th>
+                        <th>Peak</th>
+                        <th>Success</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pos in content.open_positions %}
+                    <tr onclick="window.location='{{ pos.wave_viewer_url }}'">
+                        <td>{{ pos.featured_date }}</td>
+                        <td style="font-weight: 700;">{{ pos.symbol }}</td>
+                        <td><span class="dir-{{ pos.direction | lower }}">{{ pos.direction }}</span></td>
+                        <td>{{ pos.days }}</td>
+                        <td>{{ pos.win_prob }}%</td>
+                        <td>+{{ pos.pred_return }}%</td>
+                        <td>
+                            {% if pos.current_return == '--' %}
+                                <span class="return-neutral">--</span>
+                            {% elif pos.current_return_num >= 0 %}
+                                <span class="return-positive">+{{ pos.current_return }}%</span>
+                            {% else %}
+                                <span class="return-negative">{{ pos.current_return }}%</span>
+                            {% endif %}
+                            {% if pos.price_source == 'realtime' %}
+                                <span class="live-badge">live</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pos.peak_return == '--' %}
+                                <span class="return-neutral">--</span>
+                            {% elif pos.peak_return_num >= 0 %}
+                                <span class="return-positive">+{{ pos.peak_return }}%</span>
+                            {% else %}
+                                <span class="return-negative">{{ pos.peak_return }}%</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pos.success == 'yes' %}
+                                <span class="success-yes">&#10003;</span>
+                            {% else %}
+                                <span class="success-pending">--</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">No open positions.</div>
+        {% endif %}
+
+        <!-- Closed Positions -->
+        <h2 class="section-title">Closed Positions</h2>
+        <p class="section-subtitle">Completed seasonal windows with actual results.</p>
+
+        {% if content.closed_positions %}
+        <div class="sc-table-wrap">
+            <table class="sc-table">
+                <thead>
+                    <tr>
+                        <th>Date Flagged</th>
+                        <th>Ticker</th>
+                        <th>Direction</th>
+                        <th>Days</th>
+                        <th>Win Prob</th>
+                        <th>Predicted Return</th>
+                        <th>Actual Return</th>
+                        <th>Peak</th>
+                        <th>Success</th>
+                        <th>W/L</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pos in content.closed_positions %}
+                    <tr class="{% if pos.win %}row-win{% else %}row-loss{% endif %}" onclick="window.location='{{ pos.wave_viewer_url }}'">
+                        <td>{{ pos.featured_date }}</td>
+                        <td style="font-weight: 700;">{{ pos.symbol }}</td>
+                        <td><span class="dir-{{ pos.direction | lower }}">{{ pos.direction }}</span></td>
+                        <td>{{ pos.days }}</td>
+                        <td>{{ pos.win_prob }}%</td>
+                        <td>+{{ pos.pred_return }}%</td>
+                        <td>
+                            {% if pos.actual_return == '--' %}
+                                <span class="return-neutral">--</span>
+                            {% elif pos.actual_return_num >= 0 %}
+                                <span class="return-positive">+{{ pos.actual_return }}%</span>
+                            {% else %}
+                                <span class="return-negative">{{ pos.actual_return }}%</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pos.peak_return == '--' %}
+                                <span class="return-neutral">--</span>
+                            {% elif pos.peak_return_num >= 0 %}
+                                <span class="return-positive">+{{ pos.peak_return }}%</span>
+                            {% else %}
+                                <span class="return-negative">{{ pos.peak_return }}%</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pos.success == 'yes' %}
+                                <span class="success-yes">&#10003;</span>
+                            {% elif pos.success == 'no' %}
+                                <span class="success-no">&#10007;</span>
+                            {% else %}
+                                <span class="success-pending">--</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="wl-badge {% if pos.win %}wl-win{% else %}wl-loss{% endif %}">{{ pos.wl }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">No closed positions yet. Check back once the first seasonal window closes.</div>
+        {% endif %}
+
+        <!-- Bottom CTA -->
+        <div class="sc-cta">
+            <a href="{{ content.domain_root }}" class="btn btn-primary">See today's full seasonal analysis</a>
+            <div class="email-signup">
+                <p>Get the daily AI pick before market open</p>
+                <form id="scSignupForm" onsubmit="return false;">
+                    <div class="signup-row">
+                        <input type="email" id="scSignupEmail" class="signup-email" placeholder="Enter your email" required autocomplete="email">
+                        <button type="submit" class="signup-btn" id="scSignupBtn">Subscribe</button>
+                    </div>
+                    <div class="signup-error" id="scSignupError">Please enter a valid email.</div>
+                </form>
+                <div class="signup-success" id="scSignupSuccess">Thanks! Check your email to confirm.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="sc-footer">
+        <div class="container">
+            <p>
+                TradeWave is a research platform. It is not a brokerage and does not execute trades.
+                All data is based on historical analysis and is provided for informational and educational purposes only.
+                Past performance does not guarantee future results. Trading and investing involve substantial risk of loss.
+            </p>
+        </div>
+    </div>
+
+<script>
+(function() {
+    var form = document.getElementById('scSignupForm');
+    if (!form) return;
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var email = document.getElementById('scSignupEmail').value.trim();
+        var err = document.getElementById('scSignupError');
+        if (!email) { err.style.display = 'block'; return; }
+        err.style.display = 'none';
+        var btn = document.getElementById('scSignupBtn');
+        btn.disabled = true;
+        btn.textContent = 'Subscribing...';
+        var fd = new FormData();
+        fd.append('fields[email]', email);
+        fd.append('ml-submit', '1');
+        fd.append('anticsrf', 'true');
+        fd.append('groups[]', '{{ content.daily_ai_pick_group_id }}');
+        fetch('https://assets.mailerlite.com/jsonp/489451/forms/173861813170996648/subscribe',
+            { method: 'POST', body: fd, mode: 'no-cors' })
+        .then(function() {
+            form.style.display = 'none';
+            document.getElementById('scSignupSuccess').style.display = 'block';
+        }).catch(function() {
+            form.style.display = 'none';
+            document.getElementById('scSignupSuccess').style.display = 'block';
+        });
+    });
+})();
+</script>
+</body>
+</html>

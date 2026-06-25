@@ -1,0 +1,43 @@
+# ====================================================================
+# SMN repository — DEFAULT-DENY .gitignore.
+# Tracks application CODE only. Never commit secrets, data, or binaries.
+# Repo root = /home/flask (config.py lives here; blog/ holds the code).
+# ====================================================================
+
+# 1) Ignore everything at the repo root by default...
+/*
+
+# 2) ...then explicitly allow the code + this file.
+!/.gitignore
+!/config.example.py
+!/blog/
+
+# 3) Inside blog/: ignore everything, re-allow code + templates only.
+blog/*
+!blog/*.py
+!blog/*.sh
+!blog/templates/
+blog/templates/*
+!blog/templates/*.html
+!blog/templates/*.css
+!blog/templates/*.js
+
+# 4) Belt-and-suspenders — NEVER track these, anywhere (secrets / junk).
+config.py
+*.bak
+*.bak.*
+*.pyc
+*.pyo
+__pycache__/
+*.env
+secrets*
+*.pem
+*.key
+*.p12
+*.crt
+# credential JSONs: oauth tokens, client secrets, GCP service accounts
+*oauth2.json
+*client_secret*.json
+*client_secrets*.json
+*service_account*.json
+text-to-speech-*.json
