@@ -1480,8 +1480,14 @@ def article_post_process(
                 if abs(sv - _close) > _tol(_close):
                     _fixed[0] += 1; return f"{m.group(1)}{_P(_close)}"
                 return m.group(0)
-            html_out = re.sub(r'((?:closed|trading|trades|last traded)\s+(?:at\s+)?)\$([\d,]+(?:\.\d+)?)',
-                              _rc, html_out, flags=re.I)
+            # Allow an optional weekday between the verb and the price ("closed Thursday at $X")
+            # so a second, unenforced price can't slip past the gate. Verb set kept narrow on
+            # purpose: "ended/finished at $X" could be a historical window price, not the current one.
+            html_out = re.sub(
+                r'(\b(?:closed?|trading|trades|last\s+traded)\s+'
+                r'(?:(?:on\s+)?(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\s+)?(?:at\s+)?)'
+                r'\$([\d,]+(?:\.\d+)?)',
+                _rc, html_out, flags=re.I)
             if _lo is not None and _hi is not None:
                 html_out = re.sub(r'(between\s+)\$([\d,]+(?:\.\d+)?)(\s+and\s+)\$([\d,]+(?:\.\d+)?)',
                                   lambda m: f"{m.group(1)}{_P(_lo)}{m.group(3)}{_P(_hi)}", html_out, flags=re.I)
