@@ -938,6 +938,67 @@ def create_article_images(size_key,
 
 TREND_MARGIN_DAYS = 14
 
+
+def _maybe_refresh_stale_prices(financial_group_id, symbol, date1, price_points,
+                                max_stale_days=10):
+    """
+    If the appserver price history ends well before the article date (e.g. an unrolled
+    futures contract whose continuous series dead-ends mid-roll, like CME lumber LBR),
+    splice in fresh EODHD EOD closes -- scaled for continuity at the splice point -- so the
+    price chart and seasonal projection anchor at the CURRENT price, not a weeks-old one.
+
+    Non-destructive: returns price_points unchanged if it isn't stale, if EODHD has nothing
+    newer, or if the implied scale looks wrong (symbol mismatch). Fully non-fatal.
+    """
+    if not price_points:
+        return price_points
+    try:
+        import datetime as _dt
+        import config as _cfg
+        from get_price_eod import get_eod_series
+        def _d(s):
+            return _dt.datetime.strptime(str(s)[:10], "%Y-%m-%d").date()
+
+        last_dt = _d(price_points[-1][0])
+        try:
+            target = _d(date1)
+        except Exception:
+            target = _dt.date.today()
+        ref = min(target, _dt.date.today())
+        stale_days = (ref - last_dt).days
+        if stale_days <= max_stale_days:
+            return price_points  # fresh enough -- normal path
+
+        exch = _cfg.exchange_mapping.get(str(financial_group_id), "US")
+        series = get_eod_series(symbol, exch, last_dt.isoformat(), ref.isoformat())
+        if not series or len(series) < 2:
+            print(f"[PRICE-FALLBACK] {symbol}: appserver stale {stale_days}d but no EODHD series; left as-is")
+            return price_points
+
+        # scale EODHD to the appserver's last price at the splice date (continuity)
+        appserver_last = float(price_points[-1][1])
+        splice_val = None
+        for d, c in series:
+            if _d(d) <= last_dt:
+                splice_val = c
+        if not splice_val or splice_val <= 0:
+            splice_val = series[0][1]
+        scale = appserver_last / float(splice_val)
+        if not (0.2 <= scale <= 5.0):
+            print(f"[PRICE-FALLBACK] {symbol}: EODHD scale {scale:.3f} out of range (symbol mismatch?); left as-is")
+            return price_points
+
+        fresh = [(d, round(float(c) * scale, 4)) for d, c in series if _d(d) > last_dt]
+        if not fresh:
+            return price_points
+        print(f"[PRICE-FALLBACK] {symbol}: appserver stale {stale_days}d (ends {last_dt}); "
+              f"spliced {len(fresh)} EODHD pt(s) x{scale:.4f} -> {fresh[-1][0]} @ {fresh[-1][1]}")
+        return list(price_points) + fresh
+    except Exception as e:
+        print(f"[PRICE-FALLBACK] {symbol}: skipped (non-fatal): {e}")
+        return price_points
+
+
 def build_article_images_payload(financial_group_id, symbol, date1, days_hold, years,
                                   price_lookback_days=60, zero_last_year=True):
     from create_report import get_seasonal_chart_data2, get_chart_data
@@ -984,6 +1045,8 @@ def build_article_images_payload(financial_group_id, symbol, date1, days_hold, y
     d1 = date1
     d0 = inc_date_day(date1, -int(price_lookback_days))
     price_points = get_chart_historical_prices(financial_group_id, symbol, d0, d1, appserver_token)
+    # Splice in fresh EODHD prices if the appserver feed is stale (e.g. unrolled futures).
+    price_points = _maybe_refresh_stale_prices(financial_group_id, symbol, date1, price_points)
 
     # Bar arrays
     bar_years, bar_returns, bar_returns_mfe, bar_returns_mae = [], [], [], []

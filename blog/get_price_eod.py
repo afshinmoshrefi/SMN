@@ -164,6 +164,37 @@ def get_quote_details(symbol: str, exchange: str = "US",
     return _eodhd_direct(symbol, exchange)
 
 
+def get_eod_series(symbol: str, exchange: str = "US",
+                   from_date: Optional[str] = None,
+                   to_date: Optional[str] = None) -> list:
+    """
+    EODHD end-of-day close series for [from_date, to_date] (YYYY-MM-DD strings).
+    Returns [(date, close), ...] in ascending date order; [] on any error.
+    Used to splice fresh prices in when the appserver's history for a symbol is
+    stale (e.g. an unrolled futures contract like CME lumber, LBR).
+    """
+    p = {"api_token": config.EOD_token, "fmt": "json", "order": "a"}
+    if from_date:
+        p["from"] = from_date
+    if to_date:
+        p["to"] = to_date
+    try:
+        rows = requests.get(f"https://eodhd.com/api/eod/{symbol}.{exchange}",
+                            params=p, timeout=15).json()
+        if not isinstance(rows, list):
+            return []
+        out = []
+        for r in rows:
+            c = _safe_float(r.get("close"))
+            d = r.get("date")
+            if c is not None and d:
+                out.append((d, c))
+        return out
+    except Exception as e:
+        print(f"[EODHD] eod series error {symbol}.{exchange}: {e}")
+        return []
+
+
 # ============================================================
 # SMOKE TEST
 # ============================================================
