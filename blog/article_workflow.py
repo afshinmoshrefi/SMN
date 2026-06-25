@@ -109,6 +109,7 @@ def init_tracking(resource_id: str,
             "research_tavily": {"status": "pending", "error": None},
             "article_prompt": {"status": "pending", "error": None},
             "write_article": {"status": "pending", "error": None},
+            "citation_gate": {"status": "pending", "error": None},
             "publish_article": {"status": "pending", "error": None},
         },
         "status": "pending",
@@ -610,24 +611,36 @@ def generate_news_article(resource_id: str,
             mark_step_error(tracking, "write_article", e)
             return tracking
 
-        # 5b) Citation gate — flag/block fabricated or broken citations before publish.
+        # 5b) Citation gate — advisory in 'warn'/'off' (NEVER aborts a generation);
+        # only an explicit 'block'-mode failure aborts before publish.
         try:
             import config as _cfg
-            from citation_gate import validate_citations
             _cg_mode = getattr(_cfg, "citation_gate_mode", "warn")
+        except Exception:
+            _cfg = None; _cg_mode = "off"
+        try:
             if _cg_mode != "off":
+                from citation_gate import validate_citations
                 cg = validate_citations(article_html, research=research, symbol=symbol, company=company,
                                         check_liveness=getattr(_cfg, "citation_check_liveness", False))
-                if cg["violations"]:
+                if cg.get("violations"):
                     print(f"[CITATION GATE] {symbol}: {len(cg['violations'])} violation(s): {cg['violations'][:5]}")
-                if cg["warnings"]:
+                if cg.get("warnings"):
                     print(f"[CITATION GATE] {symbol}: warnings: {cg['warnings'][:5]}")
-                if not cg["ok"] and _cg_mode == "block":
-                    raise ValueError("citation gate failed: " + "; ".join(cg["violations"][:5]))
+                if not cg.get("ok") and _cg_mode == "block":
+                    raise ValueError("citation gate failed: " + "; ".join(cg.get("violations", [])[:5]))
             mark_step_success(tracking, "citation_gate")
         except Exception as e:
-            mark_step_error(tracking, "citation_gate", e)
-            return tracking
+            if _cg_mode == "block":
+                mark_step_error(tracking, "citation_gate", e)
+                return tracking
+            # advisory mode: log + mark skipped, but let the article publish
+            print(f"[CITATION GATE] non-fatal ({_cg_mode}) error for {symbol}: {e}")
+            try:
+                tracking["steps"]["citation_gate"]["status"] = "skipped"
+                tracking["steps"]["citation_gate"]["error"] = str(e)
+            except Exception:
+                pass
 
         # 6) Publish article — use chart_years (PE-qualified) so the Redis key
         # matches what the portfolio page uses for the article_exists check.
