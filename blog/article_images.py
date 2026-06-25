@@ -373,17 +373,30 @@ def _build_projection(dates, prices, trend_labels, trend_values, proj_days):
     cycle_idx = today_idx
     cumulative_offset = 0.0
     prev_date = last_date
+    wrapped = False
     for fd in future_dates:
         days_diff = (fd - prev_date).days
         cycle_idx += days_diff
         while cycle_idx >= cycle_len:
             cycle_idx -= cycle_len
             cumulative_offset += cycle_drift
+            wrapped = True
         future_return = float(trend_values[cycle_idx]) + cumulative_offset
         projected_price = last_close * (1 + (future_return - today_return) / 100)
         proj_dates.append(fd)
         proj_prices.append(projected_price)
         prev_date = fd
+
+    # Stale-feed guard: if the walk wrapped the seasonal cycle, the price anchor sits in the
+    # final stretch of the cycle -- i.e. the recent-price feed is stale and anchored *before*
+    # the article's window (e.g. an unrolled futures contract like LBR, whose appserver feed
+    # dead-ends mid-roll). That wrap injects a discontinuity that can flip the projection's
+    # direction (bullish on a bearish window), so suppress it rather than publish a misleading
+    # chart. A fresh anchor sits near the cycle start and never wraps within the horizon.
+    if wrapped:
+        print(f"[PROJECTION] suppressed: stale/pre-window anchor "
+              f"(last_price={last_date}, idx={today_idx}/{cycle_len}) would wrap the seasonal cycle")
+        return [], []
 
     return proj_dates, proj_prices
 
