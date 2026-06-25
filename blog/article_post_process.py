@@ -1439,6 +1439,45 @@ def article_post_process(
     except Exception as _he:
         print(f"[FIX] headline sync skipped (non-fatal): {_he}")
 
+    # 17c) Price-finalize: enforce the current price + intraday range against the
+    # authoritative EODHD quote (use_realtime=False); inject a dated "Price as of" label.
+    # The model is never the source of a price digit that reaches a reader.
+    try:
+        import datetime as _dt
+        from get_price_eod import get_quote_details as _gqd
+        def _fmtd(d):
+            try: return _dt.datetime.strptime(d, '%Y-%m-%d').strftime('%b %-d, %Y')
+            except Exception: return d
+        _ex = config.exchange_mapping.get(str(resource_id), "US")
+        _q = _gqd(symbol, _ex, use_realtime=False)
+        if _q and _q.get('close') is not None:
+            _close = float(_q['close']); _lo = _q.get('low'); _hi = _q.get('high')
+            _ld = _fmtd(_q.get('as_of_date')) if _q.get('as_of_date') else 'the latest session'
+            _P = lambda v: f"${float(v):,.2f}"
+            _tol = lambda v: max(0.01, float(v) * 0.001)
+            _fixed = [0]
+            def _rc(m):
+                try: sv = float(m.group(2).replace(',', ''))
+                except Exception: return m.group(0)
+                if abs(sv - _close) > _tol(_close):
+                    _fixed[0] += 1; return f"{m.group(1)}{_P(_close)}"
+                return m.group(0)
+            html_out = re.sub(r'((?:closed|trading|trades|last traded)\s+(?:at\s+)?)\$([\d,]+(?:\.\d+)?)',
+                              _rc, html_out, flags=re.I)
+            if _lo is not None and _hi is not None:
+                html_out = re.sub(r'(between\s+)\$([\d,]+(?:\.\d+)?)(\s+and\s+)\$([\d,]+(?:\.\d+)?)',
+                                  lambda m: f"{m.group(1)}{_P(_lo)}{m.group(3)}{_P(_hi)}", html_out, flags=re.I)
+                if not (float(_lo) <= _close <= float(_hi)):
+                    print(f"[WARN] price-finalize: feed close {_close} outside [{_lo},{_hi}] for {symbol}")
+            if 'class="price-asof"' not in html_out:
+                _line = (f'<p class="price-asof" style="font-size:.9rem;color:#5a6b7a;margin:-6px 0 16px;">'
+                         f'Price as of {_ld}: <strong>{_P(_close)}</strong> (last close).</p>')
+                html_out = re.sub(r'(<p class="dek">.*?</p>)', r'\1\n' + _line, html_out, count=1, flags=re.S)
+            print(f"[FIX] price-finalize: {symbol} current price set to {_P(_close)} "
+                  f"(src={_q.get('source')}); {_fixed[0]} prose value(s) corrected")
+    except Exception as _pe:
+        print(f"[FIX] price-finalize skipped (non-fatal): {_pe}")
+
     print("post process complete")
 
     return html_out
