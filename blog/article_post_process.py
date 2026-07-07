@@ -311,6 +311,82 @@ def _site_chrome_css():
         display: none;
     }
 
+    /* Share bar */
+    .smn-share {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 18px 24px 6px;
+        margin: 32px auto 0;
+        max-width: 760px;
+        border-top: 1px solid var(--border-color);
+        font-family: 'Inter', -apple-system, sans-serif;
+    }
+
+    .smn-share-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-right: 4px;
+    }
+
+    .smn-share-btn {
+        display: inline-block;
+        padding: 7px 14px;
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        background: var(--bg-secondary);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.2;
+        color: var(--text-primary);
+        text-decoration: none;
+        cursor: pointer;
+        font-family: 'Inter', -apple-system, sans-serif;
+        transition: border-color 0.2s, color 0.2s;
+    }
+
+    .smn-share-btn:hover {
+        border-color: var(--accent-blue);
+        color: var(--accent-blue);
+    }
+
+    .smn-share-toast {
+        flex-basis: 100%;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent-green);
+        min-height: 16px;
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+
+    /* Compact top variant: right-aligned in the breadcrumb band, CNBC-style */
+    .smn-share--top {
+        justify-content: flex-end;
+        border-top: none;
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 6px 20px 0;
+    }
+
+    .smn-share--top .smn-share-btn {
+        padding: 5px 11px;
+        font-size: 12px;
+    }
+
+    .smn-share--top .smn-share-label {
+        font-size: 12px;
+    }
+
+    .smn-share--top .smn-share-toast {
+        min-height: 0;
+        text-align: right;
+    }
+
     /* Footer */
     .smn-footer {
         border-top: 1px solid var(--border-color);
@@ -527,6 +603,117 @@ def _site_cta_html():
     </script>'''
 
 
+def _site_share_html(symbol, title, article_url, compact=False):
+    """
+    Return a social share bar for article pages.
+
+    X / StockTwits / LinkedIn open pre-filled compose windows via share-intent
+    URLs baked server-side (works without JS). Substack has no compose URL, so
+    that button copies the link and opens Notes; the pasted link unfurls via
+    the page's existing OG tags. Copy-link uses the Clipboard API.
+
+    compact=True renders the smaller top-of-article variant (breadcrumb row,
+    right-aligned, no LinkedIn) and omits the shared click-handler script,
+    which is emitted once with the full bottom bar and binds both by class.
+    """
+    from urllib.parse import quote
+    import html as _htmlmod
+
+    clean_title = _htmlmod.unescape(title or '').strip()
+    sym = (symbol or '').strip().upper()
+    cashtag = f"${sym}" if re.fullmatch(r'[A-Z.]{1,10}', sym) else ''
+
+    x_text  = f"{clean_title} {cashtag}".strip()
+    st_body = f"{cashtag} — {clean_title} {article_url}" if cashtag else f"{clean_title} {article_url}"
+
+    x_href  = f"https://x.com/intent/post?text={quote(x_text, safe='')}&url={quote(article_url, safe='')}"
+    st_href = f"https://api.stocktwits.com/widgets/share?body={quote(st_body, safe='')}"
+    li_href = f"https://www.linkedin.com/sharing/share-offsite/?url={quote(article_url, safe='')}"
+    fb_href = f"https://www.facebook.com/sharer/sharer.php?u={quote(article_url, safe='')}"
+    em_href = (f"mailto:?subject={quote(clean_title, safe='')}"
+               f"&body={quote(clean_title, safe='')}%0A%0A{quote(article_url, safe='')}")
+    esc_url   = _htmlmod.escape(article_url, quote=True)
+    esc_title = _htmlmod.escape(clean_title, quote=True)
+
+    variant = ' smn-share--top' if compact else ''
+    label   = 'Share:' if compact else 'Share this analysis:'
+    # The compact top row stays at four items; the extended set (LinkedIn,
+    # Facebook, Email, native mobile share) lives only in the bottom bar.
+    extra_btns = '' if compact else (
+        f'\n        <a class="smn-share-btn" href="{li_href}" target="_blank" rel="noopener noreferrer">LinkedIn</a>'
+        f'\n        <a class="smn-share-btn" href="{fb_href}" target="_blank" rel="noopener noreferrer">Facebook</a>'
+        f'\n        <a class="smn-share-btn" href="{em_href}">Email</a>'
+    )
+    native_btn = '' if compact else (
+        '\n        <button type="button" class="smn-share-btn smn-share-native" style="display:none;">More&hellip;</button>'
+    )
+
+    bar = f'''
+    <div class="smn-share{variant}" data-share-url="{esc_url}" data-share-title="{esc_title}">
+        <span class="smn-share-label">{label}</span>
+        <a class="smn-share-btn" href="{x_href}" target="_blank" rel="noopener noreferrer">X</a>
+        <a class="smn-share-btn" href="{st_href}" target="_blank" rel="noopener noreferrer">StockTwits</a>
+        <button type="button" class="smn-share-btn smn-share-substack">Substack</button>{extra_btns}
+        <button type="button" class="smn-share-btn smn-share-copy">Copy link</button>{native_btn}
+        <span class="smn-share-toast" role="status"></span>
+    </div>'''
+
+    if compact:
+        return bar
+
+    return bar + '''
+    <script>
+    (function() {
+        function bindShare(bar) {
+            var url = bar.getAttribute('data-share-url') || window.location.href;
+            var toast = bar.querySelector('.smn-share-toast');
+            var timer = null;
+            function copyLink(msg) {
+                function done() {
+                    if (!toast) return;
+                    toast.textContent = msg;
+                    toast.style.opacity = '1';
+                    clearTimeout(timer);
+                    timer = setTimeout(function() { toast.style.opacity = '0'; }, 4000);
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(done, done);
+                } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = url;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try { document.execCommand('copy'); } catch (e) {}
+                    document.body.removeChild(ta);
+                    done();
+                }
+            }
+            var copyBtn = bar.querySelector('.smn-share-copy');
+            if (copyBtn) copyBtn.addEventListener('click', function() {
+                copyLink('Link copied');
+            });
+            var ssBtn = bar.querySelector('.smn-share-substack');
+            if (ssBtn) ssBtn.addEventListener('click', function() {
+                copyLink('Link copied \\u2014 paste it into your Substack Note or post');
+                window.open('https://substack.com/notes', '_blank', 'noopener');
+            });
+            var nativeBtn = bar.querySelector('.smn-share-native');
+            if (nativeBtn && navigator.share) {
+                nativeBtn.style.display = 'inline-block';
+                nativeBtn.addEventListener('click', function() {
+                    navigator.share({
+                        title: bar.getAttribute('data-share-title') || document.title,
+                        url: url
+                    }).catch(function() {});
+                });
+            }
+        }
+        var bars = document.querySelectorAll('.smn-share');
+        for (var i = 0; i < bars.length; i++) bindShare(bars[i]);
+    })();
+    </script>'''
+
+
 def _site_footer_html():
     """Return the SMN site footer."""
     from datetime import datetime as _dt
@@ -576,7 +763,14 @@ def _strip_site_wrapper(html):
     bottom_start = html.rfind('<div class="smn-chrome">', first + len(marker), second)
     if bottom_start != -1:
         end_of_second = second + len(marker)
-        html = html[:bottom_start] + html[end_of_second:]
+        pre, post = html[:bottom_start], html[end_of_second:]
+        # consume the newline padding added at injection so repeated
+        # strip/re-inject cycles don't accumulate blank lines
+        if pre.endswith('\n'):
+            pre = pre[:-1]
+        if post.startswith('\n'):
+            post = post[1:]
+        html = pre + post
 
     # Remove top chrome: from first marker to end of top chrome </div>
     # Top chrome ends with </div> (closing smn-chrome) followed by a newline before the article content
@@ -597,8 +791,14 @@ def _strip_site_wrapper(html):
                     depth -= 1
                     if depth == 0:
                         end_of_top = i + 6
-                        # Remove from first marker through end of top chrome
-                        html = html[:first] + html[end_of_top:]
+                        # Remove from first marker through end of top chrome,
+                        # consuming the injection's newline padding as above
+                        pre, post = html[:first], html[end_of_top:]
+                        if pre.endswith('\n'):
+                            pre = pre[:-1]
+                        if post.startswith('\n'):
+                            post = post[1:]
+                        html = pre + post
                         break
                 i += 1
 
@@ -624,15 +824,27 @@ def _inject_site_wrapper(html, symbol, title, force=False):
     if idx_head_close != -1:
         html = html[:idx_head_close] + chrome_css + html[idx_head_close:]
 
+    # Share bars need the article's public URL and clean title; both live in
+    # <head> by this point (canonical/og:url injected at step 9, og:title clean
+    # of the <title> site suffix). Skip the bars if no URL is found.
+    url_m = (re.search(r'<link rel="canonical" href="([^"]+)"', html)
+             or re.search(r'<meta property="og:url" content="([^"]+)"', html))
+    ogt_m = re.search(r'<meta property="og:title" content="([^"]*)"', html)
+    share_title = ogt_m.group(1) if ogt_m else (title or symbol)
+    share_html = _site_share_html(symbol, share_title, url_m.group(1)) if url_m else ''
+    share_top  = _site_share_html(symbol, share_title, url_m.group(1), compact=True) if url_m else ''
+
     # 2) Build the wrapper HTML
     top_chrome = f'''{_SITE_WRAPPER_MARKER}
 <div class="smn-chrome">
 {_site_market_bar_html()}
 {_site_header_html()}
 {_site_breadcrumb_html(symbol, title or symbol)}
+{share_top}
 </div>'''
 
     bottom_chrome = f'''<div class="smn-chrome">
+{share_html}
 {_site_cta_html()}
 {_site_footer_html()}
 </div>
@@ -649,7 +861,7 @@ def _inject_site_wrapper(html, symbol, title, force=False):
     if idx_body_close != -1:
         html = html[:idx_body_close] + "\n" + bottom_chrome + "\n" + html[idx_body_close:]
 
-    print("[WRAPPER] Injected SMN site wrapper (market bar, header, footer, email CTA)")
+    print("[WRAPPER] Injected SMN site wrapper (market bar, header, breadcrumb, share bar, email CTA, footer)")
     return html
 
 
