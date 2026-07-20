@@ -455,12 +455,14 @@ def get_keyprovider_token():
 
 
 def login_appserver(kp_token):
-    # TW2: kp_token is the SERVICE_API_KEY supplied by get_keyprovider_token.
-    url    = f'{PROD_APPSERVER_URL}/login/api/{kp_token}'
-    result = requests.get(url, timeout=15).json()
+    # TW2 v5: kp_token is the SERVICE_API_KEY; submit it in the X-Service-Key header
+    # via POST /login/api (never in the URL path) to obtain the JWT.
+    url     = f'{PROD_APPSERVER_URL}/login/api'
+    headers = {'X-Service-Key': kp_token}
+    result  = requests.post(url, headers=headers, timeout=15).json()
     if 'token' not in result:
         time.sleep(5)
-        result = requests.get(url, timeout=15).json()
+        result = requests.post(url, headers=headers, timeout=15).json()
         if 'token' not in result:
             return None
     return result.get('token')

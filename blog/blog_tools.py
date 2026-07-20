@@ -274,14 +274,17 @@ def get_keyprovider_token():
 #-------------------------------------------------------------------------------------------------
 # after logging in, the returned token is used to make other calls to the appserver
 def login_appserver(keyprovider_token):
-    # TW2: keyprovider_token is the SERVICE_API_KEY supplied by get_keyprovider_token() above.
-    url = config.appserver_url + '/login/api/' + keyprovider_token
-    api_result = requests.get(url, timeout=15)
+    # TW2 v5: keyprovider_token is the SERVICE_API_KEY supplied by get_keyprovider_token().
+    # The key is submitted in the X-Service-Key header via POST /login/api (never in the
+    # URL path); the appserver returns the JWT used for subsequent calls.
+    url = config.appserver_url.rstrip('/') + '/login/api'
+    headers = {'X-Service-Key': keyprovider_token}
+    api_result = requests.post(url, headers=headers, timeout=15)
     result = api_result.json()
 
     if 'token' not in result: # transient failure - rare - try again once
         time.sleep(5)
-        api_result = requests.get(url, timeout=15)
+        api_result = requests.post(url, headers=headers, timeout=15)
         result = api_result.json()
         if 'token' not in result:
             print('login_appserver: failed to obtain token, response:', result)
