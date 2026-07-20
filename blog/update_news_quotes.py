@@ -487,12 +487,17 @@ def _build_bar_items(quotes, futures_quotes, session, link_prefix="/markets/", c
         change_p = _safe_float(q.get("change_p")) if q else None
 
         if price is not None:
-            direction = "up" if (change_p or 0) >= 0 else "down"
-            sign = "+" if (change_p or 0) >= 0 else ""
             price_fmt = f"{price:,.2f}"
             if show_asterisk:
                 price_fmt += "<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F</sup>"
-            chg_fmt = f"{sign}{change_p:.2f}%"
+            if change_p is not None:
+                direction = "up" if change_p >= 0 else "down"
+                sign = "+" if change_p >= 0 else ""
+                chg_fmt = f"{sign}{change_p:.2f}%"
+            else:
+                # Price known but no change value (e.g. some futures-proxy quotes):
+                # show the price and omit the change badge rather than crashing the bar.
+                chg_fmt, direction = "", "flat"
         else:
             price_fmt, chg_fmt, direction = "", "", "flat"
 
