@@ -1910,7 +1910,7 @@ def build_security_page(sec, quote, news, related, chart_urls, max_pe=0,
     edu_cons_detail = ""
     if cons_60_s:
         edu_cons_detail = (
-            f" Over the next 60 trading days, this pattern has been positive "
+            f" Over the next 60 calendar days, this pattern has been positive "
             f"{cons_60_s['num_winners']} of {cons_60_s['num_total']} times "
             f"with an average return of {cons_60_s['avg_return']:+.1f}%."
         )

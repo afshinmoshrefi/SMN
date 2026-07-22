@@ -162,7 +162,7 @@ def _is_full_year_window(date_str: str, days) -> bool:
     """
     Treat a pattern as a full-year buy-and-hold window when:
       - the start date is Jan 1, and
-      - the configured window length is effectively a full year (>= 360 trading days).
+      - the configured window length is effectively a full year (>= 360 calendar days).
     Display-only rule; does not change underlying stats.
     """
     parts = date_str.split("-")

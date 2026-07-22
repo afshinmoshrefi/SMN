@@ -1280,7 +1280,7 @@ def article_post_process(
     variable_measured = [
         {"@type": "PropertyValue", "name": "Symbol", "value": symbol},
         {"@type": "PropertyValue", "name": "Trade direction", "value": trade_dir},
-        {"@type": "PropertyValue", "name": "Window (trading days)", "value": str(days)},
+        {"@type": "PropertyValue", "name": "Window (calendar days)", "value": str(days)},
         {"@type": "PropertyValue", "name": "Lookback", "value": str(years)},
         {"@type": "PropertyValue", "name": "Percent profitable", "value": str(percent_profitable)},
         {"@type": "PropertyValue", "name": "Num winners", "value": str(num_winners)},
