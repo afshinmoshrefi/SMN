@@ -16,6 +16,9 @@
 blog/*
 !blog/*.py
 !blog/*.sh
+!blog/tests/
+blog/tests/*
+!blog/tests/*.py
 !blog/templates/
 blog/templates/*
 !blog/templates/*.html
