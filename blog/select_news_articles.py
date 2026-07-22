@@ -1160,6 +1160,38 @@ def run_news_research():
     return news_results, earnings_results
 
 
+# ------------------------------------------------------------------
+# News-context helpers (Phase 4 angle engine) — pure + unit-testable.
+# Every news idea carries the triggering item's headline/date plus a
+# mapped direction so the angle pipeline gets its news peg. All fields
+# default to '' so pattern-only ideas and old readers are unaffected.
+# ------------------------------------------------------------------
+def _map_news_direction(sentiment):
+    """bullish/bearish kept verbatim; neutral/unknown/blank -> ''."""
+    s = str(sentiment or '').strip().lower()
+    return s if s in ('bullish', 'bearish') else ''
+
+
+def _norm_news_date(raw):
+    """Normalise a news date to YYYY-MM-DD, else '' (no regex, no LLM)."""
+    s = str(raw or '').strip()[:10]
+    if (len(s) == 10 and s[4] == '-' and s[7] == '-'
+            and s[:4].isdigit() and s[5:7].isdigit() and s[8:10].isdigit()):
+        return s
+    return ''
+
+
+def news_context_from_item(item):
+    """Derive the three threaded news-context fields from a ticker-extraction
+    item (or any dict). Pure — safe to call with {} for no-news candidates."""
+    item = item or {}
+    return {
+        'news_headline':  str(item.get('news_headline', '') or '').strip(),
+        'news_date':      _norm_news_date(item.get('news_date', '')),
+        'news_direction': _map_news_direction(item.get('news_sentiment', '')),
+    }
+
+
 def extract_tickers_with_grok(news_results, earnings_results,
                               volume_spikes=None, volume_list=None):
     """
@@ -1208,6 +1240,11 @@ For each unique security return JSON with:
 - earnings_date : ISO date if earnings just announced OR scheduled next 7 days; else null
 - earnings_type : "recent" (reported last 4 days) | "upcoming" (next 7 days) | null
 - rvol          : relative volume float if from volume data, else null
+- news_headline : the EXACT title of the single MARKET/EARNINGS NEWS item that
+                  makes this security notable; "" if it comes from volume data only
+- news_date     : the published date (YYYY-MM-DD) of that news item; "" if unknown
+- news_sentiment: "bullish" | "bearish" | "neutral" — that item's implication for
+                  THIS security's price; "" if unclear or volume-only
 
 INCLUDE:
 - ALL tickers from the UNUSUAL VOLUME SPIKES section (mandatory)
@@ -1224,8 +1261,8 @@ INPUT DATA:
 
 Return format:
 [
-  {{"ticker":"AAPL","company":"Apple Inc","asset_type":"stock","news_reason":"Beat Q1 earnings by 8%","earnings_date":"2026-02-18","earnings_type":"recent","rvol":null}},
-  {{"ticker":"DASH","company":"DoorDash Inc","asset_type":"stock","news_reason":"Unusual volume spike: 2.8x normal volume","earnings_date":null,"earnings_type":null,"rvol":2.79}}
+  {{"ticker":"AAPL","company":"Apple Inc","asset_type":"stock","news_reason":"Beat Q1 earnings by 8%","earnings_date":"2026-02-18","earnings_type":"recent","rvol":null,"news_headline":"Apple beats Q1 estimates on strong iPhone demand","news_date":"2026-02-18","news_sentiment":"bullish"}},
+  {{"ticker":"DASH","company":"DoorDash Inc","asset_type":"stock","news_reason":"Unusual volume spike: 2.8x normal volume","earnings_date":null,"earnings_type":null,"rvol":2.79,"news_headline":"","news_date":"","news_sentiment":""}}
 ]"""
 
     for _attempt in range(2):
@@ -1681,6 +1718,7 @@ def main():
     candidates = {}
     skipped_hard   = []
     flagged_soft   = []
+    dropped_no_pattern = []   # lane-2 evidence: news tickers with no usable pattern
     pe2_total_removed = 0   # track patterns removed by PE+2 danger zone filter
     div_total_removed = 0   # track patterns removed by cons/PE direction divergence
 
@@ -1724,6 +1762,31 @@ def main():
             if _div_rm: rm_parts.append(f'{_div_rm} divergence')
             rm_msg = f' ({", ".join(rm_parts)} removed)' if rm_parts else ''
             print(f'no patterns — skipped{rm_msg}')
+            # Record, do not publish. These are lane-2 candidates: real news,
+            # no usable pattern. Distinguish "never had one" from "had some,
+            # all filtered out" - they are different kinds of candidate.
+            if _pe2_rm or _div_rm:
+                _drop_reason = 'all_patterns_filtered'
+            else:
+                _drop_reason = 'no_patterns_found'
+            try:
+                dropped_no_pattern.append({
+                    'ticker':             ticker,
+                    'company':            item.get('company', ticker),
+                    'asset_type':         asset_type,
+                    'drop_reason':        _drop_reason,
+                    'pe2_removed':        _pe2_rm,
+                    'divergence_removed': _div_rm,
+                    'in_news':            1,
+                    'news_reason':        item.get('news_reason', ''),
+                    'earnings_type':      item.get('earnings_type'),
+                    'earnings_date':      item.get('earnings_date'),
+                    'rvol':               item.get('rvol') or rvol_map.get(ticker),
+                    'days_since_article': since,
+                    **news_context_from_item(item),
+                })
+            except Exception as _e:
+                print(f'  [WARN] could not record dropped ticker {ticker}: {_e}')
             continue
 
         rvol = item.get('rvol') or rvol_map.get(ticker)
@@ -1748,6 +1811,7 @@ def main():
             'pre_score':           ps,
             'in_news':             True,
             'in_weekly_patterns':  bool(weekly_pats),
+            **news_context_from_item(item),   # news_headline/news_date/news_direction
         }
 
     news_with_patterns = len(candidates)
@@ -1758,6 +1822,12 @@ def main():
     print(f'  Flagged — written {HARD_MIN_DAYS}–{SOFT_MIN_DAYS}d ago (penalised) : '
           f'{len(flagged_soft)}')
     print(f'  Dropped — no patterns           : {news_without}')
+    if dropped_no_pattern:
+        _nf = sum(1 for d in dropped_no_pattern if d['drop_reason'] == 'no_patterns_found')
+        _fl = len(dropped_no_pattern) - _nf
+        _rv = sum(1 for d in dropped_no_pattern if (d.get('rvol') or 0) >= 1.5)
+        print(f'    recorded for lane 2           : {len(dropped_no_pattern)}'
+              f'  (no pattern found {_nf}, all filtered {_fl}, rvol>=1.5 {_rv})')
 
     # Add top pattern-only symbols from weekly scan
     pattern_only = sorted(
@@ -1809,6 +1879,7 @@ def main():
             'pre_score':          ps,
             'in_news':            False,
             'in_weekly_patterns': True,
+            **news_context_from_item({}),     # pattern-only: no news peg (all '')
         }
         added_pattern_only += 1
 
@@ -1913,6 +1984,8 @@ def main():
                 for i in sched[d]]
             for d in sorted(sched)
         },
+        # Lane-2 evidence (recorded only; nothing is queued or published).
+        'dropped_no_pattern': dropped_no_pattern,
         'ideas': [],
     }
 
@@ -1958,6 +2031,8 @@ def main():
         'pat_resource_id',
         # Article content hints
         'article_angle', 'news_reason',
+        # Angle-engine news context (Phase 4) — empty for pattern-only ideas
+        'news_headline', 'news_date', 'news_direction',
     ]
     with open(csv_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction='ignore')
@@ -1989,6 +2064,9 @@ def main():
                 'pat_resource_id':    fp.get('resource_id', ''),
                 'article_angle':      idea.get('article_angle', ''),
                 'news_reason':        idea.get('news_reason', ''),
+                'news_headline':      idea.get('news_headline', ''),
+                'news_date':          idea.get('news_date', ''),
+                'news_direction':     idea.get('news_direction', ''),
             })
 
     print(f'Saved to: {output_file}  +  {csv_file}  ({len(final_ideas)} rows)')
