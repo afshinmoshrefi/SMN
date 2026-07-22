@@ -43,6 +43,8 @@ import thumbnail_renderer as TR
 from article_tools import get_article_image_paths
 from create_report import get_seasonal_chart_data,get_seasonal_chart_data2, get_chart_data
 import config
+import chartkit as ck
+from thumbnail_tools import inc_date_day as _inc_date_day
 
 # ---------------- Canvas / sizes ----------------
 DEFAULT_SIZE_KEY = "facebook"          # 1280 x 720
@@ -87,20 +89,6 @@ def _make_themes(light_bg="#f5f6f7"):
             "pricefill": "#93c5fd",
         },
     }
-
-# -------- color helpers for lighter overlays ----
-def _hex_to_rgb01(h):
-    h = h.lstrip("#")
-    return (int(h[0:2],16)/255.0, int(h[2:4],16)/255.0, int(h[4:6],16)/255.0)
-
-def _rgb01_to_hex(rgb):
-    r,g,b = [max(0,min(1,x)) for x in rgb]
-    return "#{:02x}{:02x}{:02x}".format(int(r*255), int(g*255), int(b*255))
-
-def _lighten(hex_color, frac=0.70):
-    """Mix hex color with white by frac (0..1)."""
-    r,g,b = _hex_to_rgb01(hex_color)
-    return _rgb01_to_hex((r + (1-r)*frac, g + (1-g)*frac, b + (1-b)*frac))
 
 # ---------------- Layout (no top title) ---------
 AX_LEFT, AX_RIGHT, AX_TOP, AX_BOTTOM = 0.075, 0.040, 0.92, 0.24
@@ -288,27 +276,6 @@ def _trend(ax, labels, yvals, hl_span, trade_dir, W, H, pal):
     ax.set_xticks(pos.tolist()); ax.set_xticklabels(lbls, color=pal["muted"])
     _fmt_axes(ax, W, H, pal, grid=False, y_percent=False)
 
-def _cumulative(ax, yvals, years_labels, W, H, pal, x_scale=CUM_XLABEL_SCALE):
-    color = pal["pos"] if (len(yvals) == 0 or (yvals and yvals[-1] >= 0)) else pal["neg"]
-    x = np.arange(len(yvals))
-    ax.plot(x, yvals, linewidth=max(2.2, H*0.0036), color=color)
-    ax.fill_between(x, yvals, color=color, alpha=0.15)
-    years_labels = [str(y) for y in years_labels[:len(x)]]
-    step = max(1, len(x)//6)
-    ax.set_xticks(x[::step]); ax.set_xticklabels(years_labels[::step], color=pal["muted"])
-    _fmt_axes(ax, W, H, pal, grid=True, y_percent=True)
-    base_fs = max(12, min(H*0.040, W*0.038)); xlab_fs = int(base_fs * float(x_scale))
-    _set_tick_fontsizes(ax, x=xlab_fs)
-
-def _price(ax, dates, prices, W, H, pal):
-    dnum = mdates.date2num(dates)
-    ax.plot(dnum, prices, linewidth=max(2.2, H*0.0036), color=pal["price"])
-    ax.fill_between(dnum, prices, [min(prices)] * len(prices), color=pal["pricefill"], alpha=0.18)
-    loc = mdates.AutoDateLocator(minticks=3, maxticks=6); fmt = mdates.ConciseDateFormatter(loc)
-    ax.xaxis.set_major_locator(loc); ax.xaxis.set_major_formatter(fmt)
-    ax.margins(x=0); ax.set_xlim(dnum[0], dnum[-1]); ax.yaxis.set_major_locator(MaxNLocator(nbins=5, prune="both"))
-    _fmt_axes(ax, W, H, pal, grid=True, y_percent=False)
-
 def _build_projection(dates, prices, trend_labels, trend_values, proj_days):
     """
     Build seasonal price projection from the last known price point.
@@ -492,65 +459,6 @@ def _price_with_projection(ax, dates, prices, proj_dates, proj_prices,
     _fmt_axes(ax, W, H, pal, grid=True, y_percent=False)
 
 
-# ---------------- Bar overlays -------------------
-def _align_series(seq, n, fill=None):
-    if seq is None: return [fill]*n
-    seq = [None if v in (None, "") else float(v) for v in list(seq)]
-    if len(seq) < n: seq = seq + [fill]*(n-len(seq))
-    elif len(seq) > n: seq = seq[:n]
-    return seq
-
-def _draw_mfe_mae_overlays_levels(ax, years, returns, mfe_levels, mae_levels, trade_dir, pal):
-    """
-    LEVELS (relative to 0%):
-      MFE (favorable):
-        Long  (bullish): stack from max(ret, 0) -> mfe, only if mfe > max(ret, 0)  (light green).
-        Short (bearish): stack from mfe -> min(ret, 0), only if mfe < min(ret, 0)  (light red).
-      MAE (adverse from zero):
-        Long  (bullish): if mae < 0, draw mae -> 0  (light red).
-        Short (bearish): if mae > 0, draw 0  -> mae (light green).
-    """
-    import numpy as np
-    x = np.arange(len(years))
-    width = 0.7
-    is_long = str(trade_dir).lower().startswith("l")
-
-    # distinct light overlay colors
-    pos_light = _lighten(pal["pos"], 0.70)  # light green
-    neg_light = _lighten(pal["neg"], 0.70)  # light red/pink
-
-    returns    = [0.0 if r in (None, "") else float(r) for r in returns]
-    mfe_levels = _align_series(mfe_levels, len(returns), fill=None)
-    mae_levels = _align_series(mae_levels, len(returns), fill=None)
-
-    # ----- MFE stacked extension (favorable) -----
-    for i, ret in enumerate(returns):
-        mfe = mfe_levels[i]
-        if mfe is None: 
-            continue
-        if is_long:
-            low = max(ret, 0.0)     # Option A rule
-            if mfe > low:
-                ax.bar(x[i], mfe - low, width=width, bottom=low,
-                       color=pos_light, alpha=1.0, edgecolor="none", linewidth=0)
-        else:
-            high = min(ret, 0.0)
-            if mfe < high:
-                ax.bar(x[i], high - mfe, width=width, bottom=mfe,
-                       color=neg_light, alpha=1.0, edgecolor="none", linewidth=0)
-
-    # ----- MAE from zero (adverse) -----
-    for i, ret in enumerate(returns):
-        mae = mae_levels[i]
-        if mae is None:
-            continue
-        if is_long and mae < 0.0:
-            ax.bar(x[i], -mae, width=width, bottom=mae,
-                   color=neg_light, alpha=1.0, edgecolor="none", linewidth=0)
-        elif (not is_long) and mae > 0.0:
-            ax.bar(x[i], mae, width=width, bottom=0.0,
-                   color=pos_light, alpha=1.0, edgecolor="none", linewidth=0)
-
 # ---------------- Stats ----------------
 def _stats_pairs_from_payload(p, symbol, date, days, years):
     """
@@ -603,68 +511,60 @@ def _stats_pairs_from_payload(p, symbol, date, days, years):
 
     return pairs
 
-def _draw_stats_table(ax, pal, pairs):
-    """Render (label, value) pairs in a clean 3-column grid inside the axes."""
-    ax.set_axis_off()
-    inner = ax.inset_axes([0.02, 0.08, 0.96, 0.84]); inner.set_axis_off()
+# ---------------- chartkit wiring helpers --------
+def _isz(v):
+    """True when a value is (effectively) zero — used to spot '0,0,0' rows."""
+    try:
+        return abs(float(v if v not in (None, "") else 0.0)) < 1e-12
+    except (TypeError, ValueError):
+        return True
 
-    n = len(pairs); cols = 3; rows = int(math.ceil(n / cols))
-    bbox = ax.get_position(); fig = ax.figure
-    W, H = fig.get_size_inches() * fig.dpi; ax_h_px = (bbox.y1 - bbox.y0) * H
-    label_fs = max(16, int(ax_h_px * 0.085 / fig.dpi * 72 / 100) * 2)
-    value_fs = max(18, int(ax_h_px * 0.125 / fig.dpi * 72 / 100) * 2)
-    line_h   = 1.0 / rows
+def _window_end(date1, days):
+    """Last day of the hold window (date1 + days - 1)."""
+    return _inc_date_day(date1, int(days) - 1)
 
-    for idx, (label, value) in enumerate(pairs):
-        r = idx // cols; c = idx % cols
-        x0 = c * (1.0 / cols); y0 = 1.0 - (r + 1) * line_h
-        inner.add_patch(plt.Rectangle((x0 + 0.015, y0 + 0.10*line_h),
-                                      (1.0/cols) - 0.030, line_h*0.80,
-                                      fill=False, edgecolor=pal["line"], linewidth=2))
-        inner.text(x0 + 0.03, y0 + 0.70*line_h, label, ha="left", va="center",
-                   color=pal["muted"], fontsize=label_fs, weight=800)
-        inner.text(x0 + (1.0/cols)/2.0, y0 + 0.34*line_h, str(value),
-                   ha="center", va="center", color=pal["text"],
-                   fontsize=value_fs, weight=900, linespacing=1.15)
+def _norm_dir(trade_dir):
+    return "short" if str(trade_dir).lower().startswith("s") else "long"
 
-def _create_price_chart_only(p, symbol, date, days, years, company, W, H, pal, _fname):
-    """Generate only the price chart with 60-day projection. Used for social posts."""
+def _result_dict(variant, fpath, sem):
+    """Build the return-contract dict, now carrying caption/alt/semantics."""
+    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
+    caption = sem.get("title", "")
+    return {"variant": variant, "path": fpath, "rel": rel, "url": url,
+            "caption": caption, "alt": sem.get("alt", caption),
+            "semantics": sem}
+
+def _price_dates_prices(p):
     from dateutil.parser import parse as dtparse
-
-    f0 = AX_TOP - AX_BOTTOM
-    P_BOTTOM, P_TOP = 0.12, 0.94
-    f1 = P_TOP - P_BOTTOM
-    H_price = int(round(H * (f0 / f1)))
-
-    fig = _init_fig(W, H_price, pal)
-    rect = [AX_LEFT, P_BOTTOM, 1.0 - AX_LEFT - AX_RIGHT, P_TOP - P_BOTTOM]
-    ax = fig.add_axes(rect); ax.set_facecolor(pal["bg"])
-
     dates, prices = [], []
-    if p.get("price_points"):
-        dates  = [dtparse(pt[0]).date() for pt in p["price_points"]]
-        prices = [float(pt[1]) for pt in p["price_points"]]
+    for pt in (p.get("price_points") or []):
+        dates.append(dtparse(pt[0]).date())
+        prices.append(float(pt[1]))
+    return dates, prices
 
-    years_label = _human_years_label(years)
+def _render_price_variant(p, variant, proj_days, palette, fpath, base_meta,
+                          n, company):
+    """Render a price+projection chart via chartkit; returns a result dict."""
+    dates, prices = _price_dates_prices(p)
+    if not prices:
+        # No price history: still honor the contract with a titled blank frame.
+        sem = ck._semantics(variant, f"{base_meta['symbol']} price unavailable",
+                            "Price history was not available for this window.",
+                            "Source: TradeWave price history", n,
+                            base_meta.get("direction", "long"),
+                            base_meta.get("window_start", ""),
+                            base_meta.get("window_end", ""))
+        fig, _ = ck.new_frame("", sem["title"], sem["spec"], sem["source"],
+                              palette=palette)
+        ck._save(fig, fpath)
+        return _result_dict(variant, fpath, sem)
     proj_dates, proj_prices = _build_projection(
-        dates, prices,
-        p.get("trend_labels", []), p.get("trend_values", []),
-        60
-    )
-
-    if dates:
-        if proj_dates:
-            _price_with_projection(ax, dates, prices, proj_dates, proj_prices,
-                                   60, years_label, W, H_price, pal)
-        else:
-            _price(ax, dates, prices, W, H_price, pal)
-
-    _footer_labels(ax, pal, company)
-    fpath = _fname("price")
-    _save(fig, fpath, W, H_price)
-    rel = _abs_to_rel(fpath)
-    url = _rel_to_url(rel)
-    return [{"variant": "price", "path": fpath, "rel": rel, "url": url}]
+        dates, prices, p.get("trend_labels", []), p.get("trend_values", []),
+        proj_days)
+    meta = dict(base_meta, proj_days=proj_days, n=n, company=company)
+    sem = ck.price_projection(dates, prices, proj_dates, proj_prices, meta,
+                              fpath, palette=palette)
+    return _result_dict(variant, fpath, sem)
 
 
 # ---------------- Main API -----------------------
@@ -682,33 +582,29 @@ def create_article_images(size_key,
                           mode="all"):
     """
     Creates and saves images. Returns list of dicts with:
-      variant, path (abs), rel (web-relative), url (absolute https).
+      variant, path (abs), rel (web-relative), url (absolute https),
+      caption (semantics title), alt (semantics alt), semantics (full dict).
+
+    All drawing goes through chartkit (the approved SMN visual system). The
+    renderer is the single source of truth for every chart's claim; the numbers
+    in captions/alt are computed from the same arrays being drawn.
 
     mode='all'    - generate all chart variants (default, for articles)
     mode='social' - generate only the price chart with 60-day projection (for X posts)
     """
-    THEMES = _make_themes(light_bg=light_bg)
     if size_key not in THUMB_SIZES: size_key = DEFAULT_SIZE_KEY
-    W, H = THUMB_SIZES[size_key]; pal = THEMES.get(theme, THEMES["dark"])
+    # chartkit palette: the article pipeline uses 'light' today; honor an
+    # explicit dark theme request, else light.
+    palette = "dark" if str(theme).lower() == "dark" else "light"
 
-    # Expect payload to include:
-    # bar_years, bar_returns, bar_returns_mfe (levels), bar_returns_mae (levels)
-
-    # this one had errors in pe2 so I rewrote it in this script called build_article_images_payload
-    # p = build_thumbnail_payload(resource_id, symbol, date, days, years,price_lookback_days=price_lookback_days, zero_last_year=True)
-    p = build_article_images_payload(resource_id, symbol, date, days, years,price_lookback_days=price_lookback_days, zero_last_year=True)
-
-    # print(p['trend_labels'])
-    # print('')
-    # print(p['trend_values'])
-    # exit()
-
+    p = build_article_images_payload(resource_id, symbol, date, days, years,
+                                     price_lookback_days=price_lookback_days,
+                                     zero_last_year=True)
 
     try:
         company = get_company_name(resource_id, symbol) or symbol
     except Exception:
         company = symbol
-    ticker = p.get("ticker", symbol)
 
     out_dir, _, _, _ = get_article_image_paths(resource_id, date, symbol, "")
 
@@ -717,214 +613,109 @@ def create_article_images(size_key,
 
     results = []
 
-    # Social mode: skip bars/trend, generate only price chart with projection
+    direction = _norm_dir(p.get("trade_dir", "long"))
+    d1 = date
+    end_date = _window_end(date, days)
+    lookback_label = _human_years_label(years)
+
+    base_meta = dict(symbol=symbol, company=company, direction=direction,
+                     window_start=d1, window_end=end_date, days=int(days),
+                     lookback_label=lookback_label)
+
+    # Social mode: only the price chart with a 60-day projection.
     if mode == "social":
-        return _create_price_chart_only(p, symbol, date, days, years, company, W, H, pal, _fname)
+        n_social = len([r for r in (p.get("bar_returns") or [])
+                        if not _isz(r)])
+        return [_render_price_variant(p, "price", 60, palette, _fname("price"),
+                                      base_meta, n_social, company)]
 
-    raw_date_range = _date_range_only(p.get("window_text", ""))
+    # ---- Drop zeroed current-year '0,0,0' rows from bar/cumulative arrays ----
+    raw_years = list(p.get("bar_years", []))
+    raw_ret   = list(p.get("bar_returns", []))
+    raw_mfe   = list(p.get("bar_returns_mfe", []))
+    raw_mae   = list(p.get("bar_returns_mae", []))
+    raw_cum   = list(p.get("cum_data", []))
 
-    # Normalize caption text so full-year windows read correctly
-    if _is_full_year_window(date, days):
-        core = _clean_date_range_for_caption(raw_date_range)
-        # Caption emphasizes the full-year concept, not the raw day count
-        if core:
-            date_range = f"{core} · full-year buy-and-hold period"
-        else:
-            date_range = "full-year buy-and-hold period"
-    else:
-        date_range = raw_date_range
+    def _g(seq, i):
+        return seq[i] if i < len(seq) else 0.0
+    keep = [i for i in range(len(raw_ret))
+            if not (_isz(raw_ret[i]) and _isz(_g(raw_mfe, i)) and _isz(_g(raw_mae, i)))]
+    def _f(seq):
+        return [seq[i] for i in keep if i < len(seq)]
 
- # ---------- Bars (plain) ----------
-    # Resize height because caption was removed (match trend/price pattern)
-    f0 = AX_TOP - AX_BOTTOM        # original axes height fraction
-    B_BOTTOM, B_TOP = 0.12, 0.94   # tuned margins for bars without caption
-    f1 = B_TOP - B_BOTTOM
-    H_bars = int(round(H * (f0 / f1)))
-    fig = _init_fig(W, H_bars, pal)
-    rect = [AX_LEFT, B_BOTTOM, 1.0 - AX_LEFT - AX_RIGHT, B_TOP - B_BOTTOM]
-    ax = fig.add_axes(rect); ax.set_facecolor(pal["bg"])
-    _bars(ax, p["bar_years"], p["bar_returns"], W, H_bars, pal, x_scale=bar_xlabel_scale)
-    _footer_labels(ax, pal, company)   # caption intentionally removed
-    fpath = _fname("bars")
-    _save(fig, fpath, W, H_bars)
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant": "bars", "path": fpath, "rel": rel, "url": url})
+    bar_years = _f(raw_years)
+    bar_ret   = _f(raw_ret)
+    bar_mfe   = _f(raw_mfe)
+    bar_mae   = _f(raw_mae)
+    cum_data  = _f(raw_cum) if len(raw_cum) == len(raw_ret) else \
+                [v for v in raw_cum if True]
+    n = len(bar_ret)
+    year_first = bar_years[0] if bar_years else ""
+    year_last  = bar_years[-1] if bar_years else ""
 
-    # ---------- Bars with overlays ----------
-    years_list = p["bar_years"]
-    rets_list  = p["bar_returns"]
-
-    mfe_lvl    = _align_series(p.get("bar_returns_mfe"), len(rets_list))
-    mae_lvl    = _align_series(p.get("bar_returns_mae"), len(rets_list))
-
-    trade_dir = str(p.get("trade_dir", "long")).lower()
-    if trade_dir == 'short':
+    # short-direction MFE/MAE swap (kept verbatim from the legacy path)
+    mfe_lvl, mae_lvl = bar_mfe, bar_mae
+    if direction == "short":
         mfe_lvl, mae_lvl = mae_lvl, mfe_lvl
 
-    extra_vals_all = [v for v in (mfe_lvl or []) if v is not None] + [v for v in (mae_lvl or []) if v is not None]
+    # ---------- Bars (plain) ----------
+    fpath = _fname("bars")
+    sem = ck.record_bars(bar_years, bar_ret, dict(base_meta, variant="bars"),
+                         fpath, palette=palette)
+    results.append(_result_dict("bars", fpath, sem))
 
+    # ---------- Bars + MFE ----------
+    fpath = _fname("bars_mfe")
+    sem = ck.record_bars(bar_years, bar_ret,
+                         dict(base_meta, variant="bars_mfe"), fpath,
+                         mfe=mfe_lvl, palette=palette)
+    results.append(_result_dict("bars_mfe", fpath, sem))
 
-    
+    # ---------- Bars + MAE ----------
+    fpath = _fname("bars_mae")
+    sem = ck.record_bars(bar_years, bar_ret,
+                         dict(base_meta, variant="bars_mae"), fpath,
+                         mae=mae_lvl, palette=palette)
+    results.append(_result_dict("bars_mae", fpath, sem))
 
-    # Bars + MFE (draw overlays FIRST, base bars SECOND)
-    fig = _init_fig(W, H, pal); ax = _axes(fig, pal)
-    _draw_mfe_mae_overlays_levels(ax, years_list, rets_list, mfe_lvl, None, p.get("trade_dir","long"), pal)
-    _bars(ax, years_list, rets_list, W, H, pal, x_scale=bar_xlabel_scale, extra_values=extra_vals_all)
-    _footer_labels(ax, pal, company); _caption(fig, pal, f"{ticker} Seasonal Pattern + MFE | {date_range}")
-    fpath = _fname("bars_mfe"); _save(fig, fpath, W, H)
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant":"bars_mfe","path":fpath,"rel":rel,"url":url})
-
-    # Bars + MAE
-    fig = _init_fig(W, H, pal); ax = _axes(fig, pal)
-    _draw_mfe_mae_overlays_levels(ax, years_list, rets_list, None, mae_lvl, p.get("trade_dir","long"), pal)
-    _bars(ax, years_list, rets_list, W, H, pal, x_scale=bar_xlabel_scale, extra_values=extra_vals_all)
-    _footer_labels(ax, pal, company); _caption(fig, pal, f"{ticker} Seasonal Pattern + MAE | {date_range}")
-    fpath = _fname("bars_mae"); _save(fig, fpath, W, H)
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant":"bars_mae","path":fpath,"rel":rel,"url":url})
-
-    # Bars + MFE + MAE
-    f0 = AX_TOP - AX_BOTTOM        # original axes height fraction (space reserved for caption)
-    B2_BOTTOM, B2_TOP = 0.12, 0.94 # tuned margins for bars without caption
-    f1 = B2_TOP - B2_BOTTOM
-    H_bars_mae_mfe = int(round(H * (f0 / f1)))  # shrink canvas so plot area stays same size
-    fig = _init_fig(W, H_bars_mae_mfe, pal)
-    rect = [AX_LEFT, B2_BOTTOM, 1.0 - AX_LEFT - AX_RIGHT, B2_TOP - B2_BOTTOM]
-    ax = fig.add_axes(rect); ax.set_facecolor(pal["bg"])
-    _draw_mfe_mae_overlays_levels(ax, years_list, rets_list, mfe_lvl, mae_lvl, p.get("trade_dir","long"), pal)
-    _bars(ax, years_list, rets_list, W, H_bars_mae_mfe, pal, x_scale=bar_xlabel_scale, extra_values=extra_vals_all)
-    _footer_labels(ax, pal, company)   # caption intentionally removed
+    # ---------- Bars + MFE + MAE ----------
     fpath = _fname("bars_mae_mfe")
-    _save(fig, fpath, W, H_bars_mae_mfe)
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant":"bars_mae_mfe","path":fpath,"rel":rel,"url":url})
+    sem = ck.record_bars(bar_years, bar_ret,
+                         dict(base_meta, variant="bars_mae_mfe"), fpath,
+                         mfe=mfe_lvl, mae=mae_lvl, palette=palette)
+    results.append(_result_dict("bars_mae_mfe", fpath, sem))
 
-
-    # ---------- Trend ----------
-    # Keep plot pixel height constant, reduce canvas height (no caption now)
-    f0 = AX_TOP - AX_BOTTOM          # old axes height fraction
-    T_BOTTOM, T_TOP = 0.12, 0.94     # tighter margins for trend (no caption)
-    f1 = T_TOP - T_BOTTOM
-
-    H_trend = int(round(H * (f0 / f1)))  # shrink canvas so plot area stays same size
-
-    fig = _init_fig(W, H_trend, pal)
-    rect = [AX_LEFT, T_BOTTOM, 1.0 - AX_LEFT - AX_RIGHT, T_TOP - T_BOTTOM]
-    ax = fig.add_axes(rect); ax.set_facecolor(pal["bg"])
-
-    seg_labels = p.get("trend_labels", [])
-    seg_values = p.get("trend_values", [])
-    # seg_labels = p.get("trend_segment_labels", [])
-    # seg_values = p.get("trend_segment_values", [])
-
-    # print('seg_values=',seg_values)
-    # print('seg_labels=',seg_labels)
-
-    # exit()
-
-    seg_hl     = p.get("trend_segment_hl", (0, 0))
-    _trend(ax, seg_labels, seg_values, seg_hl, p.get("trade_dir","long"), W, H_trend, pal)
-    _footer_labels(ax, pal, company)
+    # ---------- Trend (seasonal path with the window band) ----------
     fpath = _fname("trend")
-    _save(fig, fpath, W, H_trend)    # save with the new shorter height
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant":"trend","path":fpath,"rel":rel,"url":url})
+    trend_meta = dict(base_meta, n=n, year_first=year_first, year_last=year_last)
+    sem = ck.trend_window(p.get("trend_labels", []), p.get("trend_values", []),
+                          d1, end_date, direction, trend_meta, fpath,
+                          palette=palette)
+    results.append(_result_dict("trend", fpath, sem))
 
-    # ---------- Price ----------
-    # Keep plot pixel height constant, reduce canvas height (no caption now)
-    f0 = AX_TOP - AX_BOTTOM          # old axes height fraction
-    P_BOTTOM, P_TOP = 0.12, 0.94     # tighter margins for price (no caption)
-    f1 = P_TOP - P_BOTTOM
-
-    H_price = int(round(H * (f0 / f1)))  # shrink canvas so plot area stays same size
-
-    fig = _init_fig(W, H_price, pal)
-    rect = [AX_LEFT, P_BOTTOM, 1.0 - AX_LEFT - AX_RIGHT, P_TOP - P_BOTTOM]
-    ax = fig.add_axes(rect); ax.set_facecolor(pal["bg"])
-
-    dates, prices = [], []
-    if p.get("price_points"):
-        dates  = [dtparse(pt[0]).date() for pt in p["price_points"]]
-        prices = [float(pt[1]) for pt in p["price_points"]]
-
-    # ---------- Price chart = Price + 60-day projection ----------
-    years_label = _human_years_label(years)
-    proj_dates_60, proj_prices_60 = _build_projection(
-        dates, prices,
-        p.get("trend_labels", []), p.get("trend_values", []),
-        60
-    )
-
-    if dates:
-        if proj_dates_60:
-            _price_with_projection(ax, dates, prices, proj_dates_60, proj_prices_60,
-                                   60, years_label, W, H_price, pal)
-        else:
-            _price(ax, dates, prices, W, H_price, pal)
-
-    _footer_labels(ax, pal, company)
-    fpath = _fname("price")
-    _save(fig, fpath, W, H_price)
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant":"price","path":fpath,"rel":rel,"url":url})
-
-    # Social mode: only need the price chart with projection, done
-    if mode == "social":
-        return results
+    # ---------- Price = Price + 60-day projection ----------
+    results.append(_render_price_variant(p, "price", 60, palette,
+                                         _fname("price"),
+                                         dict(base_meta, n=n), n, company))
 
     # ---------- Price + Projection (30d, 60d, 90d) ----------
     for proj_days in (30, 60, 90):
         variant = f"price_proj_{proj_days}"
-        proj_dates, proj_prices = _build_projection(
-            dates, prices,
-            p.get("trend_labels", []), p.get("trend_values", []),
-            proj_days
-        )
-
-        fig = _init_fig(W, H_price, pal)
-        rect = [AX_LEFT, P_BOTTOM, 1.0 - AX_LEFT - AX_RIGHT, P_TOP - P_BOTTOM]
-        ax = fig.add_axes(rect); ax.set_facecolor(pal["bg"])
-
-        if dates:
-            _price_with_projection(ax, dates, prices, proj_dates, proj_prices,
-                                   proj_days, years_label, W, H_price, pal)
-
-        _footer_labels(ax, pal, company)
-
-        fpath = _fname(variant)
-        _save(fig, fpath, W, H_price)
-        rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-        results.append({"variant": variant, "path": fpath, "rel": rel, "url": url})
+        results.append(_render_price_variant(p, variant, proj_days, palette,
+                                             _fname(variant),
+                                             dict(base_meta, n=n), n, company))
 
     # ---------- Cumulative ----------
-    fig = _init_fig(W, H, pal); ax = _axes(fig, pal)
-    cum_vals  = p.get("cum_data", []); year_lbls = p.get("cum_years") or p.get("bar_years") or []
-    _cumulative(ax, cum_vals, year_lbls, W, H, pal, x_scale=cum_xlabel_scale)
-    _footer_labels(ax, pal, company); _caption(fig, pal, f"{ticker} Cumulative Chart | {date_range}")
-    fpath = _fname("cumulative"); _save(fig, fpath, W, H)
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant":"cumulative","path":fpath,"rel":rel,"url":url})
+    fpath = _fname("cumulative")
+    sem = ck.cumulative(bar_years, cum_data, dict(base_meta, n=n), fpath,
+                        palette=palette)
+    results.append(_result_dict("cumulative", fpath, sem))
 
     # ---------- Stats ----------
-    # Keep plot pixel height constant, reduce canvas height (no caption)
-    f0 = AX_TOP - AX_BOTTOM # old axes height fraction
-    S_BOTTOM, S_TOP = 0.12, 0.94 # tighter margins for stats (no caption)
-    f1 = S_TOP - S_BOTTOM
-    H_stats = int(round(H * (f0 / f1)))
-
-
-    fig = _init_fig(W, H_stats, pal)
-    rect = [AX_LEFT, S_BOTTOM, 1.0 - AX_LEFT - AX_RIGHT, S_TOP - S_BOTTOM]
-    ax = fig.add_axes(rect); ax.set_facecolor(pal["bg"])
-
-
+    fpath = _fname("stats")
     pairs = _stats_pairs_from_payload(p, symbol, date, days, years)
-    _draw_stats_table(ax, pal, pairs)
-    _footer_labels(ax, pal, company) # caption intentionally removed
-    fpath = _fname("stats"); _save(fig, fpath, W, H_stats)
-    rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    results.append({"variant":"stats","path":fpath,"rel":rel,"url":url})
+    sem = ck.stats_table(pairs, dict(base_meta, n=n), fpath, palette=palette)
+    results.append(_result_dict("stats", fpath, sem))
 
     return results
 #-------------------------------------------------------------------------------------------------------------------

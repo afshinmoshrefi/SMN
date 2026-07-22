@@ -12,6 +12,7 @@
 
 
 import math
+import re
 import requests
 import pandas as pd
 import os
@@ -37,8 +38,9 @@ from slugify import slugify
 import json
 import urllib.parse
 
-from PIL import Image, ImageDraw, ImageFont, ImageColor  # using pillow to draw a white rectangle over the year on the trend chart - couldn't remove it 
-                                                         # in matplotlib without screwing up the chart!!
+# NOTE: the Pillow white-rectangle patch on the seasonal chart is gone
+# (create_seasonals_chart now renders via chartkit, which draws month ticks and
+# never year labels), so the PIL import that only served that patch is removed.
 
 matplotlib.use('Agg')
 
@@ -134,83 +136,56 @@ def get_chart_data(id,opp_date,symbol,daysOut,years,zero_last_year,appserver_tok
 
 #------------------------------------------------------------------------------------------------
 
-# this version  uses subplots - only way I figured to add % sign to the y labels
+# -- helpers for the chartkit-backed legacy report charts --
+def _symbol_from_txt(txt):
+    """The report captions start with the symbol, e.g. 'NVDA TradeWave ...'."""
+    return str(txt).split()[0] if txt else ""
+
+def _window_from_txt(txt):
+    """Extract '(YYYY-MM-DD, YYYY-MM-DD)' from a caption like
+    'NVDA ... - 2026-07-21 to 2026-09-18'. Returns ('','') if absent."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})", str(txt))
+    return (m.group(1), m.group(2)) if m else ("", "")
+
+
+# Reimplemented on chartkit (the approved SMN visual system). Signature and
+# return value are unchanged: still returns (barData, barLabel) for the
+# cumulative chart. The superseded layout args (x1,y1,txt1,x2,y2,txt2,figsize,
+# fontsize) are accepted and ignored — chartkit owns framing/typography now.
+# Title inputs are derived from the existing args: symbol and the window dates
+# come from txt2; direction is inferred from the data (majority side), matching
+# the prototype's own convention.
 def create_barchart(chart_data,years,filename,x1,y1,txt1,x2,y2,txt2,figsize,fontsize):
-    barData =[]
-    barLabel=[]
-    barColor=[]
-    green = (0/255, 153/255, 0/255,1)
-    red   = (1,0,0,1)
+    import chartkit as ck
 
-
-
-
-    # print(chart_data)
-    print('years=',years)
-    # print(chart_data)
-    # exit()
-    
-#     green = (92/255, 184/255, 92/255,1)
-#     red   = (217/255, 83/255, 79/255,1)
-    
-#     green = (0,153/255,0,1)
-#     red   = (153/255,0,0,1)
-
-    for i in range(len(chart_data)):
-        t=chart_data[i]
-        pct = t['pct']
-        bar_value = float( pct.split(',')[0] )
-        c = green
-        if bar_value <0 : c=red
-
+    barData, barLabel = [], []
+    for t in chart_data:
+        bar_value = float(t['pct'].split(',')[0])
         barData.append(bar_value)
         barLabel.append(t['year'])
-        barColor.append(c)
 
-    # now create the barchart
-    fig = plt.figure(figsize=figsize,facecolor=(1, 1, 1)) # 1,1,1 shows axes otherwise invisible
-    ax = fig.add_subplot(1,1,1)
-    ax.tick_params(axis='x', labelsize=20)
-    ax.tick_params(axis='y', labelsize=20)
-    
-    ax.yaxis.set_major_formatter(mtick.PercentFormatter())
+    # Drop the zeroed current-year placeholder ('0,0,0') before rendering.
+    years_clean, nets_clean, _, _ = ck._drop_zeroed(barLabel, barData)
 
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ######################################################
-    # Setting barwidths
-    ######################################################
-    bar_width = 0
-    if years == 'odd' or years == 'even':bar_width = 1.5
-    if years[:2] == 'pe':bar_width = 3
-    # if years == 'pe': bar_width = 0.5
-    print('barwidth=',bar_width)
-    ######################################################
-    
+    sym = _symbol_from_txt(txt2)
+    date1, date2 = _window_from_txt(txt2)
+    days = ""
+    if date1 and date2:
+        try:
+            days = diff_between_dates(date2, date1) + 1
+        except Exception:
+            days = ""
+    # direction inferred from the data: majority side (prototype convention)
+    wins = sum(1 for v in nets_clean if v > 0)
+    direction = "long" if wins >= (len(nets_clean) - wins) else "short"
+    meta = dict(symbol=sym, direction=direction, window_start=date1,
+                window_end=date2, days=days, variant="bars")
+    try:
+        ck.record_bars(years_clean, nets_clean, meta, filename)
+    except Exception as e:
+        print('create_barchart chartkit render failed (non-fatal):', e)
 
-    plt.xticks(barLabel,color='dimgray')
-    plt.yticks(color='dimgray')
-    ax.axhline(y=0, color='k', linestyle='-',lw=0.5,zorder=0)
-    ax.grid(color='darkgray',linewidth=0.5,axis='y')
-    ax.axhline(y=0, color='k', linestyle='-',lw=0.5,zorder=0)
-    if bar_width > 0 : 
-        ax.bar(barLabel,barData,color=barColor,zorder=3,width=bar_width) #control the barwidth for odd, even years and presidential elections PE
-    else:
-        ax.bar(barLabel,barData,color=barColor,zorder=3)
-    
-    ax.text(x1,y1,txt1,transform=plt.gcf().transFigure,ha='left',fontsize=fontsize)
-    ax.text(x2,y2,txt2,transform=plt.gcf().transFigure,ha='right',fontsize=fontsize)
-    
-
-    # only show no more than 10 labels on xaxis
-    t = len(chart_data) # total number of labels
-    n = math.ceil(t/config.max_labels_to_show)  # this is the interval to show xaxis labels.  1 shows all - 2 is every other - 3 is every 3rd
-    [l.set_visible(False) for (i,l) in enumerate(ax.xaxis.get_ticklabels()) if i % n != 0]
-    
-
-    plt.savefig(filename)
-    plt.close()
-    return barData,barLabel # return these for use in cumulative return chart
+    return barData, barLabel  # return these for use in cumulative return chart
  
 
 
@@ -222,44 +197,34 @@ def inc_date_day(d, i):
 
 #------------------------------------------------------------------------------------------------
 
+# Reimplemented on chartkit. Signature/return unchanged (returns None). The
+# superseded layout args are accepted and ignored. opp_dir controls the
+# compounding direction, exactly as before.
 def create_cumulative_chart(barData,barLabel,opp_dir,filename,x1,y1,txt1,x2,y2,txt2,figsize,fontsize):
+    import chartkit as ck
+    direction = 'short' if str(opp_dir).lower().startswith('s') else 'long'
+
+    # Drop the zeroed current-year placeholder before compounding/rendering.
+    years_clean, nets_clean, _, _ = ck._drop_zeroed(
+        barLabel, [float(v) for v in barData])
+
     cumData = []
-    cr=1
+    cr = 1.0
+    for pnet in nets_clean:
+        if direction == 'short':
+            cr *= (1 + (-pnet / 100.0))
+        else:
+            cr *= (1 + (pnet / 100.0))
+        cumData.append((cr * 100.0) - 100.0)
 
-    for p in barData:
-        if opp_dir == 'short': 
-            cr *= (1+(-p/100))
-        else                 : 
-            cr *= (1+(p/100))                 
-        cumData.append((cr*100)-100)
-
-    # print('cumData=',cumData)
-    
-    fig = plt.figure(figsize=figsize,facecolor=(1, 1, 1)) # 1,1,1 shows axes otherwise invisible
-    ax = fig.add_subplot(1,1,1)
-    ax.tick_params(axis='x', labelsize=20)
-    ax.tick_params(axis='y', labelsize=20)
-    
-    ax.yaxis.set_major_formatter(mtick.PercentFormatter())
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    plt.xticks(barLabel,color='dimgray')
-    plt.yticks(color='dimgray')
-    ax.plot(barLabel,cumData)
-    ax.grid(color='darkgray',linewidth=0.5)
-    ax.text(x1,y1,txt1,transform=plt.gcf().transFigure,ha='left',fontsize=fontsize)
-    ax.text(x2,y2,txt2,transform=plt.gcf().transFigure,ha='right',fontsize=fontsize)
-
-
-     # only show no more than 10 labels on xaxis
-    t = len(barData) # total number of labels
-    n = math.ceil(t/config.max_labels_to_show)  # this is the interval to show xaxis labels.  1 shows all - 2 is every other - 3 is every 3rd
-    [l.set_visible(False) for (i,l) in enumerate(ax.xaxis.get_ticklabels()) if i % n != 0]
-
-    print(filename)
-    # plt.savefig('/home/afshin/xxx.png')
-    plt.savefig(filename)
-    plt.close()
+    sym = _symbol_from_txt(txt2)
+    date1, date2 = _window_from_txt(txt2)
+    meta = dict(symbol=sym, direction=direction, window_start=date1,
+                window_end=date2)
+    try:
+        ck.cumulative(years_clean, cumData, meta, filename)
+    except Exception as e:
+        print('create_cumulative_chart chartkit render failed (non-fatal):', e)
 
 
 
@@ -296,65 +261,36 @@ def get_seasonal_chart_data2(id,symbol,years,chart_start_date,opp_start_date,tok
 
 #------------------------------------------------------------------------------------------------
 # x,y are coordinates for text
+# Reimplemented on chartkit.trend_window (the approved seasonal-path visual).
+# The month ticks come from the label strings — no year labels are ever drawn,
+# so the old Pillow white-rectangle patch (and its PIL dependency) is gone.
+# Signature/return unchanged; superseded layout args accepted and ignored.
+# opp_dir is the capitalized direction ('Long'/'Short') from the caller.
 def create_seasonals_chart(barLabel,labels,seaVals,date1,date2,opp_dir,filename,x1,y1,txt1,x2,y2,txt2,x3,y3,txt3,figsize,fontsize):
-    
-    opp_color = 'green'
-    if opp_dir == 'Short':opp_color = 'red'
-    
-    fig = plt.figure(figsize=figsize,facecolor=(1, 1, 1)) # 1,1,1 shows axes otherwise invisible
-    
-#     fig.set_facecolor((0.99,0.9,0.9))
-    
-    ax = fig.add_subplot(1,1,1)
-    ax.tick_params(axis='y', labelsize=20)
-    
-    plt.subplots_adjust(bottom=0.2)
-    
-    ax.yaxis.set_major_formatter(mtick.PercentFormatter())
+    import chartkit as ck
+    direction = 'short' if str(opp_dir).lower().startswith('s') else 'long'
 
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    plt.xticks(barLabel,color='dimgray',rotation=90)
-    plt.yticks(color='dimgray')
-    ax.plot(labels,seaVals)
-    ax.grid(color='gray',linewidth=0.5,linestyle=':')
-    ax.set_xticks(labels[::6])
-    ax.set_xticklabels(labels[::6],fontsize=10)
-
-    #------------------------------------------------------
-    # change date format from YYYY-MM-DD to MM-DD 8/15/2023
-    # date_format = mdates.DateFormatter('%m-%d')
-    # ax.xaxis.set_major_formatter(date_format)
-    #------------------------------------------------------
-    
-    # calc how many days between first date on chart and oppdate1
-    oppd1=diff_between_dates(date1,labels[0])
-    oppd2=diff_between_dates(date2,date1) # this is really daysOut
-    
-    rect = Rectangle((oppd1, 0), oppd2, 100, alpha=0.1,fill=True,facecolor=opp_color,edgecolor='black',linewidth=2)
-    ax.add_patch(rect)
-#     ax.text(x1,y1,txt1,transform=ax.transAxes,ha='left',fontsize=fontsize)
-#     ax.text(x2,y2,txt2,transform=ax.transAxes,ha='right',fontsize=fontsize)
-    ax.text(x1,y1,txt1,transform=plt.gcf().transFigure,ha='left',fontsize=fontsize)
-    ax.text(x2,y2,txt2,transform=plt.gcf().transFigure,ha='right',fontsize=fontsize)
-    ax.text(x3,y3,txt3,transform=plt.gcf().transFigure,ha='right',fontsize=fontsize)
-
-
-    # rectangle = patches.Rectangle((0, 0), 50, 50, linewidth=1, edgecolor='red', facecolor='red')
-    # ax.add_patch(rectangle)
-
-    
-    plt.savefig(filename)
-    plt.close()
-
-
-    # use pillow to repon this image and place white rectangle over the year part of date on the bottom.
-    # I'm hiding it this way because when I changed the date format in matplot lib, the chart format got screwed up for some reason
-
-    source_img = Image.open(filename).convert("RGBA")
-    draw = ImageDraw.Draw(source_img)
-    draw.rectangle(((210, 533), (1220, 570)), fill="white") # this goes right over the years - if size of this image is changed - this has to be updated
-    source_img.save(filename)
+    sym = _symbol_from_txt(txt2)
+    # The burned-in "n-year average (first–last)" must count completed years
+    # only. When the window end is still in the future, a trailing current-year
+    # label is the zeroed placeholder row — exclude it from the claim.
+    lbls = [int(y) for y in (barLabel or [])]
+    today = datetime.datetime.now().strftime('%Y-%m-%d')
+    if lbls and lbls[-1] == datetime.datetime.now().year and str(date2) >= today:
+        lbls = lbls[:-1]
+    n = len(lbls) if lbls else ""
+    year_first = lbls[0] if lbls else ""
+    year_last = lbls[-1] if lbls else ""
+    try:
+        days = diff_between_dates(date2, date1) + 1
+    except Exception:
+        days = ""
+    meta = dict(symbol=sym, direction=direction, n=n, year_first=year_first,
+                year_last=year_last, days=days)
+    try:
+        ck.trend_window(labels, seaVals, date1, date2, direction, meta, filename)
+    except Exception as e:
+        print('create_seasonals_chart chartkit render failed (non-fatal):', e)
 
 
 

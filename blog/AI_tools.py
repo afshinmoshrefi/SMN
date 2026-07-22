@@ -80,7 +80,7 @@ REASONING_MODEL = "grok-3"     # Standard high-intelligence model
 
 # ---- IMAGE CONFIG (hard-coded, NOT from config.py) ----
 # PREMIUM_IMAGE_PROVIDER = "flux"  # "stability", "openai", or "flux"
-PREMIUM_IMAGE_PROVIDER = "stability"  # "stability", "openai", or "flux"
+PREMIUM_IMAGE_PROVIDER = "flux"  # "stability", "openai", or "flux"
 
 OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations"
 DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-1"
@@ -111,13 +111,17 @@ def _save_compressed_jpeg(image_bytes: bytes, image_filepath: str, quality: int 
         pass
 
 def retry_api_call(fn):
+    last_error = None
     for attempt in range(3):  # try 3 times
         try:
             return fn()
-        except Exception as e:
-            print(f"[WARN] API call failed on attempt {attempt+1}: {e}")
+        except Exception as exc:
+            last_error = exc
+            print(f"[WARN] API call failed on attempt {attempt+1}: {exc}")
             time.sleep(1)
-    raise e
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("API call failed without an exception")
 
 # ------------------------------------------------------------------
 # GROK (xAI) API
@@ -429,26 +433,31 @@ def generate_AI_Image_dalle_premium(prompt: str, image_filepath: str, width: int
         return None
 
 def generate_AI_Image_flux_schnell(prompt: str, image_filepath: str, width: int, height: int, negative_prompt: str = "", seed: Optional[int] = None) -> Optional[str]:
-    print(f"[INFO] Using FLUX PRO ULTRA for prompt: '{prompt[:60]}...'")
+    print(f"[INFO] Using FLUX 1.1 PRO ULTRA (21:9 raw mode) for prompt: '{prompt[:60]}...'")
     client = replicate.Client(api_token=config.REPLICATE_API_TOKEN)
     input_params = {
-        "prompt": prompt, "width": width, "height": height, "num_inference_steps": 4,
-        "guidance_scale": 3.5, "aspect_ratio": "21:9", "negative_prompt": negative_prompt or "blurry, low quality, watermark"
+        "prompt": prompt,
+        "aspect_ratio": "21:9",
+        "raw": True,
+        "output_format": "jpg",
+        "safety_tolerance": 2,
     }
-    if seed: input_params["seed"] = seed
+    if seed is not None:
+        input_params["seed"] = seed
     try:
         output = retry_api_call(lambda: client.run("black-forest-labs/flux-1.1-pro-ultra", input=input_params))
         file_obj = output[0] if isinstance(output, (list, tuple)) else output
         img_url = str(file_obj.url) if hasattr(file_obj, "url") else str(file_obj)
-        if img_url.startswith("http"):
-            resp = requests.get(img_url, timeout=30)
-            image_bytes = resp.content
-        else:
-            with open(img_url, "rb") as f: image_bytes = f.read()
-        _save_compressed_jpeg(image_bytes, image_filepath, quality=75)
+        if not img_url.startswith("http"):
+            raise RuntimeError(f"Unexpected FLUX output: {img_url[:200]}")
+        resp = requests.get(img_url, timeout=60)
+        resp.raise_for_status()
+        _save_compressed_jpeg(resp.content, image_filepath, quality=82)
+        if not os.path.isfile(image_filepath) or os.path.getsize(image_filepath) == 0:
+            raise RuntimeError("FLUX returned output but no JPEG was written")
         return img_url
     except Exception as e:
-        print(f"[ERROR] Flux image failed: {e}")
+        print(f"[ERROR] FLUX 1.1 Pro Ultra image failed: {e}")
         return None
 
 def generate_AI_Image_premium(prompt: str, image_filepath: str, width: int, height: int, negative_prompt: str = "", seed: Optional[int] = None, remove_background: bool = False) -> Optional[str]:

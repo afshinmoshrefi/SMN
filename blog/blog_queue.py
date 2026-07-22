@@ -192,6 +192,12 @@ def write_news_article(resource_id, symbol, date, days, years, direction, userid
     uid    = str(userid)
     pattern_mode = str(request.args.get('pattern_mode', 'consecutive') or 'consecutive').lower()
 
+    # Phase 4 angle-engine context (all optional; route stays backward compatible).
+    engine         = str(request.args.get('engine', '') or '').strip().lower()
+    news_headline  = str(request.args.get('news_headline', '') or '')
+    news_date      = str(request.args.get('news_date', '') or '')
+    news_direction = str(request.args.get('news_direction', '') or '')
+
     # ------------------------------------------------------------------
     # 1) Scan queue for an existing matching job
     # ------------------------------------------------------------------
@@ -256,7 +262,14 @@ def write_news_article(resource_id, symbol, date, days, years, direction, userid
         'mode': '2',                   # full async article generation
         'pattern_mode': pattern_mode,  # 'pe' or 'consecutive' — drives article_prompt PE formatting
         'request_datetime': now_iso,
+        # Phase 4 angle-engine news peg (empty unless the selector supplied it).
+        'news_headline': news_headline,
+        'news_date': news_date,
+        'news_direction': news_direction,
     }
+    # Only opt this job into the angle pipeline when explicitly requested.
+    if engine == 'angle':
+        action_dict['engine'] = 'angle'
 
     try:
         ret = redis_client3.rpush(queue_name, json.dumps(action_dict))
@@ -1015,3 +1028,135 @@ def article_status(resource_id, symbol, date, days, years):
         except Exception as e:
             print(f"[article_status] decode failed: {e}")
     return jsonify(out)
+
+#--------------------------------------------------------------------------------------------
+# AD-HOC (on-demand) ANGLE ARTICLE
+# External trigger (e.g. Hermes) for "this is in the news right now, write about it".
+# Unlike /write_news_article this needs NO pre-selected pattern: the angle engine builds the
+# 30/60/90-day matrix anchored on TODAY and picks the story itself.
+#
+#   POST /write_adhoc_article
+#   {"symbol":"CL", "market":"futures", "reason":"free text", "userid":28, "force":false}
+#
+# 409 on an ambiguous ticker (CL = Colgate-Palmolive or Crude Oil) with the choices listed.
+#--------------------------------------------------------------------------------------------
+
+_ADHOC_MARKET_ALIASES = {
+    'dow': '0', 'dj30': '0', 'dow30': '0',
+    'nasdaq': '1', 'ndx': '1', 'nasdaq100': '1',
+    'sp500': '2', 'spx': '2', 'sandp': '2',
+    'russell': '3', 'rus1000': '3',
+    'wilshire': '4',
+    'index': '5', 'indices': '5', 'indices_common': '5',
+    'indices_usa': '6',
+    'futures': '7', 'commodity': '7', 'commodities': '7', 'comm': '7',
+    'forex': '8', 'forex_liquid': '9',
+    'bonds': '10', 'gbond': '10',
+    'etf': '11',
+}
+
+
+def _adhoc_find_symbol(symbol):
+    """Exact ticker match across the per-market symbol CSVs.
+    Local file reads only - no appserver round-trip."""
+    import csv as _csv
+    found = []
+    sym = str(symbol).strip().upper()
+    labels = getattr(config, 'available_resources', {}) or {}
+    for rid, path in sorted(config.available_resources_path.items(),
+                            key=lambda kv: int(kv[0])):
+        try:
+            with open(path, newline='', encoding='utf-8', errors='replace') as fh:
+                for row in _csv.DictReader(fh):
+                    if str(row.get('symbols', '')).strip().upper() == sym:
+                        found.append({
+                            'resource_id': str(rid),
+                            'market': str(labels.get(str(rid), rid)),
+                            'company': str(row.get('name', '') or sym).strip(),
+                        })
+                        break
+        except Exception as e:
+            print(f"[adhoc] symbol scan failed for resource {rid}: {e}")
+    return found
+
+
+@app.route('/write_adhoc_article', methods=['POST'])
+def write_adhoc_article():
+    data   = request.get_json(silent=True) or {}
+    symbol = str(data.get('symbol', '') or '').strip().upper()
+    reason = str(data.get('reason', '') or '').strip()
+    market = str(data.get('market', '') or '').strip().lower()
+    userid = str(data.get('userid', 28) or 28)
+    force  = bool(data.get('force', False))
+
+    if not symbol:
+        return jsonify({'message': 'error', 'error': 'symbol_required'}), 400
+
+    matches = _adhoc_find_symbol(symbol)
+    if not matches:
+        return jsonify({'message': 'error', 'error': 'unknown_symbol',
+                        'symbol': symbol}), 404
+
+    if market:
+        want = _ADHOC_MARKET_ALIASES.get(market, market)
+        narrowed = [m for m in matches if m['resource_id'] == str(want)]
+        if not narrowed:
+            return jsonify({'message': 'error', 'error': 'market_not_matched',
+                            'symbol': symbol, 'requested_market': market,
+                            'available': matches}), 404
+        matches = narrowed
+
+    if len(matches) > 1:
+        return jsonify({'message': 'error', 'error': 'ambiguous_symbol',
+                        'symbol': symbol, 'choices': matches,
+                        'hint': 'pass "market" (e.g. futures, sp500, etf)'}), 409
+
+    m          = matches[0]
+    rid        = m['resource_id']
+    now_iso    = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+    today      = datetime.datetime.now().strftime('%Y-%m-%d')
+    queue_name = config.NEWS_QUEUE_NAME
+
+    # Idempotency - Hermes may fire twice on the same story.
+    if not force:
+        try:
+            for raw in redis_client3.lrange(queue_name, 0, -1):
+                try:
+                    e = json.loads(raw)
+                except Exception:
+                    continue
+                if (str(e.get('symbol', '')).upper() == symbol
+                        and str(e.get('source', '')) == 'adhoc'):
+                    return jsonify({'message': 'already_queued',
+                                    'symbol': symbol, 'resource_id': rid}), 200
+        except Exception as e:
+            print(f"[adhoc] queue scan failed: {e}")
+
+    action_dict = {
+        'action': 'write_news_article',
+        'resource_id': rid,
+        'symbol': symbol,
+        # No pre-selected pattern - the angle engine anchors its matrix on today
+        # and chooses the story cell itself.
+        'date': '', 'days': '', 'years': '', 'direction': '',
+        'userid': userid,
+        'article_publish_date': today,
+        'mode': '2',
+        'pattern_mode': 'consecutive',
+        'request_datetime': now_iso,
+        'news_headline': reason,
+        'news_date': today if reason else '',
+        'news_direction': '',
+        'engine': 'angle',
+        'source': 'adhoc',
+    }
+
+    try:
+        ret = redis_client3.rpush(queue_name, json.dumps(action_dict))
+    except Exception as e:
+        print(f"[ERROR] write_adhoc_article enqueue failed: {e}")
+        return jsonify({'message': 'error', 'error': 'redis_enqueue_failed'}), 500
+
+    return jsonify({'message': 'queued', 'symbol': symbol, 'resource_id': rid,
+                    'market': m['market'], 'company': m['company'],
+                    'reason': reason, 'queue_len': ret})

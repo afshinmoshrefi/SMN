@@ -352,18 +352,25 @@ def _variant_to_caption(symbol: str, variant: str, years: str) -> str:
 
 def _build_image_manifest(img_paths: List[Dict[str, str]], symbol: str, years: str) -> List[Dict[str, str]]:
     out = []
-    # hero_html = "" # REMOVED: This was a confusing, unused local variable.
+    # Prefer server-generated caption/alt already on the image dict (chartkit
+    # semantics — computed from the same arrays being drawn). Fall back to the
+    # legacy variant->caption map only when the dict carries neither.
     for it in img_paths:
         variant = _safe_get(it, "variant")
-        cap = _variant_to_caption(symbol, variant, years)
-        out.append({
+        legacy = _variant_to_caption(symbol, variant, years)
+        cap = _safe_get(it, "caption") or legacy
+        alt = _safe_get(it, "alt") or cap
+        row = {
             "variant": variant,
             "url": _safe_get(it, "url"),
             "rel": _safe_get(it, "rel"),
             "path": _safe_get(it, "path"),
             "caption": cap,
-            "alt": cap,
-        })
+            "alt": alt,
+        }
+        if it.get("semantics"):
+            row["semantics"] = it["semantics"]
+        out.append(row)
     return out
 
 def _summarize_year_rows(chart_rows: List[Dict[str, Any]], max_rows: int = 10) -> List[Dict[str, Any]]:
@@ -1081,7 +1088,7 @@ def build_article_context(
     if is_full_year:
         window_phrase = "Window: full-year buy-and-hold period"
     else:
-        window_phrase = f"Window: {days} trading days"
+        window_phrase = f"Window: {days} calendar days"
 
     # ---- Seasonal paragraph wording ----
     pe_note = ""
@@ -1665,9 +1672,9 @@ Intelligent seasonal window interpretation (forward-looking behavior):
 - Use the pattern_start_date and pattern_window_days from the Data meta block when reasoning about timing.
 - Compare today’s date to pattern_start_date. Only treat a TradeWave window as a future “heads-up” window when pattern_start_date is after the publication date; otherwise treat it as current or historical behavior without forward-warning language.
 - Apply context-aware timing:
-  • Short windows (5–30 trading days): treat as near-term setups. Give a heads-up tone only when the start date is more than about 14 days away; if it is closer, describe it as an approaching setup rather than a distant regime shift.
-  • Medium windows (31–90 trading days): treat as behavior shifts over several weeks. Give a forward heads-up when the start date is more than about 30 days away.
-  • Long windows (over 90 trading days): treat as seasonal regimes. Give a forward heads-up when the start date is more than about 60 days away, and frame it as a potential change in behavior for the next quarter or so.
+  • Short windows (5–30 calendar days): treat as near-term setups. Give a heads-up tone only when the start date is more than about 14 days away; if it is closer, describe it as an approaching setup rather than a distant regime shift.
+  • Medium windows (31–90 calendar days): treat as behavior shifts over several weeks. Give a forward heads-up when the start date is more than about 30 days away.
+  • Long windows (over 90 calendar days): treat as seasonal regimes. Give a forward heads-up when the start date is more than about 60 days away, and frame it as a potential change in behavior for the next quarter or so.
 - If the start date is inside these heads-up thresholds, keep the tone focused on an approaching pattern rather than long-range preparation.
 
 Systemically important special-situation handling:

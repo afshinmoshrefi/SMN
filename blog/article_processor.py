@@ -96,6 +96,42 @@ def process_message(action_dict: dict) -> None:
           f"days={days}, years={years}, userid={userid}, article_publish_date={article_publish_date}, "
           f"mode={mode}, pattern_mode={pattern_mode}")
 
+    # ---- Angle-engine path (opt-in per message; publish additionally gated
+    # by config.angle_publish_enabled inside the pipeline, default OFF) ----
+    if str(action_dict.get("engine", "")).lower() == "angle":
+        try:
+            from angle_pipeline import generate_angle_news_article
+            detected = ([{"start_date": date, "days": int(days), "years": years}]
+                        if date and days else None)
+            result = generate_angle_news_article(
+                resource_id=resource_id, symbol=symbol,
+                news_headline=str(action_dict.get("news_headline", "")),
+                news_date=str(action_dict.get("news_date", "")),
+                news_direction=str(action_dict.get("news_direction", "")),
+                detected=detected,
+                userid=int(userid) if str(userid).isdigit() else 28,
+                publish=True)
+            log_article_run({
+                "resource_id": resource_id, "symbol": symbol,
+                "start_date": (result.get("card", {}).get("story_cell", {}) or {}).get("anchor_date", date),
+                "days": days, "years": years,
+                "status": f"angle:{result.get('status')}",
+                "error_message": result.get("detail"),
+                "duration_seconds": result.get("duration_seconds"),
+            })
+            print("[INFO] angle pipeline summary:")
+            print(json.dumps({
+                "status": result.get("status"),
+                "angle": result.get("angle"),
+                "publish_skipped": result.get("publish_skipped"),
+                "detail": result.get("detail"),
+                "duration_seconds": result.get("duration_seconds"),
+            }, indent=2))
+        except Exception as e:
+            print("[ERROR] Exception in angle pipeline:")
+            traceback.print_exc()
+        return
+
     try:
         result = generate_news_article(
             resource_id=resource_id,
