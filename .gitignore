@@ -19,6 +19,8 @@ blog/*
 !blog/tests/
 blog/tests/*
 !blog/tests/*.py
+!blog/tests/fixtures/
+!blog/tests/fixtures/*.json
 !blog/templates/
 blog/templates/*
 !blog/templates/*.html
