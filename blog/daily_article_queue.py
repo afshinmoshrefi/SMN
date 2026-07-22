@@ -24,6 +24,7 @@ import json
 import requests
 import time
 import redis
+from urllib.parse import urlencode
 
 sys.path.insert(0, '/home/flask')
 import config
@@ -35,7 +36,20 @@ import config
 # How many articles to queue each day.
 # The article_processor handles them sequentially; with 5–15 min per
 # article a count of 5 will publish throughout the morning naturally.
-ARTICLES_PER_DAY = 6
+ARTICLES_PER_DAY = 6          # cap when dynamic_count_enabled (was: exact target)
+
+# ---- Dynamic daily count (workstream (a)) -------------------------------
+# Enabled by config.dynamic_count_enabled. When off, behaviour is unchanged.
+# Calibrated on 113 days of real ideas history; see backtest_selection.py.
+DYN_MIN_SCORE      = 6.0   # hard floor - nothing below this ships
+DYN_CLIFF_DROP     = 2.0   # drop anything more than this below the day's best
+DYN_CLIFF_CAP      = 7.0   # the cliff may never push the bar above this, so a
+                           # standout idea cannot suppress objectively decent ones
+DYN_MAX_DAYS_NEWSLESS = 10 # a pattern-only idea (no news peg) must start within
+DYN_MAX_DAYS_ANY      = 30 # absolute horizon for anything
+DYN_SOFT_MIN       = 2     # relax to LEGACY floor only far enough to reach this
+DYN_LEGACY_FLOOR   = 5.0
+DYN_RVOL_PEG       = 1.5   # rvol at/above this counts as a news peg
 
 # Only queue articles whose LLM score meets this minimum.
 # Scale: 1–10.  7+ = strong idea; 5–6 = decent; below 5 = weak.
@@ -457,6 +471,127 @@ def select_diverse_lineup(eligible, n):
     return lineup
 
 
+# ============================================================
+# DYNAMIC LINEUP (workstream (a)) - the count is an OUTCOME, not an input.
+# Stage 1 architecture already assumed this ("3AM job picks how many"); this
+# finishes it. Two gates: timeliness (a far-future pattern is not today's news
+# unless the NEWS is the peg) and quality (absolute floor + a relative cliff).
+# ============================================================
+
+def _has_news_peg(row):
+    """A news peg supplies the timeliness; without one the PATTERN must be the
+    reason to publish today."""
+    if str(row.get('in_news', '0')).strip() == '1':
+        return True
+    if (row.get('earnings_type') or '').strip():
+        return True
+    try:
+        if float(row.get('rvol') or 0) >= DYN_RVOL_PEG:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
+def _days_to_start(row):
+    try:
+        d = datetime.date.fromisoformat(str(row['pat_start_date'])[:10])
+        return (d - TODAY).days
+    except Exception:
+        return None
+
+
+def _timeliness_ok(row):
+    dts = _days_to_start(row)
+    if dts is None:
+        return False, 'bad_date'
+    if dts > DYN_MAX_DAYS_ANY:
+        return False, 'beyond_horizon'
+    if not _has_news_peg(row) and dts > DYN_MAX_DAYS_NEWSLESS:
+        return False, 'far_future_no_peg'
+    return True, None
+
+
+def select_lineup(eligible):
+    """Floating-count selection. Returns (lineup, reasons, backfilled).
+
+    Diversity rules are PREFERENCES applied among ideas that already cleared the
+    bar - never a reason to admit a weaker idea (the old reserved-slot form could
+    displace a higher-scored one).
+    """
+    reasons = {}
+
+    def _why(k):
+        reasons[k] = reasons.get(k, 0) + 1
+
+    qualified = []
+    for r in eligible:
+        ok, why = _timeliness_ok(r)
+        if not ok:
+            _why(why); continue
+        if r['score'] < DYN_LEGACY_FLOOR:
+            _why('below_legacy_floor'); continue
+        qualified.append(r)
+
+    if not qualified:
+        return [], reasons, False
+
+    qualified.sort(key=lambda r: r['score'], reverse=True)
+    best = qualified[0]['score']
+    threshold = min(DYN_CLIFF_CAP, max(DYN_MIN_SCORE, best - DYN_CLIFF_DROP))
+
+    lineup, deferred = [], []
+    sector_count, used = {}, set()
+
+    def _can_add(row):
+        t = row['ticker'].upper()
+        if t in used:
+            return False, 'duplicate'
+        if (row.get('asset_type', '').lower() == 'index'
+                and sector_count.get('__index__', 0) >= MAX_INDICES):
+            return False, 'index_cap'
+        sec = get_sector(row)
+        if sec != 'other' and sector_count.get(sec, 0) >= MAX_PER_SECTOR:
+            return False, 'sector_cap'
+        grp = CORRELATED_GROUPS.get(t)
+        if grp and sector_count.get('__corr_%s__' % grp, 0) >= 1:
+            return False, 'correlated_cap'
+        return True, None
+
+    def _add(row):
+        t = row['ticker'].upper()
+        lineup.append(row); used.add(t)
+        if row.get('asset_type', '').lower() == 'index':
+            sector_count['__index__'] = sector_count.get('__index__', 0) + 1
+        sec = get_sector(row)
+        sector_count[sec] = sector_count.get(sec, 0) + 1
+        grp = CORRELATED_GROUPS.get(t)
+        if grp:
+            k = '__corr_%s__' % grp
+            sector_count[k] = sector_count.get(k, 0) + 1
+
+    for r in qualified:
+        if len(lineup) >= ARTICLES_PER_DAY:
+            _why('over_cap'); continue
+        if r['score'] < threshold:
+            _why('below_cliff_or_floor'); deferred.append(r); continue
+        ok, why = _can_add(r)
+        if not ok:
+            _why(why); continue
+        _add(r)
+
+    backfilled = False
+    if len(lineup) < DYN_SOFT_MIN:
+        for r in deferred:
+            if len(lineup) >= DYN_SOFT_MIN:
+                break
+            ok, _ = _can_add(r)
+            if ok:
+                _add(r); backfilled = True
+
+    return lineup, reasons, backfilled
+
+
 def queue_article(row, article_publish_date):
     """
     Call blog_queue /write_news_article to enqueue one article job.
@@ -482,6 +617,18 @@ def queue_article(row, article_publish_date):
            f'{direction}/{userid}/{pub_date}'
            f'?pattern_mode={pattern_mode}')
 
+    # Phase 4: when the angle engine is enabled, thread the engine flag + the
+    # triggering news context onto the queue call as URL-encoded query params.
+    # Missing CSV columns degrade to '' so pre-Phase-4 CSVs still queue cleanly.
+    if getattr(config, 'angle_engine_enabled', False):
+        angle_params = {
+            'engine':         'angle',
+            'news_headline':  str(row.get('news_headline', '') or ''),
+            'news_date':      str(row.get('news_date', '') or ''),
+            'news_direction': str(row.get('news_direction', '') or ''),
+        }
+        url += '&' + urlencode(angle_params)
+
     try:
         resp = requests.get(url, timeout=15)
         if resp.status_code == 200:
@@ -492,7 +639,7 @@ def queue_article(row, article_publish_date):
         return False, {'error': str(e)}
 
 
-def log_run(queued, skipped, csv_path, csv_date):
+def log_run(queued, skipped, csv_path, csv_date, dynamic=None):
     """Append a summary JSON line to the daily queue log."""
     os.makedirs(LOG_DIR, exist_ok=True)
     row = {
@@ -502,6 +649,9 @@ def log_run(queued, skipped, csv_path, csv_date):
         'csv_path':  csv_path,
         'queued':    queued,
         'skipped':   skipped,
+        # Why the day's count was what it was - with a floating count, "we
+        # published 2 today" must never be a mystery.
+        'dynamic':   dynamic,
     }
     with open(LOG_PATH, 'a', encoding='utf-8') as f:
         f.write(json.dumps(row) + '\n')
@@ -528,7 +678,21 @@ def main():
     # ── 2. Read and filter ideas ───────────────────────────────────────
     all_ideas  = read_ideas(csv_path)
     eligible   = filter_ideas(all_ideas)
-    to_queue   = select_diverse_lineup(eligible, ARTICLES_PER_DAY)
+    dyn = bool(getattr(config, 'dynamic_count_enabled', False))
+    dyn_reasons, dyn_backfilled = {}, False
+    if dyn:
+        to_queue, dyn_reasons, dyn_backfilled = select_lineup(eligible)
+        print(f'\n[dynamic] floor={DYN_MIN_SCORE} cliff=-{DYN_CLIFF_DROP} '
+              f'cap={DYN_CLIFF_CAP} newsless<={DYN_MAX_DAYS_NEWSLESS}d '
+              f'any<={DYN_MAX_DAYS_ANY}d max={ARTICLES_PER_DAY} '
+              f'soft_min={DYN_SOFT_MIN}')
+        print(f'[dynamic] selected {len(to_queue)}'
+              + ('  ** BACKFILLED - degraded day **' if dyn_backfilled else ''))
+        if dyn_reasons:
+            print('[dynamic] excluded: '
+                  + ', '.join(f'{k}={v}' for k, v in sorted(dyn_reasons.items())))
+    else:
+        to_queue = select_diverse_lineup(eligible, ARTICLES_PER_DAY)
 
     print(f'\nIdeas in CSV        : {len(all_ideas)}')
     print(f'Eligible (filtered) : {len(eligible)}')
@@ -628,7 +792,7 @@ def main():
     print(f'      Each article takes ~3-5 min (9-step AI pipeline),')
     print(f'      so {len(queued_log)} articles will be published over ~{len(queued_log)*4} min.')
 
-    log_run(queued_log, skipped_log, csv_path, csv_date)
+    log_run(queued_log, skipped_log, csv_path, csv_date, dynamic={'enabled': dyn, 'selected': len(to_queue), 'eligible': len(eligible), 'candidates': len(all_ideas), 'backfilled': dyn_backfilled, 'excluded': dyn_reasons})
     print(f'\nDone.  Log appended to {LOG_PATH}')
 
 
