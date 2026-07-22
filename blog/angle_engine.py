@@ -692,8 +692,39 @@ def lookback_label(years_code: Any) -> str:
     return f"{years_code} years"
 
 
+def _normalize_stats_to_long(stats, up_years, down_years, n, median_net):
+    """Return stats_raw in ONE convention: winners = years the window closed higher.
+
+    ChartData4 may report a cell as Trade Dir = short, in which case its
+    Winners/Losers and profit figures are short-accounted and contradict a
+    narrative derived from per-year nets. Live case (CL 30d x 20y, 2026-07-22):
+    derived 6 up / 14 down, median -2.85%; raw said Winners 14, Median +2.85%.
+
+    Counts and median are restated from the derived values. Figures that cannot
+    be re-signed safely are removed - a shorter box beats a wrong one.
+    """
+    stats = dict(stats or {})
+    if str(stats.get("Trade Dir", "")).strip().lower() != "short":
+        return stats
+    if up_years is not None and down_years is not None and n:
+        stats["Num Winners"] = up_years
+        stats["Num Losers"] = down_years
+        stats["Percent Profitable"] = f"{round(100.0 * up_years / n)}%"
+    if median_net is not None:
+        stats["Median Profit"] = f"{median_net:.2f}%"
+    for k in ("Avg Profit", "Avg Profit - All", "Avg Loss",
+              "Sharpe Ratio", "TradeWave Ratio", "Cumulative Return"):
+        stats.pop(k, None)
+    stats["Trade Dir"] = "long"      # now long-convention; keeps this idempotent
+    return stats
+
+
 def _cell_public(cell: Cell, with_quotables: bool = True) -> Dict[str, Any]:
     d = asdict(cell)
+    # One convention for every consumer: chrome, the writer, the gates and the
+    # editorial reviewer all read this dict.
+    d['stats_raw'] = _normalize_stats_to_long(
+        d.get('stats_raw'), cell.up_years, cell.down_years, cell.n, cell.median_net)
     # Authoritative human label for the lookback so the editorial reviewer can
     # VERIFY phrases like "midterm election years" instead of flagging them.
     d['lookback_label'] = lookback_label(cell.years)

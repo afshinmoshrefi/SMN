@@ -139,7 +139,27 @@ def render_key_stats(cell: Dict[str, Any], cta_link: str = "",
     for matrix cells — direction lives in the meta strip as derived bias.
     Omit 'Avg Profit - All' when there are no losing years (existing rule).
     """
-    stats = cell.get("stats_raw") or {}
+    stats = dict(cell.get("stats_raw") or {})
+
+    # ChartData4 may return Trade Dir = short, in which case its Winners/Losers
+    # and profit figures are SHORT-accounted: "winners" are years the window
+    # closed LOWER. The narrative is always derived from per-year nets, so a
+    # short-accounted box contradicts it. Re-state the counts from the engine's
+    # derived values and drop the raw figures that cannot be safely re-signed.
+    short_acct = str(stats.get("Trade Dir", "")).strip().lower() == "short"
+    if short_acct:
+        up, dn, n = cell.get("up_years"), cell.get("down_years"), cell.get("n")
+        if up is not None and dn is not None and n:
+            stats["Num Winners"] = up
+            stats["Num Losers"] = dn
+            stats["Percent Profitable"] = f"{round(100.0 * up / n)}%"
+        med = cell.get("median_net")
+        if med is not None:
+            stats["Median Profit"] = f"{med:.2f}%"
+        for k in ("Avg Profit", "Avg Profit - All", "Avg Loss",
+                  "Sharpe Ratio", "TradeWave Ratio"):
+            stats.pop(k, None)
+
     rows: List[str] = [
         f'<div class="row"><span>Sample Size</span><span>{cell["n"]} years</span></div>'
     ]
@@ -156,9 +176,9 @@ def render_key_stats(cell: Dict[str, Any], cta_link: str = "",
            else 'TradeWave.ai')
     footer = (
         '<p style="margin-top:4px;font-size:.85rem;color:#5a6b7a;">'
-        f'Source: {src} seasonal database. All figures use long close-to-close '
-        'accounting over the stated window: winners are years the window closed '
-        'higher, losers are years it closed lower. Cumulative Return is '
+        f'Source: {src} seasonal database. Figures use close-to-close accounting '
+        'over the stated window: winners are years the window closed higher, '
+        'losers are years it closed lower. Cumulative Return is '
         'compounded across the lookback years.</p>')
     if methodology_url or book_url:
         links = []

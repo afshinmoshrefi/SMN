@@ -97,7 +97,11 @@ class TestChromeAssembly(unittest.TestCase):
         ks = self.chrome["KEY_STATS"]
         self.assertIn("<span>Percent Profitable</span><span>80%</span>", ks)
         self.assertIn("Sample Size", ks)
-        self.assertIn("long close-to-close", ks)
+        # The footnote states the convention; it no longer claims "long"
+        # unconditionally, because ChartData4 can return a short-accounted
+        # cell and that claim was then false (see angle_chrome.render_key_stats).
+        self.assertIn("close-to-close accounting", ks)
+        self.assertIn("winners are years the window closed higher", ks)
 
     def test_assemble_good_prose(self):
         out = angle_chrome.assemble_article(GOOD_PROSE, self.chrome,
