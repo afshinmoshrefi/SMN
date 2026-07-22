@@ -77,9 +77,9 @@ CURRENT=$(git rev-parse --short HEAD)
 echo "==> SMN deploy   $CURRENT  ->  $TARGET   ($REF)"
 
 # refuse to clobber uncommitted work on the box
-DIRTY=$(git status --porcelain -- blog/ | grep -v '\.bak' | wc -l)
+DIRTY=$(git status --porcelain -- blog/ | wc -l)
 [ "$DIRTY" -eq 0 ] || {
-  git status --short -- blog/ | grep -v '\.bak' | head -10
+  git status --short -- blog/ | head -10
   die "working tree has $DIRTY uncommitted change(s). Commit or stash first."
 }
 
