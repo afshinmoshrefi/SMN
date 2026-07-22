@@ -434,7 +434,15 @@ def generate_hero_image(
                     remove_background=False,
                 )
             else:
-                raise
+                print(f"[ROUTER] Premium model failed for '{symbol}': {e}. Falling back to DEFAULT model.")
+                image_url = AI_tools.generate_AI_Image_sdxl(
+                    prompt=hero_prompt,
+                    image_filepath=hero_output_path,
+                    width=width,
+                    height=height,
+                    negative_prompt=negative_prompt,
+                    seed=seed,
+                )
     else:
         print(f"[ROUTER] No match for '{symbol}' or its sector. Using DEFAULT model.")
         image_url = AI_tools.generate_AI_Image_sdxl(
@@ -445,8 +453,19 @@ def generate_hero_image(
             negative_prompt=negative_prompt,
             seed=seed,
         )
-    
-    return hero_output_path if image_url else None
+
+    if not image_url and use_premium_model:
+        print(f"[ROUTER] Premium model returned no image for '{symbol}'. Falling back to DEFAULT model.")
+        image_url = AI_tools.generate_AI_Image_sdxl(
+            prompt=hero_prompt,
+            image_filepath=hero_output_path,
+            width=width,
+            height=height,
+            negative_prompt=negative_prompt,
+            seed=seed,
+        )
+
+    return hero_output_path if image_url and os.path.isfile(hero_output_path) and os.path.getsize(hero_output_path) > 0 else None
 
 
 # ------------------------------

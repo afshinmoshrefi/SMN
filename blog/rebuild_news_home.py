@@ -6668,10 +6668,11 @@ def build_home():
     # Get theme colors
     t = THEMES.get(THEME, THEMES["light"])
     
-    # Load all articles (up to 100 for filtering)
-    all_items = _load_articles_from_redis(limit=99)
+    # posts.json is the canonical published-article catalog. Prefer it so stale
+    # Redis metadata cannot override repaired URLs or collision-safe hero names.
+    all_items = _load_articles_from_json(limit=99)
     if not all_items:
-        all_items = _load_articles_from_json(limit=99)
+        all_items = _load_articles_from_redis(limit=99)
 
     # Interleave by market_family so same-type articles don't cluster together
     all_items = _interleave_by_family(all_items)

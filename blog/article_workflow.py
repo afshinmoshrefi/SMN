@@ -57,6 +57,7 @@ Usage Notes:
 
 import json
 import datetime
+import os
 import secrets
 from typing import Dict, Any, List, Tuple, Optional
 import time
@@ -69,6 +70,24 @@ from article_hero_image import hero_image_workflow, HERO_WIDTH_ATTR, HERO_HEIGHT
 from blog_tools import get_company_name
 import AI_tools
 from publish_article import publish_article_web
+
+# Write-only audit observer (article_audit.py). Recording must NEVER affect
+# generation: every article_audit entry point swallows its own errors, and this
+# import falls back to a no-op shim so even a broken module cannot stop publishing.
+try:
+    import article_audit
+except Exception as _audit_import_error:  # pragma: no cover - defensive
+    print(f"[AUDIT] article_audit unavailable, auditing disabled: {_audit_import_error}")
+    class _NoopAudit:
+        @staticmethod
+        def begin(identity): return None
+        @staticmethod
+        def record(name, value): pass
+        @staticmethod
+        def append(name, value): pass
+        @staticmethod
+        def finish(trail, tracking): return None
+    article_audit = _NoopAudit()
 
 STORE_RESEARCH_JSON_SIDECAR = False  # Disabled for now
 
@@ -228,6 +247,8 @@ def research_tavily(resource_id: str,
     print(f"[Grok] Identifying official data sources for {company} ({symbol})")
     specific_company_domains = AI_tools.get_company_domains_with_grok(symbol, company)
     print(f"[Grok] Identified official domains: {specific_company_domains}")
+    article_audit.record("company_domains.json", {
+        "symbol": symbol, "company": company, "domains": specific_company_domains})
 
     dynamic_whitelist = list(set(WHITELISTED_SOURCE_DOMAINS + specific_company_domains))
 
@@ -259,6 +280,13 @@ def research_tavily(resource_id: str,
         tavily_resp = {"results": combined_results}
 
         raw_context_text = AI_tools.format_tavily_results(tavily_resp)
+
+    article_audit.record("research_tavily_raw.json", {
+        "queries": [query_a, query_b],
+        "include_domains": dynamic_whitelist,
+        "responses": [resp_a, resp_b],
+    })
+    article_audit.record("research_context.txt", raw_context_text)
 
     target_schema = f"""
     {{
@@ -334,6 +362,7 @@ def research_tavily(resource_id: str,
         company=company,
     )
 
+    article_audit.record("research_synthesis_raw.txt", research_json_str)
     clean = research_json_str.replace("```json", "").replace("```", "").strip()
     try:
         research_json = _json.loads(clean)
@@ -346,6 +375,7 @@ def research_tavily(resource_id: str,
         else:
             raise ValueError(f"Grok returned unparseable research JSON: {clean[:200]}")
     print("RESEARCH JSON KEYS:", list(research_json.keys()))
+    article_audit.record("research.json", research_json)
     return research_json
 
 
@@ -499,6 +529,14 @@ def generate_news_article(resource_id: str,
     publish_result: Optional[Dict[str, Any]] = None
     article_id: str = secrets.token_hex(4)   # unique per article, used to avoid hero filename collisions
 
+    # Write-only audit trail (observer only — can never affect generation).
+    audit_trail = article_audit.begin({
+        "article_id": article_id, "resource_id": str(resource_id), "symbol": symbol,
+        "start_date": date, "days": days, "years": years, "direction": direction,
+        "article_publish_date": article_publish_date, "mode": mode,
+        "pattern_mode": pattern_mode,
+    })
+
     # For PE patterns, convert plain years (e.g. '6') to pe2-N format (e.g. 'pe2-6').
     # Both charts AND the article prompt need this — charts use it for the ChartData4
     # API call which filters to PE-cycle years only.  Without it, charts show
@@ -540,9 +578,45 @@ def generate_news_article(resource_id: str,
             )
             mark_step_success(tracking, "generate_hero_image")
         except Exception as e:
-            print(f"[WARN] Hero image step failed, continuing without hero: {e}")
-            tracking["steps"]["generate_hero_image"]["status"] = "skipped"
+            print(f"[ERROR] Hero image step failed; article will not publish: {e}")
+            tracking["steps"]["generate_hero_image"]["status"] = "error"
             tracking["steps"]["generate_hero_image"]["error"] = str(e)
+            try:
+                failure_log = os.path.join(os.path.dirname(__file__), "logs", "hero_failures.jsonl")
+                os.makedirs(os.path.dirname(failure_log), exist_ok=True)
+                with open(failure_log, "a") as fh:
+                    fh.write(json.dumps({
+                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "symbol": symbol,
+                        "article_id": article_id,
+                        "resource_id": resource_id,
+                        "error": str(e),
+                    }) + "\n")
+            except Exception as log_error:
+                print(f"[ERROR] Could not persist hero failure: {log_error}")
+            tracking["status"] = "error"
+            return tracking
+
+        if not hero_html or not any(item.get("variant") == "hero" and item.get("path") and os.path.isfile(item.get("path")) for item in img_paths):
+            error = RuntimeError("Hero image missing after all provider attempts")
+            print(f"[ERROR] {error}; article will not publish")
+            tracking["steps"]["generate_hero_image"]["status"] = "error"
+            tracking["steps"]["generate_hero_image"]["error"] = str(error)
+            try:
+                failure_log = os.path.join(os.path.dirname(__file__), "logs", "hero_failures.jsonl")
+                os.makedirs(os.path.dirname(failure_log), exist_ok=True)
+                with open(failure_log, "a") as fh:
+                    fh.write(json.dumps({
+                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "symbol": symbol,
+                        "article_id": article_id,
+                        "resource_id": resource_id,
+                        "error": str(error),
+                    }) + "\n")
+            except Exception as log_error:
+                print(f"[ERROR] Could not persist hero failure: {log_error}")
+            tracking["status"] = "error"
+            return tracking
 
         # 3) Research (only for modes "1" and "2")
         research = None
@@ -555,6 +629,7 @@ def generate_news_article(resource_id: str,
                     company=company,
                     cdata=cdata,
                 )
+                article_audit.record("research.json", research)
                 mark_step_success(tracking, "research_tavily")
             except Exception as e:
                 mark_step_error(tracking, "research_tavily", e)
@@ -577,6 +652,7 @@ def generate_news_article(resource_id: str,
                 research=research,
                 pattern_mode=pattern_mode,
             )
+            article_audit.record("prompt.txt", article_prompt_text)
             mark_step_success(tracking, "article_prompt")
         except Exception as e:
             mark_step_error(tracking, "article_prompt", e)
@@ -585,7 +661,8 @@ def generate_news_article(resource_id: str,
         # 5) Write article
         try:
             article_html = write_article(article_prompt_text, hero_html)
-            
+            article_audit.record("article_llm_raw.html", article_html)
+
             # Replace LLM title with SEO-optimized title
             if research is not None:
                 from article_title import generate_unique_seo_title
@@ -623,6 +700,7 @@ def generate_news_article(resource_id: str,
                 from citation_gate import validate_citations
                 cg = validate_citations(article_html, research=research, symbol=symbol, company=company,
                                         check_liveness=getattr(_cfg, "citation_check_liveness", False))
+                article_audit.record("citation_gate.json", cg)
                 if cg.get("violations"):
                     print(f"[CITATION GATE] {symbol}: {len(cg['violations'])} violation(s): {cg['violations'][:5]}")
                 if cg.get("warnings"):
@@ -645,6 +723,7 @@ def generate_news_article(resource_id: str,
         # 6) Publish article — use chart_years (PE-qualified) so the Redis key
         # matches what the portfolio page uses for the article_exists check.
         hero_url = next((p["url"] for p in img_paths if p.get("variant") == "hero"), "")
+        article_audit.record("final.html", article_html)
         try:
             publish_result = publish_article(
                 resource_id=resource_id,
@@ -660,6 +739,7 @@ def generate_news_article(resource_id: str,
                 hero_image=hero_url,
             )
             tracking["publish_result"] = publish_result
+            article_audit.record("publish_result.json", publish_result)
             mark_step_success(tracking, "publish_article")
         except Exception as e:
             mark_step_error(tracking, "publish_article", e)
@@ -683,6 +763,10 @@ def generate_news_article(resource_id: str,
         tracking["status"] = "error"
         tracking["error_message"] = str(e)
         return tracking
+    finally:
+        # Persist the audit trail on every exit path (success, error, exception).
+        # finish() never raises; a failed audit write only logs a warning.
+        article_audit.finish(audit_trail, tracking)
 
 #--------------------------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -718,4 +802,3 @@ if __name__ == "__main__":
     print("\n================= TRACKING RESULT =================\n")
     print(json.dumps(tracking, indent=2))
     print("\n================= END SMOKE TEST ===================\n")
-
