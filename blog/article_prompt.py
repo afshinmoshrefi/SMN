@@ -926,6 +926,19 @@ def _next_phase(phase: str) -> str:
 
 
 
+def _pattern_window_metadata(days):
+    """Typed window metadata for a TradeWave pattern.
+
+    TradeWave windows are CALENDAR days (the entry day counts as day 1, so the
+    end date is start + days - 1). Naming the unit explicitly here stops it
+    being re-derived - or mislabelled as trading days - anywhere downstream.
+    """
+    return {
+        "pattern_window_days": int(days),
+        "pattern_window_unit": "calendar_days",
+    }
+
+
 def build_article_context(
     symbol: str,
     date: str,
@@ -1085,10 +1098,13 @@ def build_article_context(
     else:
         lookback_phrase = f"Lookback: {years} years"
 
+    # Route the phrasing through the typed helper so the unit has exactly one
+    # source of truth (see tests/test_calendar_day_generation_contract.py).
+    _window_meta = _pattern_window_metadata(days)
     if is_full_year:
         window_phrase = "Window: full-year buy-and-hold period"
     else:
-        window_phrase = f"Window: {days} calendar days"
+        window_phrase = f"Window: {_window_meta['pattern_window_days']} calendar days"
 
     # ---- Seasonal paragraph wording ----
     pe_note = ""

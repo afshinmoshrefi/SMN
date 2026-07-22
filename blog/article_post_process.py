@@ -1247,7 +1247,7 @@ def article_post_process(
         "symbol": symbol,
         "resource_id": resource_id,
         "pattern_start_date": date,
-        "window_trading_days": days,
+        "window_calendar_days": days,
         "lookback": years,
         "trade_direction": trade_dir,
         "stats": stats_payload,
