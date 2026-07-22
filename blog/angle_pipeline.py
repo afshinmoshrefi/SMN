@@ -204,7 +204,8 @@ def generate_angle_news_article(resource_id: str, symbol: str, *,
         from blog_tools import convert_param_base64
         param = convert_param_base64(resource_id, symbol, cell["anchor_date"],
                                      cell["days"], cell["years"])
-        cta_link = f"{getattr(config, 'domain_root', '')}wave-viewer?o={param}"
+        _viewer = getattr(config, "tw_viewer_path", "app/")
+        cta_link = f"{getattr(config, 'domain_root', '')}{_viewer}?o={param}"
     except Exception:
         cta_link = ""
     methodology_url = (getattr(config, "news_website_url", "").rstrip('/')

@@ -992,7 +992,11 @@ def build_article_context(
 
     # ---- Build direct TradeWave pattern link to open the pattern in tradewave ----
     param = convert_param_base64(resource_id, symbol, date, days, years)
-    pattern_url = f"{config.domain_root}wave-viewer?o={param}"  # opens this exact pattern
+    # TW2 serves the viewer at /app/ and accepts ?o=BASE64; the old
+    # WordPress route (wave-viewer) 404s since the cutover. Overridable via
+    # config.tw_viewer_path if the route ever moves again.
+    _viewer = getattr(config, "tw_viewer_path", "app/")
+    pattern_url = f"{config.domain_root}{_viewer}?o={param}"  # opens this exact pattern
     # utm = f"&utm_source=SMN&utm_medium=article&utm_campaign=pattern_deeplink&utm_content={symbol}-{date}-{days}-{years}"
     cta_link = f"{pattern_url}"
 

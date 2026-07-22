@@ -206,7 +206,7 @@ def create_html_table(domain_root,all_top10_posts): # domain_root used for hrefs
     html_table = html_table + f"""
 
         <a target='_blank' href='{domain_root}/tradewave-analytics-101'>TradeWave Analytics 101</a>
-        <a href = '{domain_root}wave-viewer/'>Wave Viewer: Discover TradeWave Opportunities for all Financial Instruments</a>
+        <a href = '{domain_root}app/'>Wave Viewer: Discover TradeWave Opportunities for all Financial Instruments</a>
         <a target='_blank' href='{domain_root}top10'>Top 10 Today</a>
         
     """
