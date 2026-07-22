@@ -280,3 +280,224 @@ def validate_article_integrity(article_html: str, *, evidence: EvidenceBundle | 
                       "direction": direction, "start_date": evidence.start_date,
                       "end_date": evidence.end_date, "calendar_id": evidence.calendar_id,
                       "asset_family": evidence.asset_family}}
+
+
+# ============================================================
+# Cell-article validation (angle-engine pipeline, Phase 2)
+# ============================================================
+# Articles produced by angle_writer draw on a STORY CELL plus up to two
+# AUXILIARY cells (ANGLE_ENGINE_DESIGN.md §4). Matrix cells use long
+# accounting (Trade Dir is 'long' for every arbitrary window), so the
+# reader-facing direction is the derived bias, and winner/sample pairs may
+# legitimately reference any cell — the single-evidence-bundle checks above
+# would false-positive. Chrome surfaces are rendered downstream of every
+# model call by angle_chrome.assemble_article, so chrome cannot be tampered
+# by the writer; the checks here are belt-and-suspenders on the final HTML.
+
+_BRIDGE_RE = re.compile(
+    r"<p\b[^>]*id=[\"']transition_to_tradewave[\"'][^>]*>(.*?)</p>", re.I | re.S)
+_EXCURSION_RE = re.compile(
+    r"\b(?:MAE|MFE|drawdowns?|adverse excursions?|favorable excursions?|"
+    r"intraperiod (?:downside|losses))\b", re.I)
+_WINDOW_CLAUSE_RE = re.compile(r"\b(?:years?|windows?|cycles?|summers?|winters?|"
+                               r"springs?|autumns?|stretch(?:es)?)\b", re.I)
+# Unlike _ANY_SAMPLE_RE, tolerates the quotable phrasing "16 of the last 20".
+_CELL_SAMPLE_RE = re.compile(
+    r"\b(\d+)\s+(?:of|out of)\s+(?:the\s+)?(?:last\s+|past\s+)?(\d+)\b", re.I)
+_DIRECTIONAL_RE = re.compile(r"\b(?:closed|risen|fallen|higher|lower|gained|lost|"
+                             r"up|down|winning|losing|profitable|winners?|losers?)\b", re.I)
+_CHROME_STRIP_RE = re.compile(
+    r"<aside\b[^>]*class=[\"'][^\"']*key-stats[^\"']*[\"'].*?</aside>|"
+    r"<div\b[^>]*class=[\"'][^\"']*pattern-meta[^\"']*[\"'].*?</div>|"
+    r"<section\b[^>]*class=[\"'][^\"']*(?:sources|methodology-note)[^\"']*[\"'].*?</section>|"
+    r"<figure\b.*?</figure>|<script\b.*?</script>", re.I | re.S)
+_HEAD_STYLE_RE = re.compile(r"<head\b.*?</head>|<style\b.*?</style>", re.I | re.S)
+
+
+def _prose_text(html: str) -> str:
+    """Reader-visible PROSE only: head, style, script, and every server-
+    rendered chrome surface removed. Numeric-discipline scans run here —
+    chrome is correct by construction (rendered downstream of the model),
+    and its stat rows/CSS would otherwise false-positive every scan."""
+    return text_content(_CHROME_STRIP_RE.sub(" ", _HEAD_STYLE_RE.sub(" ", html or "")))
+
+
+def _allowed_pairs(card: Dict[str, Any]) -> set:
+    pairs = set()
+    for cell in [card.get("story_cell")] + list(card.get("auxiliary_cells") or []):
+        if not isinstance(cell, dict):
+            continue
+        n = int(cell.get("n") or 0)
+        for k in (cell.get("up_years"), cell.get("down_years")):
+            if k is not None and n:
+                pairs.add((int(k), n))
+    return pairs
+
+
+def _allowed_percents(card: Dict[str, Any]) -> list:
+    """Every percentage the Angle Card licenses the prose to quote: the story
+    cell's stats values plus per-year net/MFE/MAE and derived medians/extremes
+    of the story and auxiliary cells. Used to keep the profitability-percent
+    scan from flagging legitimate card numbers quoted in win/loss clauses."""
+    values: list = []
+
+    def _add(v: Any) -> None:
+        num = _number(v)
+        if num is not None:
+            values.append(abs(num))
+            values.append(round(abs(num), 1))   # quotables format at 1 decimal
+
+    for cell in [card.get("story_cell")] + list(card.get("auxiliary_cells") or []):
+        if not isinstance(cell, dict):
+            continue
+        for v in (cell.get("stats_raw") or {}).values():
+            _add(v)
+        for key in ("median_net", "avg_net", "best_net", "worst_net",
+                    "median_mfe", "median_mae"):
+            _add(cell.get(key))
+        for row in cell.get("per_year") or []:
+            for key in ("net", "mfe", "mae"):
+                _add(row.get(key))
+    return values
+
+
+def _issue(errors: list, code: str, detail: str) -> None:
+    errors.append({"code": code, "detail": detail})
+
+
+def validate_cell_article(article_html: str, card: Dict[str, Any], *,
+                          word_budget: int = 0) -> Dict[str, Any]:
+    """Deterministic gate for angle-engine articles. Returns
+    {ok, errors:[{code,detail}], warnings:[...]}; error codes are the shared
+    revision-loop vocabulary (fed verbatim to build_revision_prompt)."""
+    html = article_html or ""
+    story = card.get("story_cell") or {}
+    errors: list = []
+    warnings: list = []
+    text = _prose_text(html)
+
+    # --- structural: document, headline identity, bridge, chrome singletons
+    if "<article" not in html.lower() or "</html>" not in html.lower():
+        _issue(errors, "DOC_INCOMPLETE", "not a complete assembled HTML document")
+    h1 = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.I | re.S)
+    h1_text = text_content(h1.group(1)) if h1 else ""
+    symbol = str(card.get("symbol", "")).upper()
+    if symbol and symbol not in h1_text.upper():
+        _issue(errors, "HEADLINE_MISSING_IDENTITY",
+               f"headline lacks ticker {symbol}: {h1_text[:80]!r}")
+    if len(h1_text.split()) > 16:
+        warnings.append(f"headline over 16 words: {h1_text[:90]!r}")
+
+    bridges = _BRIDGE_RE.findall(html)
+    if len(bridges) != 1:
+        _issue(errors, "BRIDGE_MALFORMED",
+               f"expected exactly one transition_to_tradewave paragraph, found {len(bridges)}")
+    else:
+        bridge_text = text_content(bridges[0])
+        if "tradewave" not in bridge_text.lower():
+            _issue(errors, "BRIDGE_MALFORMED", "bridge does not mention TradeWave.ai")
+        if re.search(r"\d+(?:\.\d+)?\s*%|\b\d+\s+(?:of|out of)\s+\d+\b", bridge_text):
+            _issue(errors, "BRIDGE_MALFORMED",
+                   f"bridge contains statistics: {bridge_text[:100]!r}")
+        # No TradeWave in body prose before the bridge (chrome excluded).
+        pre = html[:_BRIDGE_RE.search(html).start()]
+        pre = _CHROME_STRIP_RE.sub(" ", pre)
+        pre = re.sub(r"<head\b.*?</head>|<h1[^>]*>.*?</h1>|"
+                     r"<p\b[^>]*class=[\"'][^\"']*dek[^\"']*[\"'][^>]*>.*?</p>|"
+                     r"<div\b[^>]*class=[\"']meta[\"'].*?</div>",
+                     " ", pre, flags=re.I | re.S)
+        if "tradewave" in text_content(pre).lower():
+            _issue(errors, "TW_BEFORE_BRIDGE",
+                   "TradeWave appears in body prose before the bridge paragraph")
+
+    for cls, label in (("pattern-meta", "META_STRIP"), ("key-stats", "KEY_STATS")):
+        count = len(re.findall(rf"class=[\"'][^\"']*\b{cls}\b", html, re.I))
+        if count != 1:
+            _issue(errors, "CHROME_MISSING" if count == 0 else "CHROME_DUPLICATED",
+                   f"{label} chrome appears {count} times")
+
+    # --- language discipline (reuses the deterministic scans above)
+    bad_days = sorted(set(m.group(0) for m in _TRADING_DAY_RE.finditer(text)))
+    if bad_days:
+        _issue(errors, "TRADING_DAYS_LABEL",
+               "TradeWave windows mislabeled as trading days: " + ", ".join(bad_days[:5]))
+    if _FORECAST_RE.search(text):
+        _issue(errors, "PROJECTION_MISLABELED",
+               "historical average trend described as a forecast/prediction")
+    if _PROJECTION_RE.search(text) and not _ALLOWED_PROJECTION_RE.search(text):
+        _issue(errors, "PROJECTION_MISLABELED",
+               "projection language without the historical-average definition")
+    if _CUMULATIVE_RE.search(text) and not _CUMULATIVE_DEFINITION_RE.search(text):
+        _issue(errors, "CUMULATIVE_UNDEFINED",
+               "cumulative return shown without defining sum vs compounding")
+    if _PERCENT_RE.search(text) and not _SAMPLE_RE.search(text):
+        _issue(errors, "MISSING_SAMPLE_SIZE",
+               "100% result appears without an adjacent n-of-n formulation")
+
+    # Causal claims: hedge or citation required, per paragraph.
+    for para in re.findall(r"<p\b[^>]*>(.*?)</p>", _CHROME_STRIP_RE.sub(" ", html),
+                           re.I | re.S):
+        ptext = text_content(para)
+        for sentence in re.split(r"(?<=[.!?])\s+", ptext):
+            if (_CAUSAL_RE.search(sentence) and not _HYPOTHESIS_RE.search(sentence)
+                    and "<sup" not in para.lower()):
+                _issue(errors, "CAUSAL_UNSUPPORTED",
+                       "unhedged, uncited causal sentence: " + sentence[:160])
+
+    # --- numeric discipline against the card
+    allowed = _allowed_pairs(card)
+    for clause in re.split(r"(?<=[.!?;])\s+", text):
+        if not (_WINDOW_CLAUSE_RE.search(clause) and _DIRECTIONAL_RE.search(clause)):
+            continue
+        for m in _CELL_SAMPLE_RE.finditer(clause):
+            pair = (int(m.group(1)), int(m.group(2)))
+            if pair[1] <= 40 and pair not in allowed:
+                _issue(errors, "PAIR_MISMATCH",
+                       f"record {m.group(0)!r} matches no cell in the Angle Card")
+        if _PROFITABLE_RE.search(clause):
+            licensed = _allowed_percents(card)
+            for pm in _ANY_PERCENT_RE.finditer(clause):
+                value = abs(float(pm.group(1)))
+                if not any(abs(value - a) < 0.006 for a in licensed):
+                    _issue(errors, "PCT_MISMATCH",
+                           f"percentage {pm.group(0)!r} in a win/loss clause matches "
+                           f"no number in the Angle Card")
+
+    # Labeled stats (Avg Profit: X etc.) must match the story cell verbatim —
+    # aux cells are barred from these labels by the prompt contract.
+    stat_errors: list = []
+    for label, expected in (story.get("stats_raw") or {}).items():
+        if label in ("1M Return", "52W High", "52W Low", "last_trade_date", "Trade Dir"):
+            continue
+        if expected in (None, ""):
+            continue
+        _compare_number(text, label, str(expected), stat_errors)
+    for detail in stat_errors:
+        _issue(errors, "NUM_MISMATCH", detail)
+
+    # --- chart semantics: excursion talk requires the MAE/MFE chart
+    if _EXCURSION_RE.search(text) and "bars_mae_mfe-chart" not in html:
+        _issue(errors, "CHART_SEMANTICS_MISMATCH",
+               "prose discusses excursions/drawdowns but the bars_mae_mfe chart is absent")
+
+    # --- engine internals must never surface as reader-facing statistics
+    leak = re.search(r"\b(?:tail[\s-]?p\b|p[\s-]?values?|binomial tail|"
+                     r"story[\s_-]?score|conviction score|angle score)\b", text, re.I)
+    if leak:
+        _issue(errors, "INTERNAL_METRIC_LEAK",
+               f"engine-internal metric surfaced in prose: {leak.group(0)!r}")
+
+    # --- citations: every sup resolves inside the rendered sources list
+    n_sources = len(re.findall(r"<li>\s*<a\b", html)) if 'class="sources"' in html else 0
+    for m in re.finditer(r"<sup[^>]*>\s*\[(\d+)\]\s*</sup>", html, re.I):
+        if int(m.group(1)) > n_sources:
+            _issue(errors, "CITATION_BROKEN",
+                   f"citation [{m.group(1)}] exceeds the {n_sources}-item sources list")
+            break
+
+    if word_budget:
+        words = len(text.split())
+        if abs(words - word_budget) > max(150, int(word_budget * 0.25)):
+            warnings.append(f"length {words} words vs budget {word_budget}")
+
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
