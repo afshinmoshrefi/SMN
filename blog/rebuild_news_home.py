@@ -57,6 +57,8 @@ DISPLAY_MAX_ARTICLES = 50   # Maximum articles to display (None = no limit)
 NEWS_ROOT  = Path(config.news_root_folder)
 POSTS_JSON = NEWS_ROOT / "posts.json"
 INDEX_HTML = NEWS_ROOT / "index.html"
+# Compact catalog the home-page autocomplete downloads. See _write_suggest_index().
+SUGGEST_JSON = NEWS_ROOT / "suggest.json"
 
 SITE_TITLE = "Seasonal Market News"
 TAGLINE = "Daily, data-backed coverage of repeating market patterns. Institutional-grade research powered by TradeWave analytics."
@@ -6647,6 +6649,42 @@ def _get_email_script_html(ml_groups):
 '''
 
 
+def _write_suggest_index():
+    """Write suggest.json: the compact catalog the home-page autocomplete downloads.
+
+    posts.json is the full catalog and carries fields the autocomplete never reads
+    (dek, meta_description, tags, hero_image, pattern metadata). Every visitor was
+    downloading all of it, and that payload grows with the archive. This trims it to
+    the fields search actually matches on or displays, which is several times smaller
+    and grows far more slowly.
+
+    Written here because build_home() already runs on every publish, so the index
+    stays in step with the home page without a new cron job or call site.
+    """
+    try:
+        posts = json.loads(POSTS_JSON.read_text("utf-8"))
+    except Exception as e:
+        # Never let a suggest-index failure break the home page: the client falls
+        # back to posts.json when this file is missing.
+        print(f"[SUGGEST] skipped ({e})")
+        return None
+
+    items = [{
+        "title": p.get("title", ""),
+        "url": p.get("url", ""),
+        "symbol": p.get("symbol", ""),
+        "tickers": p.get("tickers") or [],
+        "published_date": p.get("published_date", ""),
+    } for p in posts]
+
+    SUGGEST_JSON.write_text(
+        json.dumps(items, ensure_ascii=False, separators=(",", ":")), "utf-8"
+    )
+    print(f"[SUGGEST] wrote {SUGGEST_JSON} ({len(items)} entries, "
+          f"{SUGGEST_JSON.stat().st_size:,} bytes)")
+    return SUGGEST_JSON
+
+
 def _get_autocomplete_css():
     """CSS for the live search autocomplete dropdown. Raw string (literal braces);
     substituted into the page f-string as a single value, so braces are not re-parsed."""
@@ -6752,10 +6790,18 @@ def _get_autocomplete_script_html():
             });
         }
 
-        function load(isRetry) {
+        // suggest.json is the trimmed catalog (title/url/symbol/tickers/date) and is
+        // several times smaller than posts.json, which matters as the archive grows.
+        // posts.json is the fallback so the box still works on a box that has not
+        // regenerated its home page yet.
+        var SOURCES = ['suggest.json', 'posts.json'];
+
+        function load(srcIdx, isRetry) {
             if (posts || loading) return;
+            srcIdx = srcIdx || 0;
+            if (srcIdx >= SOURCES.length) return;
             loading = true;
-            fetch('posts.json', { cache: 'no-cache' })
+            fetch(SOURCES[srcIdx], { cache: 'no-cache' })
                 .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
                 .then(function (d) {
                     posts = Array.isArray(d) ? d : [];
@@ -6763,10 +6809,11 @@ def _get_autocomplete_script_html():
                     render(input.value);
                 })
                 .catch(function () {
-                    // Do NOT poison posts with []: leave it null so typing retries,
-                    // and auto-retry once after a short delay (slow tunnel / transient blip).
+                    // Do NOT poison posts with []: leave it null so typing retries.
+                    // Try the next source, then retry once (slow tunnel / transient blip).
                     loading = false;
-                    if (!isRetry) setTimeout(function () { load(true); }, 900);
+                    if (srcIdx + 1 < SOURCES.length) load(srcIdx + 1, isRetry);
+                    else if (!isRetry) setTimeout(function () { load(0, true); }, 900);
                 });
         }
 
@@ -6972,6 +7019,9 @@ def build_home():
 '''
 
     INDEX_HTML.write_text(html, "utf-8")
+
+    # Refresh the compact catalog the autocomplete downloads.
+    _write_suggest_index()
 
     # Sync security page prices with the market bar
     try:
