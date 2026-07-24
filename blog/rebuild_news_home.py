@@ -6752,13 +6752,22 @@ def _get_autocomplete_script_html():
             });
         }
 
-        function load() {
+        function load(isRetry) {
             if (posts || loading) return;
             loading = true;
             fetch('posts.json', { cache: 'no-cache' })
-                .then(function (r) { return r.json(); })
-                .then(function (d) { posts = Array.isArray(d) ? d : []; render(input.value); })
-                .catch(function () { posts = []; });
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function (d) {
+                    posts = Array.isArray(d) ? d : [];
+                    loading = false;
+                    render(input.value);
+                })
+                .catch(function () {
+                    // Do NOT poison posts with []: leave it null so typing retries,
+                    // and auto-retry once after a short delay (slow tunnel / transient blip).
+                    loading = false;
+                    if (!isRetry) setTimeout(function () { load(true); }, 900);
+                });
         }
 
         function rank(q) {
@@ -6827,7 +6836,9 @@ def _get_autocomplete_script_html():
             items[idx].scrollIntoView({ block: 'nearest' });
         }
 
-        input.addEventListener('focus', load);
+        // Preload the catalog immediately so results are ready on the first keystroke.
+        load();
+        input.addEventListener('focus', function () { load(); });
         input.addEventListener('input', function () { render(input.value); });
         input.addEventListener('keydown', function (e) {
             var items = box.querySelectorAll('.sa-item');
