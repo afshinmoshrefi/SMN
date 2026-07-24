@@ -6506,15 +6506,18 @@ def _get_header_html():
                 <span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span>
             </a>
             <div class="header-right">
-                <form class="header-search" action="search.html" method="get">
-                    <input type="text" name="q" placeholder="Search symbols, topics..." class="header-search-input">
-                    <button type="submit" class="header-search-btn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="11" cy="11" r="8"></circle>
-                            <path d="m21 21-4.35-4.35"></path>
-                        </svg>
-                    </button>
-                </form>
+                <div class="header-search-wrap">
+                    <form class="header-search" action="search.html" method="get" autocomplete="off">
+                        <input type="text" name="q" id="headerSearchInput" placeholder="Search symbols, topics..." class="header-search-input" autocomplete="off" aria-label="Search articles" aria-autocomplete="list" aria-controls="searchAutocomplete">
+                        <button type="submit" class="header-search-btn" aria-label="Search">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <path d="m21 21-4.35-4.35"></path>
+                            </svg>
+                        </button>
+                    </form>
+                    <div id="searchAutocomplete" class="search-autocomplete" role="listbox" aria-label="Search suggestions"></div>
+                </div>
                 <nav>
                     <a href="https://tradewave.ai" target="_blank">TradeWave</a>
                 </nav>
@@ -6644,6 +6647,211 @@ def _get_email_script_html(ml_groups):
 '''
 
 
+def _get_autocomplete_css():
+    """CSS for the live search autocomplete dropdown. Raw string (literal braces);
+    substituted into the page f-string as a single value, so braces are not re-parsed."""
+    return '''
+        /* Live search autocomplete */
+        .header-search-wrap {
+            position: relative;
+        }
+        .search-autocomplete {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            min-width: 340px;
+            max-height: 72vh;
+            overflow-y: auto;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+            z-index: 2000;
+            display: none;
+        }
+        .search-autocomplete.open {
+            display: block;
+        }
+        .sa-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 14px;
+            text-decoration: none;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .sa-item:last-child {
+            border-bottom: none;
+        }
+        .sa-item:hover,
+        .sa-item.active {
+            background: var(--bg-secondary);
+        }
+        .sa-symbol {
+            flex-shrink: 0;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent-blue);
+            background: var(--bg-tertiary);
+            padding: 3px 7px;
+            border-radius: 4px;
+            min-width: 48px;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .sa-text {
+            min-width: 0;
+        }
+        .sa-title {
+            font-size: 13px;
+            color: var(--text-primary);
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .sa-date {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 3px;
+        }
+        .sa-empty {
+            padding: 14px;
+            font-size: 13px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        @media (max-width: 768px) {
+            .search-autocomplete {
+                min-width: 0;
+                width: 84vw;
+                max-width: 340px;
+            }
+        }
+'''
+
+
+def _get_autocomplete_script_html():
+    """Client-side live search over posts.json. Reads the LOCAL relative posts.json
+    (never a hardcoded cloud origin) so links resolve on whatever host serves the page.
+    Raw string: substituted as one f-string value, braces not re-parsed."""
+    return '''
+    <script>
+    (function () {
+        var input = document.getElementById('headerSearchInput');
+        var box = document.getElementById('searchAutocomplete');
+        if (!input || !box) return;
+
+        var posts = null, loading = false, results = [], activeIdx = -1;
+
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+            });
+        }
+
+        function load() {
+            if (posts || loading) return;
+            loading = true;
+            fetch('posts.json', { cache: 'no-cache' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { posts = Array.isArray(d) ? d : []; render(input.value); })
+                .catch(function () { posts = []; });
+        }
+
+        function rank(q) {
+            q = q.trim().toLowerCase();
+            if (!q || !posts) return [];
+            var qu = q.toUpperCase();
+            var scored = [];
+            for (var i = 0; i < posts.length; i++) {
+                var p = posts[i];
+                var sym = String(p.symbol || '').toUpperCase();
+                var tickers = (p.tickers || []).map(function (t) { return String(t).toUpperCase(); });
+                var title = String(p.title || '').toLowerCase();
+                var dek = String(p.dek || '').toLowerCase();
+                var score = -1;
+                if (sym === qu || tickers.indexOf(qu) !== -1) score = 0;
+                else if (sym.indexOf(qu) === 0 && qu.length > 0) score = 1;
+                else if (title.indexOf(q) !== -1) score = 2;
+                else if (dek.indexOf(q) !== -1) score = 3;
+                if (score >= 0) scored.push([score, p]);
+            }
+            scored.sort(function (a, b) {
+                if (a[0] !== b[0]) return a[0] - b[0];
+                var da = a[1].published_date || '', db = b[1].published_date || '';
+                return db < da ? -1 : (db > da ? 1 : 0);
+            });
+            return scored.slice(0, 8).map(function (x) { return x[1]; });
+        }
+
+        function render(q) {
+            activeIdx = -1;
+            if (!q || !q.trim()) { close(); return; }
+            if (!posts) { load(); return; }
+            results = rank(q);
+            if (!results.length) {
+                box.innerHTML = '<div class="sa-empty">No matches — press Enter to search all articles</div>';
+                box.classList.add('open');
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < results.length; i++) {
+                var p = results[i];
+                var date = String(p.published_date || '').slice(0, 10);
+                html += '<a class="sa-item" role="option" href="' + esc(p.url) + '" data-idx="' + i + '">' +
+                    '<span class="sa-symbol">' + esc(p.symbol || '—') + '</span>' +
+                    '<span class="sa-text"><span class="sa-title">' + esc(p.title) + '</span>' +
+                    (date ? '<span class="sa-date">' + esc(date) + '</span>' : '') +
+                    '</span></a>';
+            }
+            box.innerHTML = html;
+            box.classList.add('open');
+        }
+
+        function close() {
+            box.classList.remove('open');
+            box.innerHTML = '';
+            activeIdx = -1;
+        }
+
+        function setActive(idx) {
+            var items = box.querySelectorAll('.sa-item');
+            if (!items.length) return;
+            if (idx < 0) idx = items.length - 1;
+            if (idx >= items.length) idx = 0;
+            activeIdx = idx;
+            for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', i === idx);
+            items[idx].scrollIntoView({ block: 'nearest' });
+        }
+
+        input.addEventListener('focus', load);
+        input.addEventListener('input', function () { render(input.value); });
+        input.addEventListener('keydown', function (e) {
+            var items = box.querySelectorAll('.sa-item');
+            if (e.key === 'ArrowDown') {
+                if (items.length) { e.preventDefault(); setActive(activeIdx + 1); }
+            } else if (e.key === 'ArrowUp') {
+                if (items.length) { e.preventDefault(); setActive(activeIdx - 1); }
+            } else if (e.key === 'Enter') {
+                if (activeIdx >= 0 && items[activeIdx]) {
+                    e.preventDefault();
+                    window.location.href = items[activeIdx].getAttribute('href');
+                }
+            } else if (e.key === 'Escape') {
+                close();
+            }
+        });
+        document.addEventListener('click', function (e) {
+            if (!box.contains(e.target) && e.target !== input) close();
+        });
+    })();
+    </script>
+'''
+
+
 # =============================================================================
 # MAIN BUILD FUNCTION
 # =============================================================================
@@ -6737,6 +6945,7 @@ def build_home():
     <style>
 {_get_base_css(t)}
 {template_css}
+{_get_autocomplete_css()}
     </style>
 </head>
 <body{body_class}>
@@ -6746,6 +6955,7 @@ def build_home():
 {content_html}
 {_get_footer_html(len(items), len(all_items))}
 {_get_email_script_html(ml_groups)}
+{_get_autocomplete_script_html()}
 </body>
 </html>
 '''
