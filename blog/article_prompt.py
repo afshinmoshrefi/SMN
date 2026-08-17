@@ -16,6 +16,7 @@ import AI_tools
 from article_images import create_article_images
 from create_report import get_chart_data, get_keyprovider_token, login_appserver
 from blog_tools import get_company_name, convert_param_base64
+from article_sources import is_valid_http_source_url, normalize_research_source_ids
 
 from article_hero_image import hero_image_workflow
 from get_price_eod import get_current_price, get_quote_details # retrieves the current security price from EODHD
@@ -114,7 +115,7 @@ def _filter_research_sources(research: Dict[str, Any],
         title = (src.get("title") or "").strip()
         
         # 1. Basic Health Check
-        if not url or not title:
+        if not is_valid_http_source_url(url) or not title:
             continue
 
         # 2. Deduplication
@@ -1282,6 +1283,10 @@ def create_article_prompt(
         # Minimal hard filter: strip blacklisted domains from the sources list.
         # This keeps TradingView and similar junk out, even if Perplexity ignores instructions.
         research = _filter_research_sources(research, symbol=symbol, company=company)
+        # Filtering can leave sparse IDs (for example 1, 6, 8).  Ordered HTML
+        # lists display those positions as 1, 2, 3, so normalize the complete
+        # research packet before it reaches the writer.
+        research = normalize_research_source_ids(research)
         research = _annotate_research_temporal(research, freshness_days=60)
 
         # Override Tavily price with EODHD price (authoritative source)

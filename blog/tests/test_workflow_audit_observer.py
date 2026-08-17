@@ -112,6 +112,12 @@ class WorkflowAuditObserverTests(unittest.TestCase):
         self.assertEqual(tracking["status"], "success")
         self.assertFalse(self.audit_dir.exists())
 
+    def test_final_sources_are_rendered_from_research_without_an_extra_model_call(self):
+        tracking = self._run()
+        self.assertEqual(tracking["status"], "success")
+        self.assertIn("https://r.test/a", tracking["article_html"])
+        self.assertIn('<section class="sources">', tracking["article_html"])
+
     def test_unwritable_audit_dir_cannot_fail_generation(self):
         _fake_config.article_audit_enabled = True
         _fake_config.article_audit_dir = "/proc/definitely-not-writable/audit"

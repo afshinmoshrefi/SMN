@@ -22,6 +22,7 @@ from article_images import create_article_images
 from create_report import get_chart_data, get_keyprovider_token, login_appserver
 from blog_tools import get_company_name
 from article_prompt import create_article_prompt, get_opp_data
+from article_sources import canonicalize_sources_section
 
 from publish_article import publish_article_web,load_article_from_folder,delete_article_web
 import sys
@@ -770,6 +771,8 @@ def article_prompt(resource_id, symbol, date, days, years, userid, mode, note):
                     article_html = _re2.sub(r'<h1[^>]*>.*?</h1>', f'<h1>{new_title}</h1>', article_html, count=1, flags=_re2.IGNORECASE | _re2.DOTALL)
                 except Exception as seo_e:
                     print(f"[WARN] SEO title generation failed (non-fatal): {seo_e}")
+
+                article_html = canonicalize_sources_section(article_html, research_json)
 
             except Exception as e:
                 print(f"[ERROR] OpenAI article generation failed (Mode 2): {e}")

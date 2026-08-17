@@ -64,6 +64,7 @@ import time
 from article_images import create_article_images
 from blog_queue import inject_hero_into_article
 from article_prompt import create_article_prompt, get_opp_data, detect_market_family, WHITELISTED_SOURCE_DOMAINS
+from article_sources import canonicalize_sources_section
     
 
 from article_hero_image import hero_image_workflow, HERO_WIDTH_ATTR, HERO_HEIGHT_ATTR
@@ -653,6 +654,11 @@ def generate_news_article(resource_id: str,
                 pattern_mode=pattern_mode,
             )
             article_audit.record("prompt.txt", article_prompt_text)
+            # create_article_prompt filters and normalizes the shared research
+            # packet in place; persist the exact source contract used by the
+            # writer rather than the pre-filter synthesis.
+            if research is not None:
+                article_audit.record("research.json", research)
             mark_step_success(tracking, "article_prompt")
         except Exception as e:
             mark_step_error(tracking, "article_prompt", e)
@@ -678,6 +684,11 @@ def generate_news_article(resource_id: str,
                 new_title = generate_unique_seo_title(pattern, article_html, tavily=research, persist=True)
                 print(f"[SEO TITLE] Generated: {new_title}")
                 article_html = _replace_title_in_html(article_html, new_title)
+
+                # URLs and ordering are deterministic data, not prose.  Replace
+                # only the Sources section; the article body and voice stay as
+                # the writer produced them.
+                article_html = canonicalize_sources_section(article_html, research)
 
             tracking["article_html"] = article_html
             mark_step_success(tracking, "write_article")
