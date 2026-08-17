@@ -564,6 +564,22 @@ def _fmt_date(d: datetime.date) -> str:
     return f"{d.strftime('%b')} {d.day}, {d.year}"       # 'Sep 27, 2026'
 
 
+# Market-wide events, stated as plain fact rather than cause. Deliberately
+# short: only episodes where a broad drawdown is uncontroversial, so the
+# annotation never implies the security fell FOR this reason.
+MARKET_REGIMES = {
+    1973: "a broad bear market",
+    1974: "a broad bear market",
+    1987: "the year of the October 1987 crash",
+    2000: "the start of the dot-com bear market",
+    2001: "part of the dot-com bear market",
+    2002: "the final leg of the dot-com bear market",
+    2008: "the global financial crisis",
+    2020: "the COVID-19 crash and recovery",
+    2022: "a market-wide repricing as rates rose",
+}
+
+
 def build_quotables(cell: Cell) -> Dict[str, str]:
     """Server-computed strings with the sample size embedded, so n can never
     be dropped in prose. MUST NOT contain reserved integrity-gate labels
@@ -594,6 +610,43 @@ def build_quotables(cell: Cell) -> Dict[str, str]:
     }
     if k == cell.n and cell.n >= 8:
         q["streak"] = f"{cell.n} for {cell.n} in this window"
+
+    # --- Extent of the move, not just the close -------------------------
+    # Close-to-close understates what the window offered. GILD's 60-day
+    # window from Aug 17 (n=20) closes at a median +3.2% after reaching a
+    # median +7.7% -- half the move handed back. 2018 closed +0.6% after
+    # offering +10.0%. Reporting only the close makes that year read as
+    # nothing happening. Served as a quotable so the writer cites rather
+    # than derives it.
+    give_back = cell.median_mfe - cell.median_net
+    if cell.median_mfe > 0 and give_back >= 2.0:
+        q["give_back"] = (
+            f"the median year reached {cell.median_mfe:.1f}% at its best point "
+            f"but closed at {cell.median_net:+.1f}%, handing back "
+            f"{give_back:.1f} points")
+    if cell.per_year:
+        touched = sum(1 for r in cell.per_year
+                      if float(r.get("mfe") or 0) >= 5.0)
+        if touched:
+            q["touched"] = (f"traded at least 5% higher at some point in "
+                            f"{touched} of {cell.n} years")
+        never = [int(r.get("year") or 0) for r in cell.per_year
+                 if float(r.get("mfe") or 0) < 1.0]
+        if never:
+            q["never_green"] = (
+                f"never traded higher at all in "
+                f"{', '.join(str(y) for y in sorted(never))}")
+
+    # --- Name the regime behind an extreme year -------------------------
+    # The pipeline has no historical context layer: TradeWave sees no macro
+    # and the research feed is current news only, so a -31.4% year arrives
+    # as a bare number. A reader takes that as a fact about the security
+    # when it is a fact about the market that autumn. Supplied as data so
+    # the citation rules license it -- the writer is otherwise correctly
+    # forbidden from asserting what it cannot source.
+    regime = MARKET_REGIMES.get(cell.worst_year)
+    if regime and cell.worst_net < 0:
+        q["worst_year_context"] = f"{cell.worst_year} was {regime}"
     for label in RESERVED_LABELS:
         for text in q.values():
             assert label.lower() not in text.lower(), \

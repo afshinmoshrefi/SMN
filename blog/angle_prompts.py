@@ -113,7 +113,15 @@ STYLE = """Voice: senior markets reporter who found something the reader does no
 Short paragraphs. Sentences under 25 words. State facts directly — no "it is worth noting".
 When a number is striking, let it carry the sentence; do not stack adjectives on it.
 A number stated once is stated; repeating it verbatim in another section is filler.
-All <h2> headings are natural questions a reader might search."""
+Body section headings are STATEMENTS, never questions (the one key-takeaways
+heading is the exception -- it is the search-snippet block). A heading must commit to what
+its section found: "The give-back: 7.7% at the peak, 3.2% at the close", "2012's
+best year, and 2008's worst", "Nothing happened, and that's the point". A
+question heading ("How bumpy has the path been?") lets the section avoid having
+a point, and every section reading as a posed question is the clearest tell that
+an article was machine-assembled rather than written. Keep the searchable terms
+-- ticker, window length, month -- inside the statement or the line beneath it.
+No heading may end in a question mark."""
 
 
 # ============================================================
@@ -201,7 +209,7 @@ Return exactly this JSON shape:
       "carries": ["quotable:record", "stat:Percent Profitable", "research:3"],
       "chart": null}}
   ],
-  "h2s": ["Question-format headings, one per body section beat"],
+  "h2s": ["Statement headings, one per body section beat. Each commits to what its section found. No question marks."],
   "charts": ["subset of {list(ALLOWED_CHARTS)} that serves the thesis, 2 or 3"],
   "bridge_after_beat": 1,
   "word_budget": 0,
@@ -337,7 +345,9 @@ Output contract (exact):
 - Start with <h1> (pick the stronger of your two planned headlines), then <p class="dek"> (one sentence, no TradeWave mention).
 - Immediately after the dek: <section id="key-takeaways"> with an <h2> question, one <p class="direct-answer"> sentence that answers it from the story cell's data (self-contained, snippet-ready), and a <div class="key-takeaways-box"> with 3-5 <li> bullets, data first.
 - Then the hero slot token {{{{HERO}}}} on its own line.
-- Body sections follow YOUR beats, one <h2> question per section, prose in <p>.
+- Body sections follow YOUR beats, one <h2> STATEMENT per section, prose in <p>.
+  The key-takeaways heading above is the single exception and stays a question:
+  it is the snippet block. Every body heading asserts.
 - The bridge: a single short paragraph <p id="transition_to_tradewave" class="chart-bridge"> placed after beat {plan.get('bridge_after_beat')} exactly as planned. First mention of TradeWave.ai happens here, no statistics in it, and its wording must turn THIS article's thesis — do not reuse stock phrasing.
 - Place these slot tokens where the plan's beats call for them (each exactly once, on its own line): {{{{META_STRIP}}}} {{{{KEY_STATS}}}} {fig_tokens}
   They render server-side; put {{{{META_STRIP}}}} and {{{{KEY_STATS}}}} inside your seasonal-record section, and each figure token where its beat discusses that chart, with a one-sentence lead-in before it.{excursion_rule}
