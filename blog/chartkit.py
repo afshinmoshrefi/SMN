@@ -149,7 +149,19 @@ def _drop_zeroed(years, nets, mfe=None, mae=None):
         net = float(nets[i])
         m = None if mfe is None else (None if mfe[i] in (None, "") else float(mfe[i]))
         a = None if mae is None else (None if mae[i] in (None, "") else float(mae[i]))
-        is_zero_row = (abs(net) < 1e-12
+        # ChartData4 returns the CURRENT year as a placeholder "0,0,0" row
+        # because its window has not completed, and it is always the LAST row.
+        # A genuinely flat historical year is also net==0 and, when the caller
+        # renders the simple bars variant, arrives with no mfe/mae to tell them
+        # apart -- so the old test (net==0 and mfe/mae absent-or-zero) deleted
+        # real flat years, but only for the variants that omit excursions.
+        # Ford, 2026-08-17: one caption read "9 of the past 9 years" and
+        # another "10 of the past 10 years" in the same article, because a real
+        # flat 2018 survived the MAE/MFE chart and was dropped from the bars
+        # chart. Position is the fact that separates them: the placeholder is
+        # trailing, a flat year in the middle of the series is data.
+        is_trailing = (i == len(nets) - 1)
+        is_zero_row = (abs(net) < 1e-12 and is_trailing
                        and (m is None or abs(m) < 1e-12)
                        and (a is None or abs(a) < 1e-12))
         if is_zero_row:
@@ -341,9 +353,20 @@ def _lookback_phrase(meta, n):
         return f"{n}-year"
     return lbl or "seasonal"
 
-def _bars_title(symbol, direction, wins, n, win_lbl):
+def _bars_title(symbol, direction, wins, n, win_lbl, losses=None):
+    """Caption for the per-year bars chart.
+
+    `losses` must be counted, not inferred. Deriving it as n - wins folds any
+    genuinely FLAT year into the loss column: Ford's Aug 17 - Sep 15 midterm
+    window has 10 years, 0 winners, 9 losers and one flat 2018, and rendered as
+    "closed lower in 10 of the past 10 years" while the key-stats box beside it
+    said 9 losers. Callers that know the real count pass it.
+    """
     word = "higher" if str(direction).lower().startswith("l") else "lower"
-    k = wins if word == "higher" else (n - wins)
+    if word == "higher":
+        k = wins
+    else:
+        k = losses if losses is not None else (n - wins)
     base = f"{symbol} has closed {word} in {k} of the past {n} years"
     return f"{base} ({win_lbl})" if win_lbl else base
 
@@ -389,7 +412,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         f"{symbol}"
         + (f" · {company}" if company else "")
         + (f" · {days}-day seasonal window" if days else " · seasonal window"))
-    title = _bars_title(symbol, direction, wins, n, win_lbl)
+    losses = sum(1 for v in nets if v < 0)
+    title = _bars_title(symbol, direction, wins, n, win_lbl, losses)
 
     mmm1, mmm2 = (_fmt_mmm_d(d1) if d1 else ""), (_fmt_mmm_d(d2) if d2 else "")
     if mfe is not None and mae is not None:
@@ -638,17 +662,31 @@ def cumulative(years, cum_vals, meta, path, *, palette="light"):
     y0 = years[0] if years else ""
     y1 = years[-1] if years else ""
 
+    # A SHORT pattern's cumulative curve is short-side profit: thumbnail_tools
+    # .get_cumulative_chart_data flips each year's sign when Trade Dir is
+    # 'short'. Ford's Aug 17 - Sep 15 midterm window fell in 9 of 10 years at a
+    # -4.8% median and rendered as "compounds to +61.0%", which any reader --
+    # and an LLM reviewer, 2026-08-17 -- takes as the stock rising 61%. The
+    # arithmetic was right and the label was missing. Say the side, every time.
+    is_short = str(direction).strip().lower() == "short"
+    side = " shorting" if is_short else ""
     kicker = meta.get("kicker") or (
         f"{symbol}" + (f" · {company}" if company else "")
-        + " · cumulative window return")
+        + (" · cumulative short-side return" if is_short
+           else " · cumulative window return"))
     title = meta.get("title") or (
-        f"Stacking the {win_lbl} window compounds to {end_val:+.1f}% over "
-        f"{n} years" if win_lbl else
-        f"The window compounds to {end_val:+.1f}% over {n} years")
+        f"{'Shorting' if is_short else 'Stacking'} the {win_lbl} window "
+        f"compounds to {end_val:+.1f}% over {n} years" if win_lbl else
+        f"The window compounds to {end_val:+.1f}% over {n} years{side}")
     spec = meta.get("spec") or (
-        f"Cumulative return of the {days}-day window, compounded year over "
-        f"year - one point per year" if days else
-        "Cumulative return of the window, compounded year over year")
+        (f"Cumulative return of the {days}-day window on the SHORT side - the "
+         f"security itself fell in most of these years - compounded year over "
+         f"year, one point per year" if is_short else
+         f"Cumulative return of the {days}-day window, compounded year over "
+         f"year - one point per year") if days else
+        ("Cumulative SHORT-side return of the window, compounded year over year"
+         if is_short else
+         "Cumulative return of the window, compounded year over year"))
     source = meta.get("source") or (
         f"Source: TradeWave seasonal database · n={n} completed years "
         f"({y0}–{y1})")
