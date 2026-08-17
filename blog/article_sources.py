@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 
@@ -196,8 +196,84 @@ def canonicalize_sources_section(article_html: str, research: Dict[str, Any]) ->
     return article_html.rstrip() + "\n" + rendered
 
 
+_SUP_MARKER_RE = re.compile(
+    r"<sup\b[^>]*>\s*\[?\s*(\d{1,3})\s*\]?\s*</sup\s*>",
+    re.IGNORECASE,
+)
+_LIST_ITEM_RE = re.compile(r"<li\b[^>]*>", re.IGNORECASE)
+
+
+def count_rendered_sources(article_html: str) -> int:
+    """Number of entries in the article's rendered Sources list."""
+    match = _SOURCES_SECTION_RE.search(article_html or "")
+    if not match:
+        return 0
+    return len(_LIST_ITEM_RE.findall(match.group(0)))
+
+
+def drop_orphan_citation_markers(article_html: str) -> Tuple[str, List[int]]:
+    """Remove ``<sup>[n]</sup>`` markers that point at no source.
+
+    Measured on the production audit corpus: 31 of 103 published articles (30%)
+    carry at least one inline marker with no matching Sources entry, and five
+    carry markers with no Sources section at all.  The prompt has forbidden this
+    since the citation-integrity rule was added and the writer does it anyway, so
+    the reconciliation is done in code rather than asked for again.
+
+    The claim text is deliberately kept.  An uncited sentence is a weaker
+    article; a superscript pointing at a source that does not exist tells the
+    reader a specific falsehood about where the number came from.
+
+    Must run AFTER :func:`canonicalize_sources_section`, which is itself allowed
+    to shrink the list when a source fails validation - a marker that was valid
+    against the writer's list can be orphaned by that step.
+
+    Returns the repaired HTML and the sorted marker numbers that were dropped,
+    so the caller can record them to the audit trail.
+    """
+    if not article_html:
+        return article_html, []
+
+    limit = count_rendered_sources(article_html)
+    match = _SOURCES_SECTION_RE.search(article_html)
+    # Markers inside the Sources section itself are not citations; leave the
+    # rendered list untouched no matter what it contains.
+    body_end = match.start() if match else len(article_html)
+
+    dropped: List[int] = []
+    pieces: List[str] = []
+    cursor = 0
+
+    for match in _SUP_MARKER_RE.finditer(article_html):
+        if match.start() >= body_end:
+            break
+        number = int(match.group(1))
+        if 1 <= number <= limit:
+            continue
+
+        dropped.append(number)
+        lead = article_html[cursor : match.start()]
+        following = article_html[match.end() : match.end() + 1]
+        # Whitespace is repaired only at the seam the removal creates; the rest
+        # of the document, including its indentation, is left byte-for-byte.
+        if following and following in ".,;:!?)":
+            lead = lead.rstrip(" \t")
+        elif lead[-1:] in (" ", "\t") and following in (" ", "\t"):
+            lead = lead.rstrip(" \t")
+        pieces.append(lead)
+        cursor = match.end()
+
+    if not dropped:
+        return article_html, []
+
+    pieces.append(article_html[cursor:])
+    return "".join(pieces), sorted(set(dropped))
+
+
 __all__ = [
     "canonicalize_sources_section",
+    "count_rendered_sources",
+    "drop_orphan_citation_markers",
     "is_valid_http_source_url",
     "normalize_research_source_ids",
 ]

@@ -8,7 +8,11 @@ from pathlib import Path
 BLOG = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BLOG))
 
-from article_sources import canonicalize_sources_section, normalize_research_source_ids
+from article_sources import (
+    canonicalize_sources_section,
+    drop_orphan_citation_markers,
+    normalize_research_source_ids,
+)
 from citation_gate import validate_citations
 
 
@@ -126,6 +130,68 @@ class CanonicalSourcesRenderingTests(unittest.TestCase):
 
         self.assertEqual(rendered.count('<section class="sources">'), 1)
         self.assertIn("<aside>Unchanged</aside>", rendered)
+
+
+class DropOrphanCitationMarkersTests(unittest.TestCase):
+    SOURCES = (
+        '<section class="sources"><h3>Sources</h3><ol>'
+        '<li><a href="https://a.test/1">One</a></li>'
+        '<li><a href="https://b.test/2">Two</a></li>'
+        "</ol></section>"
+    )
+
+    def _doc(self, body):
+        return f"<article><p>{body}</p>{self.SOURCES}</article>"
+
+    def test_marker_past_the_end_is_dropped_and_valid_ones_survive(self):
+        html, dropped = drop_orphan_citation_markers(
+            self._doc('Revenue rose<sup>[2]</sup> on volume<sup>[11]</sup>.')
+        )
+
+        self.assertEqual(dropped, [11])
+        self.assertIn("<sup>[2]</sup>", html)
+        self.assertNotIn("[11]", html)
+        self.assertIn("Revenue rose", html)
+        self.assertIn("on volume.", html)
+
+    def test_no_sources_section_drops_every_marker(self):
+        html, dropped = drop_orphan_citation_markers(
+            "<article><p>A claim<sup>[1]</sup> and another<sup>[3]</sup>.</p></article>"
+        )
+
+        self.assertEqual(dropped, [1, 3])
+        self.assertNotIn("<sup>", html)
+        self.assertIn("A claim and another.", html)
+
+    def test_clean_article_is_returned_byte_for_byte(self):
+        original = self._doc('Nothing wrong here<sup>[1]</sup>.')
+
+        html, dropped = drop_orphan_citation_markers(original)
+
+        self.assertEqual(dropped, [])
+        self.assertIs(html, original)
+
+    def test_markers_inside_the_sources_list_are_never_touched(self):
+        original = (
+            '<article><p>Body.</p><section class="sources"><h3>Sources</h3><ol>'
+            "<li>Note<sup>[9]</sup></li></ol></section></article>"
+        )
+
+        html, dropped = drop_orphan_citation_markers(original)
+
+        self.assertEqual(dropped, [])
+        self.assertIn("<sup>[9]</sup>", html)
+
+    def test_indentation_outside_the_seam_is_preserved(self):
+        original = (
+            '<article>\n    <p>Deeply    indented<sup>[7]</sup> text.</p>\n' + self.SOURCES + "</article>"
+        )
+
+        html, dropped = drop_orphan_citation_markers(original)
+
+        self.assertEqual(dropped, [7])
+        self.assertIn("\n    <p>", html)
+        self.assertIn("Deeply    indented text.", html)
 
 
 if __name__ == "__main__":

@@ -64,7 +64,8 @@ import time
 from article_images import create_article_images
 from blog_queue import inject_hero_into_article
 from article_prompt import create_article_prompt, get_opp_data, detect_market_family, WHITELISTED_SOURCE_DOMAINS
-from article_sources import canonicalize_sources_section
+from article_sources import (canonicalize_sources_section, count_rendered_sources,
+                             drop_orphan_citation_markers)
     
 
 from article_hero_image import hero_image_workflow, HERO_WIDTH_ATTR, HERO_HEIGHT_ATTR
@@ -689,6 +690,17 @@ def generate_news_article(resource_id: str,
                 # only the Sources section; the article body and voice stay as
                 # the writer produced them.
                 article_html = canonicalize_sources_section(article_html, research)
+
+                # Canonicalizing can shrink the list when a source fails
+                # validation, so reconcile markers against the list that
+                # actually shipped - not the one the writer thought it had.
+                article_html, orphaned = drop_orphan_citation_markers(article_html)
+                if orphaned:
+                    print(f"[SOURCES] dropped orphan citation markers: {orphaned}")
+                    article_audit.record("orphan_citations.json", {
+                        "dropped": orphaned,
+                        "sources_rendered": count_rendered_sources(article_html),
+                    })
 
             tracking["article_html"] = article_html
             mark_step_success(tracking, "write_article")
