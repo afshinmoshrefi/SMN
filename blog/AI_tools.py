@@ -570,7 +570,25 @@ def send_claude_prompt(prompt, model=CLAUDE_MODEL_DEFAULT, system=None,
                          json=payload, timeout=timeout)
     if resp.status_code != 200:
         raise AnthropicAPIError(f'HTTP {resp.status_code}: {resp.text}')
-    return resp.json()['content'][0]['text']
+
+    # The response is a LIST of content blocks and text is not guaranteed to be
+    # first: a model may emit a 'thinking' block ahead of its answer, in which
+    # case content[0]['text'] raises KeyError. Observed 2026-08-17 -- a two-word
+    # test prompt returned text-first and worked, while every real article
+    # prompt failed. Join every text block and ignore the rest.
+    data = resp.json()
+    blocks = data.get('content') or []
+    text = ''.join(b.get('text', '') for b in blocks
+                   if isinstance(b, dict) and b.get('type') == 'text')
+    if not text:
+        kinds = [b.get('type') for b in blocks if isinstance(b, dict)]
+        raise AnthropicAPIError(
+            f'no text block in response (blocks={kinds}, '
+            f'stop_reason={data.get("stop_reason")!r})')
+    if data.get('stop_reason') == 'max_tokens':
+        print(f'[CLAUDE] output truncated at max_tokens={max_tokens}; '
+              f'raise max_tokens for long-form output')
+    return text
 
 
 def send_claude_messages(messages, model=CLAUDE_MODEL_DEFAULT, system=None,
@@ -612,7 +630,25 @@ def send_claude_messages(messages, model=CLAUDE_MODEL_DEFAULT, system=None,
                          json=payload, timeout=timeout)
     if resp.status_code != 200:
         raise AnthropicAPIError(f'HTTP {resp.status_code}: {resp.text}')
-    return resp.json()['content'][0]['text']
+
+    # The response is a LIST of content blocks and text is not guaranteed to be
+    # first: a model may emit a 'thinking' block ahead of its answer, in which
+    # case content[0]['text'] raises KeyError. Observed 2026-08-17 -- a two-word
+    # test prompt returned text-first and worked, while every real article
+    # prompt failed. Join every text block and ignore the rest.
+    data = resp.json()
+    blocks = data.get('content') or []
+    text = ''.join(b.get('text', '') for b in blocks
+                   if isinstance(b, dict) and b.get('type') == 'text')
+    if not text:
+        kinds = [b.get('type') for b in blocks if isinstance(b, dict)]
+        raise AnthropicAPIError(
+            f'no text block in response (blocks={kinds}, '
+            f'stop_reason={data.get("stop_reason")!r})')
+    if data.get('stop_reason') == 'max_tokens':
+        print(f'[CLAUDE] output truncated at max_tokens={max_tokens}; '
+              f'raise max_tokens for long-form output')
+    return text
 
 
 # ------------------------------------------------------------------

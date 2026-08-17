@@ -497,7 +497,31 @@ def validate_cell_article(article_html: str, card: Dict[str, Any], *,
 
     if word_budget:
         words = len(text.split())
-        if abs(words - word_budget) > max(150, int(word_budget * 0.25)):
+        tolerance = max(150, int(word_budget * 0.25))
+        # Overshoot is a HARD issue, undershoot stays a warning.
+        #
+        # The per-angle bands in angle_prompts.ANGLE_BANDS are the mechanism
+        # that makes a CLOCKWORK piece read differently from a REGIME one.  A
+        # writer that runs 46-57% over band collapses every angle onto the same
+        # ~1,420-word shape, which is the templated feel the angle engine exists
+        # to fix.  Measured on 7 dev articles 2026-08-17: CLOCKWORK (band
+        # 700-1000) produced 1,436-1,573 words, QUIET_EDGE (500-800) produced
+        # 1,183 -- all flagged here, none blocked, because this was a warning.
+        #
+        # Routing overshoot to errors spends the one bounded revision on cutting
+        # to length. Undershoot needs no revision: "under budget is always fine"
+        # (angle_prompts write prompt), and a thin story should read short.
+        # Runaway only. Length is a PROXY for padding, not the defect itself --
+        # a tight 1,500 words is fine and a padded 900 is not -- so a moderate
+        # overshoot must never veto an otherwise good article. Measured
+        # 2026-08-17: routing ordinary overshoot to errors held 3 of 7 articles
+        # and the bounded revision made 2 of them LONGER (PG 1,368 -> 1,636),
+        # so enforcement here destroyed value without fixing padding.
+        # Redundancy is the real metric and it needs the editorial judge.
+        if words > word_budget * 2:
+            _issue(errors, "LENGTH_RUNAWAY",
+                   f"{words} words is more than twice the {word_budget} budget")
+        elif abs(words - word_budget) > tolerance:
             warnings.append(f"length {words} words vs budget {word_budget}")
 
     return {"ok": not errors, "errors": errors, "warnings": warnings}
