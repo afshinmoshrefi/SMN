@@ -82,9 +82,20 @@ def get_chart_historical_prices(fid, symbol, d0, d1, appserver_token):
     rows = j.get('ChartHistorical2') or []
     out = []
     for row in rows:
-        # expected: ['YYYY-MM-DD', price, 0]
-        if isinstance(row, (list, tuple)) and len(row) >= 2:
-            out.append((str(row[0]), float(row[1])))
+        # ChartHistorical2 returns full OHLCV:
+        #     ['YYYY-MM-DD', open, high, low, close, volume]
+        # This parser was written against an older 3-field shape and took
+        # row[1], which is the OPEN. Every price chart therefore plotted opens
+        # while the seasonal statistics are computed CLOSE-to-close, so the
+        # chart title ("MRK enters the window at 134.43") showed the open while
+        # the article quoted the close (135.97) -- two correct numbers for
+        # different fields, presented as though they disagreed.
+        # Verified 2026-08-17 against /home/flask/data/csvs/US/MRK.csv: the
+        # appserver value matched the CSV open on 9 of 9 days.
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
+            continue
+        price = float(row[4]) if len(row) >= 5 else float(row[1])
+        out.append((str(row[0]), price))
     return out
 
 # ---------------------------------------------------------------------
