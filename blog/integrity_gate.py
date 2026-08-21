@@ -323,6 +323,22 @@ def _prose_text(html: str) -> str:
 
 
 def _allowed_pairs(card: Dict[str, Any]) -> set:
+    """Every k-of-n pair the Angle Card licenses the prose to state.
+
+    The win/loss record is not the only legitimate pair. The extent quotables
+    added with "report extent, not just the close" state their own samples --
+    "traded at least 5% higher at some point in 12 of 20 years" sits beside a
+    16-of-20 record on the same cell -- and the server hands those sentences
+    to the writer ready to quote. Licensing only (up_years, n)/(down_years, n)
+    therefore flagged the writer for using the server's own words: HD, XOM and
+    UNH were all held on 2026-08-21 quoting `touched` verbatim, as were NVDA
+    and COST on 08-17, while the editorial reviewer passed them.
+
+    Quotables are authoritative by construction, so pairs are extracted from
+    them with the SAME regex the scan uses -- anything the scanner can flag in
+    prose is licensed here when it came from a quotable, and nothing else is.
+    A pair the writer invents still matches nothing and still fails.
+    """
     pairs = set()
     for cell in [card.get("story_cell")] + list(card.get("auxiliary_cells") or []):
         if not isinstance(cell, dict):
@@ -331,6 +347,11 @@ def _allowed_pairs(card: Dict[str, Any]) -> set:
         for k in (cell.get("up_years"), cell.get("down_years")):
             if k is not None and n:
                 pairs.add((int(k), n))
+        for quotable in (cell.get("quotables") or {}).values():
+            if not isinstance(quotable, str):
+                continue
+            for m in _CELL_SAMPLE_RE.finditer(quotable):
+                pairs.add((int(m.group(1)), int(m.group(2))))
     return pairs
 
 
@@ -480,6 +501,36 @@ def validate_cell_article(article_html: str, card: Dict[str, Any], *,
         _issue(errors, "CHART_SEMANTICS_MISMATCH",
                "prose discusses excursions/drawdowns but the bars_mae_mfe chart is absent")
 
+    # --- quotable welded onto a clause that already named the year
+    # The extent quotables embed their own year list ("got less than 1% above
+    # the entry at any point in 2016"). Pasting one after naming the year
+    # duplicates it inside a single sentence and usually breaks the grammar:
+    # DIS shipped "In 2016 and 2023 the stock got less than 1% above the entry
+    # at any point in 2016, 2023" and WMT "In 2016, WMT never really
+    # participated ...: got less than 1% above the entry at any point in 2016".
+    # Scoped to sentences carrying an extent phrase so an ordinary repeated
+    # year ("2008 ... that 2008 low") is not flagged.
+    _EXTENT = re.compile(r"at any point in|traded at least|never traded higher|"
+                         r"handing back", re.I)
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if not _EXTENT.search(sentence):
+            continue
+        full = re.findall(r"\b(?:19|20)\d{2}\b", sentence)
+        dupes = {y for y in full if full.count(y) > 1}
+        if dupes:
+            # WARNING, not an error, and deliberately so. This is a grammar
+            # defect, not a false statement, and routing it to errors triggers
+            # the bounded revision: the 2026-08-21 WMT trial did exactly that
+            # and the revision returned a document with no headline and no
+            # bridge, turning a clumsy sentence into a held article. Enforcing
+            # a check whose repair path is unreliable trades a small defect for
+            # a bigger one. Measure the rate here first; promote once the
+            # revision can be trusted to fix phrasing without dropping chrome.
+            warnings.append(
+                f"QUOTABLE_WELDED: year {sorted(dupes)[0]} repeated inside one "
+                f"sentence -- a quotable was appended to a clause that already "
+                f"named it: " + sentence[:150])
+
     # --- engine internals must never surface as reader-facing statistics
     leak = re.search(r"\b(?:tail[\s-]?p\b|p[\s-]?values?|binomial tail|"
                      r"story[\s_-]?score|conviction score|angle score)\b", text, re.I)
@@ -489,10 +540,17 @@ def validate_cell_article(article_html: str, card: Dict[str, Any], *,
 
     # --- citations: every sup resolves inside the rendered sources list
     n_sources = len(re.findall(r"<li>\s*<a\b", html)) if 'class="sources"' in html else 0
-    for m in re.finditer(r"<sup[^>]*>\s*\[(\d+)\]\s*</sup>", html, re.I):
-        if int(m.group(1)) > n_sources:
+    # One <sup> can carry several ids ("<sup>[1][6]</sup>"). The single-id
+    # pattern this check used could not see the grouped form, so the one gate
+    # meant to catch dangling citations was blind to exactly the articles that
+    # dangle: JNJ shipped 2026-08-21 with three grouped markers, no sources
+    # list, and a clean CITATION pass. Read the whole bracket run.
+    for m in re.finditer(r"<sup[^>]*>\s*((?:\[\d+\]\s*)+)</sup>", html, re.I):
+        bad = [x for x in re.findall(r"\[(\d+)\]", m.group(1))
+               if int(x) > n_sources]
+        if bad:
             _issue(errors, "CITATION_BROKEN",
-                   f"citation [{m.group(1)}] exceeds the {n_sources}-item sources list")
+                   f"citation [{bad[0]}] exceeds the {n_sources}-item sources list")
             break
 
     if word_budget:

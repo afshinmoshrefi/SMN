@@ -28,7 +28,16 @@ HERO_WIDTH_ATTR = 1536
 HERO_HEIGHT_ATTR = 640
 
 TOKEN_RE = re.compile(r"\{\{([A-Z_]+(?::[a-z_]+)?)\}\}")
-SUP_RE = re.compile(r"<sup[^>]*>\s*\[(\d+)\]\s*</sup>", re.I)
+# A <sup> may carry SEVERAL ids: the writer groups citations as
+# <sup>[1][6]</sup> as readily as it writes <sup>[1]</sup><sup>[6]</sup>.
+# Matching only the single-id form made the grouped form invisible to
+# renumbering, to the cited-id collection, and to the dead-id drop -- so
+# JNJ published on 2026-08-21 with <sup>[1][6]</sup>, <sup>[1][7]</sup> and
+# <sup>[6][7][8]</sup> intact and NO sources list at all, because cited_ids
+# came back empty and render_sources returns "" on empty. Capture the whole
+# bracket run and split it.
+SUP_RE = re.compile(r"<sup[^>]*>\s*((?:\[\d+\]\s*)+)</sup>", re.I)
+SUP_ID_RE = re.compile(r"\[(\d+)\]")
 
 FIGURE_VARIANTS = ("price", "trend", "bars", "bars_mae_mfe", "bars_mfe",
                    "bars_mae", "cumulative")
@@ -318,12 +327,17 @@ def renumber_citations(prose: str, research: Optional[Dict[str, Any]]
     order: List[int] = []
 
     def _sub(match: re.Match) -> str:
-        rid = int(match.group(1))
-        if rid not in valid_ids:
-            return ""                      # dead citation: drop, gate flags coverage
-        if rid not in order:
-            order.append(rid)
-        return f"<sup>[{order.index(rid) + 1}]</sup>"
+        kept: List[str] = []
+        for raw in SUP_ID_RE.findall(match.group(1)):
+            rid = int(raw)
+            if rid not in valid_ids:
+                continue                   # dead citation: drop, gate flags coverage
+            if rid not in order:
+                order.append(rid)
+            kept.append(f"[{order.index(rid) + 1}]")
+        if not kept:
+            return ""
+        return "<sup>" + "".join(kept) + "</sup>"
 
     return SUP_RE.sub(_sub, prose), order
 
