@@ -31,6 +31,23 @@ ANGLE_BANDS = {
 
 ALLOWED_CHARTS = ("price", "trend", "bars", "bars_mae_mfe", "cumulative")
 
+# QUIET_EDGE is reachable two ways: because nothing happened (its own trigger),
+# or as the fallback when a fresh peg exists and no tension qualified. The prose
+# contract is opposite between the two, so the branch is explicit here rather
+# than left to the writer to infer from news_fresh on the card.
+FRESH_PEG_ADDENDUM = """
+- OVERRIDE (this piece carries the 'fresh_peg' flavor): it reached QUIET_EDGE as a FALLBACK because no tension qualified, NOT because the tape is quiet. There IS current news on the card. You must therefore NOT write that nothing happened, and the "no drivers-news section" rule above is lifted: name the event once with its date, keep it to a few sentences, cite it, and let the seasonal record be the frame the news is read against. WMT published 2026-08-21 asserting "Nothing new hit Walmart on Aug 21, 2026" two paragraphs above its own account of the Aug 20 earnings drop; a piece that contradicts its own reporting is worse than a templated one."""
+
+
+def _guidance_for(card: Dict[str, Any]) -> str:
+    """Per-angle guidance plus any flavor-conditional addendum."""
+    angle = card["angle"]["name"]
+    text = ANGLE_GUIDANCE[angle]
+    flavors = card["angle"].get("flavors") or []
+    if angle == "QUIET_EDGE" and "fresh_peg" in flavors:
+        text += FRESH_PEG_ADDENDUM
+    return text
+
 # ============================================================
 # Per-angle guidance — principles and bad examples, never model
 # paragraphs to imitate (imitation is how new templates are born).
@@ -96,6 +113,8 @@ BAD: padding to sound substantial. (thin story, short piece; that is the design 
 INVARIANTS = """Non-negotiable facts discipline:
 - Every TradeWave number you write must come verbatim from the Angle Card: the story cell's stats, its per-year rows, or a provided quotable string. Nothing else. Do not recompute, round further, or extrapolate.
 - Every rate or record must carry its sample size in the same sentence. The provided quotables embed it correctly — but use each quotable IN FULL at most once in the direct-answer box and at most once in the body. Every later reference is shortened ("16 of 20", "that 11.1% median"); shortened count forms like "16 of 20" always remain valid. Never open two sections with the same fact or the same sentence shape.
+- A quotable is a FACT TO STATE, never a phrase to append to a sentence you already wrote. This matters most for the ones carrying a year list ("never traded higher at all in 2016, 2023"; "got less than 1% above the entry at any point in 2016, 2018"; "2022 was a market-wide repricing as rates rose"). Either let the quotable BE the sentence, or write your own sentence naming those years and do not paste the quotable at all. Never do both — published output read "In 2016 and 2023 the stock got less than 1% above the entry at any point in 2016, 2023" and "The worst year in this 20-year sample came in 2008, and 2008 was the global financial crisis."
+- At most ONE quotable per paragraph. A paragraph that stacks two or more reads as a data dump, not as analysis.
 - Windows are measured in calendar days. Never write "trading days".
 - Auxiliary-cell numbers (corroborating/conflicting cells) appear as counts only ("closed higher in 12 of 15"), never as percentages, and never with the labels used in the key-stats box (Percent Profitable, Avg Profit, Num Winners, Num Losers, Median Profit, Std Dev, Sharpe Ratio, TradeWave Ratio).
 - Every figure depicts the STORY cell and only the story cell: charts exist for the story cell's window and lookback, and for no other cell. Never place a figure inside a beat that discusses an auxiliary (corroborating/conflicting) cell, and never caption, label, or describe a figure as showing an auxiliary window. Auxiliary cells live in prose with exact counts and carry no figure.
@@ -189,7 +208,7 @@ def build_plan_prompt(card: Dict[str, Any],
 The angle engine assigned this piece the {angle} angle. Your job is to commit to one controlling idea and structure everything around it. You are deciding the article's spine, not writing it.
 
 ANGLE GUIDANCE ({angle}):
-{ANGLE_GUIDANCE[angle]}
+{_guidance_for(card)}
 
 {INVARIANTS}
 
@@ -335,7 +354,7 @@ THE PLAN (yours; follow it):
 {json.dumps(plan, ensure_ascii=False)}
 
 ANGLE GUIDANCE ({angle}):
-{ANGLE_GUIDANCE[angle]}
+{_guidance_for(card)}
 
 {INVARIANTS}
 
@@ -383,6 +402,7 @@ Rules for fixing:
 - Stale-framing issues: date the fact explicitly or delete the sentence.
 - TW_BEFORE_BRIDGE: delete or rephrase EVERY TradeWave mention that appears before the bridge paragraph — the bridge must be the first mention in the prose. Statistics stay; the attribution moves.
 - INTERNAL_METRIC_LEAK: delete any mention of p-values, tail probabilities, scores, or engine internals entirely; they are not TradeWave statistics.
+- QUOTABLE_WELDED: the sentence names a year and then pastes a quotable naming it again. Rewrite it as ONE clean sentence that states the year once. Keep every number; change only the phrasing.
 
 {INVARIANTS}
 

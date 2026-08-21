@@ -105,6 +105,34 @@ def _prepare_research(resource_id: str, symbol: str, company: str,
         return None
 
 
+def _freshest_source(research: Optional[Dict[str, Any]], anchor: str,
+                     max_age_days: int = 7) -> Optional[Dict[str, Any]]:
+    """Most recent research source dated within `max_age_days` of the anchor.
+
+    Used to test whether "no fresh peg" -- the premise of a QUIET_EDGE piece --
+    is still true once research has run. Sources without a parseable date are
+    ignored: an undated page is not evidence that something happened today.
+    """
+    if not isinstance(research, dict):
+        return None
+    try:
+        anchor_d = datetime.date.fromisoformat(anchor)
+    except (ValueError, TypeError):
+        return None
+    best, best_age = None, None
+    for src in research.get("sources") or []:
+        if not isinstance(src, dict):
+            continue
+        raw = str(src.get("date") or "")[:10]
+        try:
+            age = (anchor_d - datetime.date.fromisoformat(raw)).days
+        except ValueError:
+            continue
+        if 0 <= age <= max_age_days and (best_age is None or age < best_age):
+            best, best_age = src, age
+    return best
+
+
 def _chart_images(resource_id: str, cell: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Story-cell charts via the existing chart engine, with the existing
     caption machinery."""
@@ -198,6 +226,53 @@ def generate_angle_news_article(resource_id: str, symbol: str, *,
     research = _prepare_research(str(resource_id), symbol, company,
                                  {"stats": cell.get("stats_raw") or {}})
     article_audit.record("research.json", research)
+
+    # ---- 4b) Reconcile the angle with what research actually found ----
+    # QUIET_EDGE asserts "no fresh peg" in prose ("Nothing new hit Walmart on
+    # Aug 21"). The angle is chosen before research, so that claim can be
+    # contradicted by the very sources the writer is handed. If research turned
+    # up a fresh dated event, re-score the matrix with it -- no refetch.
+    if (card.get("angle") or {}).get("name") == "QUIET_EDGE":
+        peg = _freshest_source(research, anchor)
+        if peg:
+            regeared = angle_engine.recard_with_peg(
+                analysis, news_headline=peg.get("title", ""),
+                news_date=peg.get("date", ""))
+            if regeared and (regeared["card"].get("angle") or {}).get("name"):
+                new_angle = regeared["card"]["angle"]["name"]
+                new_cell = regeared["card"]["story_cell"]
+                moved = (new_cell.get("days"), new_cell.get("years")) != \
+                        (cell.get("days"), cell.get("years"))
+                # The charts were rendered for the OLD cell in step 2. If the
+                # re-score moved the story cell they no longer depict the
+                # article's window, so they must be rebuilt before anything
+                # captions them -- otherwise this fix would trade one
+                # chart/prose contradiction for a worse one.
+                regenerated = True
+                if moved:
+                    try:
+                        images = _chart_images(resource_id, new_cell)
+                    except Exception as exc:
+                        print(f"[angle_pipeline] re-card declined: story cell "
+                              f"moved and charts could not be rebuilt ({exc})")
+                        regenerated = False
+                if regenerated:
+                    # Re-carding is worthwhile even when the angle is unchanged:
+                    # the new card carries news_fresh + the headline, which is
+                    # what stops a QUIET_EDGE piece claiming nothing happened.
+                    same = new_angle == "QUIET_EDGE"
+                    print(f"[angle_pipeline] fresh peg found "
+                          f"({peg.get('date')}: {peg.get('title', '')[:60]!r}); "
+                          + (f"angle held at QUIET_EDGE, peg attached to card"
+                             if same else f"re-carded as {new_angle}")
+                          + (" (cell moved, charts rebuilt)" if moved else ""))
+                    article_audit.record("recard.json", {
+                        "from": "QUIET_EDGE", "to": new_angle,
+                        "cell_moved": moved,
+                        "peg_title": peg.get("title", ""),
+                        "peg_date": peg.get("date", "")})
+                    analysis, card = regeared, regeared["card"]
+                    cell = new_cell
 
     # ---- 5) PLAN -> WRITE -> gates (one veto fallback allowed) ----
     try:

@@ -521,7 +521,22 @@ def select_angle(cells: List[Cell], *, ctx_dir: int, ctx_source: str,
             rationale=f'{max(ex.up_years, ex.down_years)} of {ex.n} one-sided '
                       f'(tail {ex.tail_p:.4f})'))
 
-    if news_fresh and ctx_source == 'news' and ctx_dir != 0:
+    # Tension is sign disagreement between the cell and THE PRESENT, and the
+    # present is read from news direction OR price momentum (design 2.2).
+    # Requiring ctx_source == 'news' here honoured only the news half and
+    # discarded the price-derived direction that infer_context_direction had
+    # already computed and already floored at price_momentum_min_abs_pct. The
+    # cost was total: measured 2026-08-21 over 18 symbols each given a fresh
+    # peg, COLLISION and TAILWIND fired 0 times, and 9 QUIET_EDGE pieces came
+    # back reading "no qualifying peg relationship" while carrying moves like
+    # +26.1% and -8.1%. The two angles built for news-driven stories were
+    # unreachable from the lane-2 path.
+    #
+    # news_fresh stays required: it is what guarantees there is a current
+    # event to write about. Without it, a quiet stock with a big monthly move
+    # would become a COLLISION with nothing to cite.
+    if news_fresh and ctx_dir != 0:
+        ctx_word = 'news' if ctx_source == 'news' else 'price momentum'
         opposing = [c for c in eligible if c.tension > 0]
         aligned = [c for c in eligible
                    if c.tension == 0 and c.direction != 'flat']
@@ -529,30 +544,44 @@ def select_angle(cells: List[Cell], *, ctx_dir: int, ctx_source: str,
             oc = max(opposing, key=lambda c: c.story_score)
             candidates.append(AngleDecision(
                 'COLLISION', oc.story_score, oc.key(),
-                rationale=f'news {"bullish" if ctx_dir > 0 else "bearish"} vs '
-                          f'{oc.direction} history ({oc.horizon_tag}/{oc.years}y)'))
+                rationale=f'{ctx_word} {"bullish" if ctx_dir > 0 else "bearish"} '
+                          f'vs {oc.direction} history '
+                          f'({oc.horizon_tag}/{oc.years}y)'))
         if aligned:
             ac = max(aligned, key=lambda c: c.conviction)
             candidates.append(AngleDecision(
                 'TAILWIND', round(ac.conviction, 5), ac.key(),
-                rationale=f'news and {ac.horizon_tag}/{ac.years}y history agree '
-                          f'({ac.direction})'))
+                rationale=f'{ctx_word} and {ac.horizon_tag}/{ac.years}y history '
+                          f'agree ({ac.direction})'))
     elif not news_fresh:
         candidates.append(AngleDecision(
             'QUIET_EDGE', round(best.conviction, 5), best.key(),
             rationale='no fresh news peg; matrix strength alone'))
 
     if not candidates:
-        # Fresh peg but price-only/no context and nothing else fired:
-        # the honest fallback is the quiet piece on the best cell.
-        candidates.append(AngleDecision(
+        # Fresh peg but no directional read at all (no news sentiment and a
+        # monthly move inside the momentum floor). The quiet SHAPE is right --
+        # lead with the record -- but the piece must not claim that no news
+        # exists, because it does. Carry that as a flavor so the guidance
+        # branches on it in code rather than relying on the writer noticing
+        # news_fresh on the card.
+        fallback = AngleDecision(
             'QUIET_EDGE', round(best.conviction, 5), best.key(),
-            rationale='no qualifying peg relationship; matrix strength alone'))
+            rationale=('fresh peg but no directional read; matrix strength alone'
+                       if news_fresh else
+                       'no qualifying peg relationship; matrix strength alone'))
+        if news_fresh:
+            fallback.flavors = ['fresh_peg']
+        candidates.append(fallback)
 
     candidates.sort(key=lambda d: d.score, reverse=True)
     winner = candidates[0]
     story = next(c for c in cells if c.key() == winner.story_cell_key)
-    winner.flavors = _detect_flavors(story)
+    # Preserve flavors already set on the decision (e.g. 'fresh_peg' on the
+    # QUIET_EDGE fallback); a plain assignment would drop them.
+    preset = list(winner.flavors or [])
+    winner.flavors = preset + [f for f in _detect_flavors(story)
+                               if f not in preset]
     return winner, candidates
 
 
@@ -630,12 +659,25 @@ def build_quotables(cell: Cell) -> Dict[str, str]:
         if touched:
             q["touched"] = (f"traded at least 5% higher at some point in "
                             f"{touched} of {cell.n} years")
+        # "Never traded higher" must mean MFE is zero, not merely small. The
+        # first version of this filtered on mfe < 1.0 while claiming the year
+        # never went green, so XLK's 2022 (0.92% intraperiod high) and PG's
+        # 2013 (which CLOSED up 0.72%) were both published as years the stock
+        # never traded higher at all -- a false sentence handed to the writer
+        # by the server, contradicted elsewhere in the same article. Found by
+        # an outside reviewer, 2026-08-17, hours after it shipped.
         never = [int(r.get("year") or 0) for r in cell.per_year
-                 if float(r.get("mfe") or 0) < 1.0]
+                 if float(r.get("mfe") or 0) <= 0.0]
         if never:
             q["never_green"] = (
                 f"never traded higher at all in "
                 f"{', '.join(str(y) for y in sorted(never))}")
+        barely = [int(r.get("year") or 0) for r in cell.per_year
+                  if 0.0 < float(r.get("mfe") or 0) < 1.0]
+        if barely:
+            q["barely_green"] = (
+                f"got less than 1% above the entry at any point in "
+                f"{', '.join(str(y) for y in sorted(barely))}")
 
     # --- Name the regime behind an extreme year -------------------------
     # The pipeline has no historical context layer: TradeWave sees no macro
@@ -908,6 +950,55 @@ def analyze(resource_id: Any, symbol: str, anchor: str,
     card = build_angle_card(
         symbol=symbol, resource_id=resource_id, anchor=anchor, cells=cells,
         decision=decision, candidates=candidates,
+        news_headline=news_headline, news_date=news_date,
+        news_direction=news_direction, news_fresh=news_fresh,
+        ctx_dir=ctx_dir, ctx_source=ctx_source,
+        one_month_return=one_month, t=t)
+    ctx = {"ctx_dir": ctx_dir, "ctx_source": ctx_source, "news_fresh": news_fresh,
+           "one_month_return": one_month, "news_headline": news_headline,
+           "news_date": news_date, "news_direction": news_direction}
+    return {"card": card, "cells": cells, "candidates": candidates, "ctx": ctx}
+
+
+def recard_with_peg(analysis: Dict[str, Any], *, news_headline: str,
+                    news_date: str = "", news_direction: str = "",
+                    t: Dict[str, Any] = TUNABLES) -> Optional[Dict[str, Any]]:
+    """Re-select the angle on the ALREADY-FETCHED matrix once a peg is known.
+
+    The angle is chosen before research runs, so the engine can rule "no fresh
+    peg" and pick QUIET_EDGE while the research step then hands the writer a
+    major event. WMT published on 2026-08-21 saying "Nothing new hit Walmart on
+    Aug 21, 2026" in an article whose own headline and second paragraph describe
+    the Aug 20 earnings drop. Re-scoring here costs no ChartData4 calls: the
+    cells are reused exactly as fallback_card reuses them.
+
+    Returns None when the peg is not fresh (nothing would change).
+    """
+    cells = analysis["cells"]
+    prev = analysis["card"]
+    anchor = prev["anchor_date"]
+    one_month = analysis["ctx"].get("one_month_return")
+
+    news_fresh = False
+    if news_date:
+        try:
+            age = (datetime.date.fromisoformat(anchor)
+                   - datetime.date.fromisoformat(news_date)).days
+            news_fresh = 0 <= age <= t['news_fresh_days']
+        except ValueError:
+            pass
+    elif news_direction:
+        news_fresh = True
+    if not news_fresh:
+        return None
+
+    ctx_dir, ctx_source = infer_context_direction(news_direction, one_month, t)
+    score_cells(cells, ctx_dir, t)
+    decision, candidates = select_angle(
+        cells, ctx_dir=ctx_dir, ctx_source=ctx_source, news_fresh=news_fresh, t=t)
+    card = build_angle_card(
+        symbol=prev["symbol"], resource_id=prev["resource_id"], anchor=anchor,
+        cells=cells, decision=decision, candidates=candidates,
         news_headline=news_headline, news_date=news_date,
         news_direction=news_direction, news_fresh=news_fresh,
         ctx_dir=ctx_dir, ctx_source=ctx_source,
