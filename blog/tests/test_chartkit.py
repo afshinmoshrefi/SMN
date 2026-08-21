@@ -144,8 +144,12 @@ class RenderSmoke(unittest.TestCase):
                                  year_first=2006, year_last=2025, days=60), p)
         self._assert_file(p)
         self.assertIn("average year", s["title"])
-        # rebased to 0 at index 0 -> spec mentions rebased to the start label
-        self.assertIn("rebased to 0 at Jul 7", s["spec"])
+        # The curve is rebased to 0 at index 0, which is TREND_MARGIN_DAYS
+        # BEFORE the window opens. The spec must say why it starts there as
+        # well as when: a bare "rebased to 0 at Jul 7" beside a Jul 21 window
+        # reads as a contradiction and got XOM held on 2026-08-21.
+        self.assertIn("two weeks before the window opens", s["spec"])
+        self.assertIn("Jul 7", s["spec"])
 
     def test_price_projection_render(self):
         dates = [datetime.date(2025, 7, 21) + datetime.timedelta(days=i)

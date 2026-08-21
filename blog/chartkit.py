@@ -527,7 +527,13 @@ def trend_window(labels, vals, d1, d2, direction, meta, path, *, palette="light"
         + f" · {_lookback_phrase(meta, n)} seasonal path")
     title = meta.get("title") or f"Where {win_lbl} sits in {symbol}'s average year"
     spec = meta.get("spec") or (
-        f"{symbol}'s average path over the past {n} years, rebased to 0 at "
+        # Naming the bare rebase date reads as a contradiction beside a window
+        # that starts two weeks later: XOM was held on 2026-08-21 for an alt
+        # text saying "rebased to 0 at Aug 7" against an Aug 21 window. The
+        # chart is correct -- it pre-rolls TREND_MARGIN_DAYS for context -- so
+        # say WHY the curve starts there, then give the date.
+        f"{symbol}'s average path over the past {n} years, starting two weeks "
+        f"before the window opens and rebased to 0 there, at "
         f"{_fmt_mmm_d(tstart)} · shaded: the {days}-day window")
     source = meta.get("source") or (
         f"Source: TradeWave seasonal database · {n}-year average "
