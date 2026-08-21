@@ -529,7 +529,9 @@ def _norm_dir(trade_dir):
 def _result_dict(variant, fpath, sem):
     """Build the return-contract dict, now carrying caption/alt/semantics."""
     rel = _abs_to_rel(fpath); url = _rel_to_url(rel)
-    caption = sem.get("title", "")
+    # Prefer the renderer's caption: for the excursion variants it names the
+    # overlay, which is the only thing separating them from the plain bars.
+    caption = sem.get("caption") or sem.get("title", "")
     return {"variant": variant, "path": fpath, "rel": rel, "url": url,
             "caption": caption, "alt": sem.get("alt", caption),
             "semantics": sem}
@@ -693,8 +695,14 @@ def create_article_images(size_key,
                           palette=palette)
     results.append(_result_dict("trend", fpath, sem))
 
-    # ---------- Price = Price + 60-day projection ----------
-    results.append(_render_price_variant(p, "price", 60, palette,
+    # ---------- Price = Price + a projection matching THIS window ----------
+    # The projection horizon was hardcoded to 60 days, so a 90-day article and
+    # a 30-day article both captioned "the median seasonal path over the next
+    # 60 days" -- a chart describing a window the article is not about. Clamp
+    # to the variants the projection builder supports rather than inventing a
+    # horizon it cannot draw.
+    proj_default = min((30, 60, 90), key=lambda d: abs(d - int(days)))
+    results.append(_render_price_variant(p, "price", proj_default, palette,
                                          _fname("price"),
                                          dict(base_meta, n=n), n, company))
 

@@ -174,12 +174,23 @@ def _drop_zeroed(years, nets, mfe=None, mae=None):
     return yk, nk, (fk if mfe is not None else None), (ak if mae is not None else None)
 
 def _semantics(variant, title, spec, source, n, direction,
-               window_start, window_end):
+               window_start, window_end, caption=None):
+    """`caption` is what the <figcaption> shows and defaults to the title.
+
+    It has to be passed separately because the title alone does not always
+    identify the chart: `bars` and `bars_mae_mfe` plot different things but
+    share the record-claim title, so both published the SAME caption while the
+    prose introduced the second as "how far each year ran up and sold off"
+    (WMT and DIS, 2026-08-21). A caption that does not describe its own chart
+    is the exact defect this semantics dict exists to prevent.
+    """
     title = _sanitize(title); spec = _sanitize(spec); source = _sanitize(source)
+    caption = _sanitize(caption) if caption else title
     return {
         "variant": variant,
         "title": title,
         "spec": spec,
+        "caption": caption,
         "source": source,
         "alt": f"{title}. {spec}. {source}",
         "n": n,
@@ -416,18 +427,27 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     title = _bars_title(symbol, direction, wins, n, win_lbl, losses)
 
     mmm1, mmm2 = (_fmt_mmm_d(d1) if d1 else ""), (_fmt_mmm_d(d2) if d2 else "")
+    # `overlay` names what the needles add; it is what separates this chart
+    # from the plain bars chart, so it must reach the caption too.
+    overlay = ""
     if mfe is not None and mae is not None:
         spec = ("Bars: net % change over the window. Needles: the full "
                 "intra-window range each year (worst drawdown to best gain)")
+        overlay = "the full intra-window range - worst drawdown to best gain"
     elif mfe is not None:
         spec = ("Bars: net % change over the window. Needles: the best gain "
                 "reached within the window each year")
+        overlay = "the best gain reached inside the window"
     elif mae is not None:
         spec = ("Bars: net % change over the window. Needles: the worst "
                 "drawdown reached within the window each year")
+        overlay = "the worst drawdown reached inside the window"
     else:
         spec = (f"Net % change from the {mmm1} close to the {mmm2} close, "
                 f"each year - one bar per year")
+    win_suffix = f" ({win_lbl})" if win_lbl else ""
+    caption = (f"{symbol}: net result each year, with {overlay}{win_suffix}"
+               if overlay else title)
     source = _bars_source(n, y0, y1, direction)
 
     fig, ax = new_frame(kicker, title, spec, source, palette=pal, w=w, h=h)
@@ -469,7 +489,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     ax.set_xlim(-0.7, n - 0.3 + 0.6)
     ax.yaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
     _save(fig, path)
-    return _semantics(variant, title, spec, source, n, direction, d1, d2)
+    return _semantics(variant, title, spec, source, n, direction, d1, d2,
+                      caption=caption)
 
 # --------------------------------------------------------------------------- #
 # Renderer: trend_window
