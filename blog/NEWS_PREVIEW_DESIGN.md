@@ -59,3 +59,26 @@ python -m unittest discover -s tests -p test_news_pipeline.py -v
 ```
 
 `packet.json` contains `event` and `research`; replay responses are a JSON list of plan, article and review objects, plus revision/re-review responses when needed. Dry-run and replay make no paid calls. Live generation requires the explicit CLI switch or a deliberate Python call. Offline tests use clearly fictional evidence and cover freshness, corroboration, event deduplication, same-ticker news, optional daily capacity, major-event overflow, citation failure, bounded revision, publication isolation and safe provider failures.
+
+## One-shot discovery and scan
+
+`news_discovery.run_news_scan(output_dir=..., search=None, send=None, saved_search=None, queries=None, coverage=None, now=None, generate=True, policy=None, discovery_policy=None)` adds a complete explicit discovery path. It never installs a repeating task. With defaults, one scan makes at most two search calls, one extraction call, and five calls for each of at most four selected drafts. Failures are recorded without an unbounded retry loop.
+
+The lazy search adapter calls `AI_tools.search_tavily` with `days=1`, six results, and `include_raw_content=True`. The common transport needs its backward-compatible raw-content keyword. Source policy contains named official economic/regulatory domains and established reporting domains; additional company investor-relations domains can be explicitly configured after inspection. Model output cannot add an approved domain.
+
+Only retrieved `raw_content` establishes available evidence. Search snippets are insufficient. Source URLs, IDs, types, publication metadata, inspected timestamps and content hashes are code-owned. Every extracted claim must match a retrieved passage after whitespace normalization. Claim text is that passage itself; the extractor cannot launder an unsupported paraphrase into an authoritative claim. Event dates must be full explicit dates copied from a matching passage. Old event dates remain old even when retrieval or publication metadata is current. The generator's semantic review still checks whether a date actually describes the event and whether conclusions follow from the passages.
+
+The discovery extractor can inspect a bounded prefix of long retrieved articles. This is explicitly recorded in provenance. Unseen text cannot ground claims. The article evidence packet is bounded independently. Date-only event evidence is represented at UTC midnight as a conservative freshness lower bound with `event_time_precision: "date"`; writers receive the precision and actual calendar date.
+
+Event identity uses the dated primary document when available, otherwise a canonical reporting URL. Development identity uses grounded claim text, so changes to a model's event label do not create duplicate articles. Coverage rows can include `source_urls` to propose an update when a source develops over the following two days. Cross-publisher reports without a shared canonical source may still require editorial reconciliation in preview mode; no claim of complete semantic deduplication is made. Neither the scanner nor selector silently marks preview drafts as published coverage.
+
+Run from `blog`:
+
+```text
+python news_discovery.py --out /tmp/smn-news-scan --saved-search search.json --responses responses.json --now 2026-09-05T16:00:00Z
+python news_discovery.py --out /tmp/smn-news-scan --live --selection-only
+python news_discovery.py --out /tmp/smn-news-scan --live
+python -m unittest discover -s tests -p "test_news*.py" -v
+```
+
+Saved searches are a JSON list of provider response objects, each containing `results` with `url`, `title`, `published_date` and actual `raw_content`. Replay responses begin with the extraction JSON, followed by each selected draft's plan/article/review (and optional revision/re-review). The offline end-to-end test constructs clearly fictional fixtures, runs this exact CLI path and verifies the resulting private article. Scan artifacts include retrieval provenance, extraction and rejection reasons, selection reasons, proposed update targets and local article previews. No news page, index, email, cron, service or live access setting is modified.

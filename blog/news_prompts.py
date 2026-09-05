@@ -43,7 +43,7 @@ def evidence_packet(event: dict, validation: dict) -> dict:
     return {
         "as_of": validation["as_of"],
         "event": {k: event[k] for k in ("event_id", "development_id", "headline", "event_time",
-                                        "event_time_basis", "claim_ids") if k in event},
+                                        "event_time_basis", "event_time_precision", "event_date", "claim_ids") if k in event},
         "claims": [{k: claim[k] for k in ("id", "text", "source_ids", "event_time") if k in claim}
                    for claim in validation["claims"]],
         "sources": [{k: source[k] for k in ("id", "title", "url", "published_at", "source_type", "role", "excerpt", "max_summary_words")
