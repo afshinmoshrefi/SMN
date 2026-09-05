@@ -81,7 +81,8 @@ def _labelled_stats(keystats: str) -> Dict[str, float]:
     return out
 
 
-def check_article(html: str, *, direction: Optional[str] = None) -> Dict[str, Any]:
+def check_article(html: str, *, direction: Optional[str] = None,
+                  card: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Return {'ok', 'errors', 'warnings', 'observed'} for one article.
 
     `direction` is the pattern's true trade direction when the caller knows it
@@ -94,6 +95,12 @@ def check_article(html: str, *, direction: Optional[str] = None) -> Dict[str, An
         return {"ok": True, "errors": [], "warnings": [], "observed": {}}
 
     s = _surfaces(html)
+    if card is not None:
+        # Optional canonical card lets the cross-surface check verify code-
+        # rendered dates/cohorts as well as agreement between visible surfaces.
+        from integrity_gate import validate_card_evidence, validate_evidence_claims
+        errors.extend(validate_card_evidence(card)['errors'])
+        errors.extend(validate_evidence_claims(html, card)['errors'])
     stats = _labelled_stats(s["keystats"])
     observed: Dict[str, Any] = {"stats": stats}
 

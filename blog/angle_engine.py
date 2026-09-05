@@ -44,6 +44,8 @@ import time
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
+from article_evidence import build_cell_evidence, clean_observations, inclusive_window
+
 try:
     import requests  # required for network mode only; fixtures work without it
 except Exception:
@@ -209,8 +211,8 @@ class Cell:
     best_net: float = 0.0
     worst_year: int = 0
     worst_net: float = 0.0
-    median_mfe: float = 0.0
-    median_mae: float = 0.0
+    median_mfe: Optional[float] = None
+    median_mae: Optional[float] = None
     per_year: List[Dict[str, Any]] = field(default_factory=list)
     stats_raw: Dict[str, Any] = field(default_factory=dict)
     stats_mismatch: bool = False
@@ -257,26 +259,29 @@ def derive_cell(raw: Dict[str, Any], *, resource_id: Any, symbol: str,
     today = today or datetime.date.today()
 
     try:
-        anchor_d = datetime.date.fromisoformat(anchor)
-    except ValueError:
+        window = inclusive_window(anchor, days)
+    except (TypeError, ValueError, OverflowError):
         return None
-    window_complete_now = (anchor_d + datetime.timedelta(days=int(days))) <= today
+    # The ending calendar date is inclusive. With date-only observations we
+    # conservatively wait until the following date to treat that window as complete.
+    window_complete_now = datetime.date.fromisoformat(window['end_date']) < today
 
     per_year: List[Dict[str, Any]] = []
     for r in rows:
         try:
             year = int(r.get('year'))
-            net_s, mfe_s, mae_s = [s.strip() for s in str(r.get('pct', '0,0,0')).split(',')]
-            net, mfe, mae = float(net_s), float(mfe_s), float(mae_s)
+            values = [s.strip() for s in str(r.get('pct', '')).split(',')]
+            if len(values) != 3:
+                continue
         except Exception:
             continue
-        if net == 0.0 and mfe == 0.0 and mae == 0.0:
-            continue                      # zeroed/empty year
-        if year == today.year and not window_complete_now:
+        if year > today.year or (year == today.year and not window_complete_now):
             continue                      # incomplete current-year window
-        per_year.append({'year': year, 'net': net, 'mfe': mfe, 'mae': mae})
+        per_year.append({'year': year, 'net': values[0],
+                         'mfe': values[1], 'mae': values[2]})
 
-    per_year.sort(key=lambda x: x['year'])
+    per_year, quality = clean_observations(per_year)
+    per_year = [p for p in per_year if not (p['net'] == p['mfe'] == p['mae'] == 0.0)]
     if not per_year:
         return None
 
@@ -305,10 +310,18 @@ def derive_cell(raw: Dict[str, Any], *, resource_id: Any, symbol: str,
         avg_net=round(sum(nets) / len(nets), 2),
         best_year=best['year'], best_net=best['net'],
         worst_year=worst['year'], worst_net=worst['net'],
-        median_mfe=round(_median([p['mfe'] for p in per_year]), 2),
-        median_mae=round(_median([p['mae'] for p in per_year]), 2),
+        median_mfe=(round(_median([p['mfe'] for p in per_year if p['mfe'] is not None]), 2)
+                    if any(p['mfe'] is not None for p in per_year) else None),
+        median_mae=(round(_median([p['mae'] for p in per_year if p['mae'] is not None]), 2)
+                    if any(p['mae'] is not None for p in per_year) else None),
         per_year=per_year, stats_raw=stats,
     )
+    if quality['rejected_rows'] or quality['duplicate_years']:
+        cell.notes.append(f"excluded unusable rows: {quality['rejected_rows']}; "
+                          f"duplicate years: {quality['duplicate_years']}")
+    if quality['missing_mfe'] or quality['missing_mae']:
+        cell.notes.append(f"missing excursions remain unavailable: "
+                          f"MFE={quality['missing_mfe']}, MAE={quality['missing_mae']}")
 
     # Cross-check derived counts against the API's own winner/loser stats.
     # Informative only: sets a flag for review, never blocks Phase 1 output.
@@ -620,11 +633,21 @@ def build_quotables(cell: Cell) -> Dict[str, str]:
     med = cell.median_net
     med_word = 'gain' if med > 0 else 'loss'
     start = datetime.date.fromisoformat(cell.anchor_date)
+    evidence = build_cell_evidence(asdict(cell))
+    end = datetime.date.fromisoformat(evidence['window']['end_date'])
+    cohort = evidence['cohort']
+    # Cycle observations are spread over decades; they are not consecutive years.
+    record_sample = (f"{cell.n} sampled {PE_PHASE_NAMES[str(cell.years)[2]]}"
+                     if cell.mode == 'pe' and re.fullmatch(r'pe[0-3]-\d+', cell.years) else
+                     f"the last {cell.n} years" if cohort['is_consecutive'] else
+                     f"{cell.n} sampled years")
 
     q = {
-        "record": f"has closed {word} in {k} of the last {cell.n} years",
+        "record": f"has closed {word} in {k} of {record_sample}",
         "median": f"a median {med_word} of {abs(med):.1f}% across {cell.n} years",
-        "window": f"the {cell.days}-day window beginning {_fmt_date(start)}",
+        "window": (f"the {cell.days}-day window beginning {_fmt_date(start)} "
+                   f"and ending {_fmt_date(end)}, counting calendar dates inclusively"),
+        "cohort": cohort['label'],
         # Sign-aware: an all-winning cell has no "worst loss", and an
         # all-losing cell has no "best gain". Never let abs() invent one.
         "best_worst": (
@@ -640,25 +663,21 @@ def build_quotables(cell: Cell) -> Dict[str, str]:
     if k == cell.n and cell.n >= 8:
         q["streak"] = f"{cell.n} for {cell.n} in this window"
 
-    # --- Extent of the move, not just the close -------------------------
-    # Close-to-close understates what the window offered. GILD's 60-day
-    # window from Aug 17 (n=20) closes at a median +3.2% after reaching a
-    # median +7.7% -- half the move handed back. 2018 closed +0.6% after
-    # offering +10.0%. Reporting only the close makes that year read as
-    # nothing happening. Served as a quotable so the writer cites rather
-    # than derives it.
-    give_back = cell.median_mfe - cell.median_net
-    if cell.median_mfe > 0 and give_back >= 2.0:
+    # Giveback is paired within each observation BEFORE aggregating. A
+    # difference between separate medians does not describe a "median year".
+    giveback = evidence['giveback']
+    if giveback['median_pp'] is not None and giveback['median_pp'] >= 2.0:
         q["give_back"] = (
-            f"the median year reached {cell.median_mfe:.1f}% at its best point "
-            f"but closed at {cell.median_net:+.1f}%, handing back "
-            f"{give_back:.1f} points")
+            f"the decline from each year's highest return to its ending return "
+            f"had a median of {giveback['median_pp']:.1f} percentage points "
+            f"across {giveback['n']} paired observations, measured against entry price")
     if cell.per_year:
-        touched = sum(1 for r in cell.per_year
-                      if float(r.get("mfe") or 0) >= 5.0)
+        observations, _ = clean_observations(cell.per_year)
+        observed_mfe = [r for r in observations if r['mfe'] is not None]
+        touched = sum(1 for r in observed_mfe if r['mfe'] >= 5.0)
         if touched:
             q["touched"] = (f"traded at least 5% higher at some point in "
-                            f"{touched} of {cell.n} years")
+                            f"{touched} of {len(observed_mfe)} years with available highs")
         # "Never traded higher" must mean MFE is zero, not merely small. The
         # first version of this filtered on mfe < 1.0 while claiming the year
         # never went green, so XLK's 2022 (0.92% intraperiod high) and PG's
@@ -666,14 +685,12 @@ def build_quotables(cell: Cell) -> Dict[str, str]:
         # never traded higher at all -- a false sentence handed to the writer
         # by the server, contradicted elsewhere in the same article. Found by
         # an outside reviewer, 2026-08-17, hours after it shipped.
-        never = [int(r.get("year") or 0) for r in cell.per_year
-                 if float(r.get("mfe") or 0) <= 0.0]
+        never = [r['year'] for r in observed_mfe if r['mfe'] == 0.0]
         if never:
             q["never_green"] = (
                 f"never traded higher at all in "
                 f"{', '.join(str(y) for y in sorted(never))}")
-        barely = [int(r.get("year") or 0) for r in cell.per_year
-                  if 0.0 < float(r.get("mfe") or 0) < 1.0]
+        barely = [r['year'] for r in observed_mfe if 0.0 < r['mfe'] < 1.0]
         if barely:
             q["barely_green"] = (
                 f"got less than 1% above the entry at any point in "
@@ -822,7 +839,10 @@ def _cell_public(cell: Cell, with_quotables: bool = True) -> Dict[str, Any]:
         d.get('stats_raw'), cell.up_years, cell.down_years, cell.n, cell.median_net)
     # Authoritative human label for the lookback so the editorial reviewer can
     # VERIFY phrases like "midterm election years" instead of flagging them.
-    d['lookback_label'] = lookback_label(cell.years)
+    d['evidence'] = build_cell_evidence(d)
+    d['requested_lookback_label'] = lookback_label(cell.years)
+    d['lookback_label'] = d['evidence']['cohort']['label']
+    d['end_date'] = d['evidence']['window']['end_date']
     if with_quotables:
         d['quotables'] = build_quotables(cell)
     return d
@@ -840,7 +860,7 @@ def build_angle_card(*, symbol: str, resource_id: Any, anchor: str,
     Logged to the audit trail; consumed by the PLAN prompt in Phase 2."""
     by_key = {c.key(): c for c in cells}
     card: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "symbol": symbol.upper(),
         "resource_id": str(resource_id),

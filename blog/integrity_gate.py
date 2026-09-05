@@ -9,6 +9,7 @@ from html import unescape
 from typing import Any, Dict
 
 from market_calendar import calendar_window
+from article_evidence import build_cell_evidence, finite_number
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _SPACE_RE = re.compile(r"\s+")
@@ -347,6 +348,14 @@ def _allowed_pairs(card: Dict[str, Any]) -> set:
         for k in (cell.get("up_years"), cell.get("down_years")):
             if k is not None and n:
                 pairs.add((int(k), n))
+        comparison = (cell.get("evidence") or {}).get("recent_vs_earlier") or {}
+        for sample in (comparison.get("recent"), comparison.get("earlier")):
+            if sample:
+                pairs.update((sample[key], sample['n']) for key in ('up_years', 'down_years'))
+        sensitivity = (cell.get("evidence") or {}).get("sensitivity") or {}
+        sample = sensitivity.get("without_largest_absolute_move")
+        if sample:
+            pairs.update((sample[key], sample['n']) for key in ('up_years', 'down_years'))
         for quotable in (cell.get("quotables") or {}).values():
             if not isinstance(quotable, str):
                 continue
@@ -379,11 +388,203 @@ def _allowed_percents(card: Dict[str, Any]) -> list:
         for row in cell.get("per_year") or []:
             for key in ("net", "mfe", "mae"):
                 _add(row.get(key))
+        evidence = cell.get('evidence') or {}
+        comparison = evidence.get('recent_vs_earlier') or {}
+        sensitivity = evidence.get('sensitivity') or {}
+        for summary in (evidence.get('returns'), comparison.get('recent'),
+                        comparison.get('earlier'), sensitivity.get('without_largest_absolute_move')):
+            if summary:
+                for key in ('median_net', 'avg_net', 'up_rate_pct', 'down_rate_pct'):
+                    _add(summary.get(key))
     return values
 
 
 def _issue(errors: list, code: str, detail: str) -> None:
     errors.append({"code": code, "detail": detail})
+
+
+def validate_card_evidence(card: Dict[str, Any]) -> Dict[str, Any]:
+    """Recompute facts from per-year observations before trusting card metadata.
+
+    Version-one saved cards remain readable. Newly generated cards must carry
+    the complete evidence contract; corrupted/stale derivations fail closed.
+    This validates calculations independently of any writer's wording.
+    """
+    errors = []
+    cells = [card.get('story_cell')] + list(card.get('auxiliary_cells') or [])
+    for index, cell in enumerate(cells):
+        if not isinstance(cell, dict):
+            continue
+        evidence = cell.get('evidence')
+        label = 'story cell' if index == 0 else f'auxiliary cell {index}'
+        if evidence is None:
+            if card.get('schema_version', 1) >= 2:
+                _issue(errors, 'EVIDENCE_MISSING', f'{label} lacks canonical evidence')
+            continue
+        try:
+            computed = build_cell_evidence(cell)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            _issue(errors, 'EVIDENCE_INVALID', f'{label} has unusable window or observations')
+            continue
+        if not computed['returns']['n']:
+            _issue(errors, 'EVIDENCE_INVALID', f'{label} has no usable historical observations')
+        if evidence != computed:
+            _issue(errors, 'EVIDENCE_DERIVATION_MISMATCH',
+                   f'{label} evidence differs from recomputed per-year facts')
+        for field in ('n', 'up_years', 'down_years', 'flat_years', 'median_net', 'avg_net',
+                      'best_year', 'best_net', 'worst_year', 'worst_net'):
+            observed, expected = finite_number(cell.get(field)), computed['returns'][field]
+            if observed is None or expected is None or abs(observed - expected) > 0.005:
+                _issue(errors, 'EVIDENCE_SUMMARY_MISMATCH',
+                       f'{label} {field} disagrees with its historical rows')
+        # Public cells are normalized to underlying long-convention counts.
+        # Excluding bad/duplicate raw rows may expose a stale API stats block;
+        # publishing two conflicting samples must fail closed.
+        stats = cell.get('stats_raw') or {}
+        for stat, field in (('Num Winners', 'up_years'), ('Num Losers', 'down_years')):
+            if stat in stats and finite_number(stats[stat]) != computed['returns'][field]:
+                _issue(errors, 'EVIDENCE_STATS_MISMATCH', f'{label} {stat} disagrees with its historical rows')
+        for field, metric in (('median_mfe', 'median_favorable_from_entry'),
+                              ('median_mae', 'median_adverse_from_entry')):
+            expected = computed['risk'][metric]['value_pct']
+            observed = finite_number(cell.get(field))
+            if observed != expected:
+                _issue(errors, 'EVIDENCE_SUMMARY_MISMATCH', f'{label} {field} disagrees with its rows')
+        if cell.get('end_date') != computed['window']['end_date']:
+            _issue(errors, 'EVIDENCE_WINDOW_MISMATCH', f'{label} end date is not start + days - 1')
+        # A stale pre-fix quotable must not become authoritative merely by
+        # being copied into a newer card. Validate the canonical giveback claim.
+        giveback = (cell.get('quotables') or {}).get('give_back')
+        if giveback:
+            expected = computed['giveback']
+            match = re.search(r'median of (\d+(?:\.\d+)?) percentage points across (\d+) paired observations',
+                              str(giveback), re.I)
+            if (not match or expected['median_pp'] is None
+                    or float(match.group(1)) != float(f"{expected['median_pp']:.1f}")
+                    or int(match.group(2)) != expected['n']):
+                _issue(errors, 'GIVEBACK_DERIVATION_MISMATCH',
+                       f'{label} giveback must use the median of paired per-year high-minus-end returns')
+    return {'ok': not errors, 'errors': errors}
+
+
+_MONTH_NAMES = ('January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December')
+_DATE_PART = (r'(?:\d{4}-\d{2}-\d{2}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|'
+              r'May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
+              r'Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:,?\s+\d{4})?)')
+_WINDOW_RANGE_RE = re.compile(rf'(?P<start>{_DATE_PART})\s*(?:through|to|–|—|→|->|\s-\s)\s*'
+                              rf'(?P<end>{_DATE_PART})', re.I)
+_DERIVED_RETURN_RE = re.compile(
+    r'\b(?P<metric>median|average|mean)\s+(?:(?:ending|net|window)\s+)?'
+    r'(?P<kind>gain|loss|return)\s*(?:of|was|is|:|=)?\s*'
+    r'(?P<value>[+-]?\d+(?:\.\d+)?)\s*%', re.I)
+_GIVEBACK_CLAIM_RE = re.compile(
+    r'\bmedian\s+give[ -]?back\s*(?:of|was|is|:|=)?\s*'
+    r'(?P<value>\d+(?:\.\d+)?)\s*(?:percentage\s+points|pp)\b', re.I)
+_PAIRED_GIVEBACK_RE = re.compile(
+    r'\bmedian\s+of\s+(?P<value>\d+(?:\.\d+)?)\s+percentage\s+points'
+    r'\s+across\s+(?P<n>\d+)\s+paired\s+observations', re.I)
+
+
+def _cell_summaries(cell: dict) -> list[dict]:
+    evidence = cell['evidence']
+    comparison = evidence.get('recent_vs_earlier') or {}
+    sensitivity = evidence.get('sensitivity') or {}
+    return [s for s in (evidence.get('returns'), comparison.get('recent'),
+                       comparison.get('earlier'), sensitivity.get('without_largest_absolute_move')) if s]
+
+
+def _validate_explicit_derived_claims(text: str, cells: list[dict], errors: list) -> None:
+    # Restrict to expressly historical/seasonal statements. A news source's
+    # median analyst estimate is not licensed or disproved by seasonal rows.
+    if not re.search(r'\b(?:window|historical|seasonal|sampled|observations)\b|\bacross\s+\d+\s+years\b',
+                     text, re.I):
+        return
+    for match in _DERIVED_RETURN_RE.finditer(text):
+        metric = 'median_net' if match['metric'].lower() == 'median' else 'avg_net'
+        expected = [s[metric] for cell in cells for s in _cell_summaries(cell)
+                    if s[metric] is not None]
+        value = float(match['value'])
+        if match['kind'].lower() == 'loss':
+            value = -abs(value)
+        precision = len(match['value'].split('.', 1)[1]) if '.' in match['value'] else 0
+        if expected and not any(abs(value - round(number, precision)) < 1e-8 for number in expected):
+            _issue(errors, 'DERIVED_RETURN_MISMATCH',
+                   f"historical claim {match.group(0)!r} matches no computed cell or subgroup {metric}")
+    givebacks = [cell['evidence']['giveback'] for cell in cells]
+    for pattern in (_GIVEBACK_CLAIM_RE, _PAIRED_GIVEBACK_RE):
+        for match in pattern.finditer(text):
+            n = int(match.groupdict()['n']) if 'n' in match.groupdict() else None
+            precision = len(match['value'].split('.', 1)[1]) if '.' in match['value'] else 0
+            if givebacks and not any(g['median_pp'] is not None
+                                     and abs(float(match['value']) - round(g['median_pp'], precision)) < 1e-8
+                                     and (n is None or n == g['n']) for g in givebacks):
+                _issue(errors, 'GIVEBACK_CLAIM_MISMATCH',
+                       f"claim {match.group(0)!r} disagrees with paired per-year giveback evidence")
+
+
+def _claim_date(value: str, default_year: int) -> date | None:
+    try:
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+            return date.fromisoformat(value)
+        m = re.fullmatch(r'([A-Za-z]+)\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?', value)
+        if m:
+            month = next(i for i, name in enumerate(_MONTH_NAMES, 1)
+                         if name[:3].lower() == m.group(1)[:3].lower())
+            return date(int(m.group(3) or default_year), month, int(m.group(2)))
+    except (ValueError, StopIteration):
+        pass
+    return None
+
+
+def validate_evidence_claims(article_html: str, card: Dict[str, Any]) -> Dict[str, Any]:
+    """Check explicitly identified window ranges and primary-chart cohorts.
+
+    This intentionally does not treat every date or percentage in a news
+    paragraph as a seasonal fact. Ambiguous free-form claims remain the
+    editorial reviewer's job; unrelated dates and auxiliary cohorts are allowed.
+    """
+    errors = []
+    cells = []
+    for source in [card.get('story_cell')] + list(card.get('auxiliary_cells') or []):
+        if not isinstance(source, dict) or source.get('evidence') is None:
+            continue
+        try:
+            cells.append({**source, 'evidence': build_cell_evidence(source)})
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue  # validate_card_evidence reports the invalid input itself
+    blocks = re.findall(r'<(?:p|h[1-6]|li|figcaption)\b[^>]*>(.*?)</(?:p|h[1-6]|li|figcaption)>',
+                        article_html or '', re.I | re.S)
+    for block in blocks:
+        text = text_content(block)
+        _validate_explicit_derived_claims(text, cells, errors)
+        if not re.search(r'\bwindow\b|calendar[ -]days?\b', text, re.I):
+            continue
+        duration = re.search(r'\b(\d+)[ -](?:calendar[ -])?days?\s+window\b', text, re.I)
+        for match in _WINDOW_RANGE_RE.finditer(text):
+            matching = []
+            for cell in cells:
+                window = cell['evidence']['window']
+                start = date.fromisoformat(window['start_date'])
+                if duration and int(duration.group(1)) != window['calendar_days']:
+                    continue
+                if _claim_date(match.group('start'), start.year) == start:
+                    matching.append(window)
+            if matching and not any(_claim_date(match.group('end'), date.fromisoformat(w['end_date']).year)
+                                    == date.fromisoformat(w['end_date']) for w in matching):
+                _issue(errors, 'WINDOW_RANGE_MISMATCH',
+                       f"stated window {match.group(0)!r} disagrees with the computed inclusive endpoint")
+    story = card.get('story_cell') or {}
+    try:
+        cohort = build_cell_evidence(story)['cohort'] if story.get('evidence') is not None else {}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        cohort = {}
+    if cohort and not cohort['is_consecutive']:
+        for caption in re.findall(r'<figcaption\b[^>]*>(.*?)</figcaption>', article_html or '', re.I | re.S):
+            if re.search(rf'\b(?:last|past)\s+{cohort["n"]}\s+years\b', text_content(caption), re.I):
+                _issue(errors, 'COHORT_PERIOD_MISLABELED',
+                       f'chart represents {cohort["label"]}, not the last {cohort["n"]} consecutive years')
+    return {'ok': not errors, 'errors': errors}
 
 
 def validate_cell_article(article_html: str, card: Dict[str, Any], *,
@@ -396,6 +597,8 @@ def validate_cell_article(article_html: str, card: Dict[str, Any], *,
     errors: list = []
     warnings: list = []
     text = _prose_text(html)
+    errors.extend(validate_card_evidence(card)['errors'])
+    errors.extend(validate_evidence_claims(html, card)['errors'])
 
     # --- structural: document, headline identity, bridge, chrome singletons
     if "<article" not in html.lower() or "</html>" not in html.lower():
