@@ -46,7 +46,7 @@ PERPLEXITY_API_KEY = config.PERPLEXITY_API_KEY
 PERPLEXITY_MODEL   = 'sonar-reasoning'
 
 OPENAI_KEY              = config.OPENAI_KEY
-OPENAI_MODEL            = "gpt-5.1"
+OPENAI_MODEL            = os.getenv("SMN_ARTICLE_MODEL", "gpt-6-astra")
 OPENAI_MODEL_GPT5_MINI  = "gpt-5-mini"
 OPENAI_MODEL_GPT41_NANO = "gpt-4.1-nano"
 OPENAI_MODEL_DEFAULT = OPENAI_MODEL
@@ -206,7 +206,8 @@ def search_tavily(
     query: str,
     include_domains: Optional[List[str]] = None,
     days: int = 30,
-    max_results: int = 7
+    max_results: int = 7,
+    include_raw_content: bool = False
 ) -> dict:
     """
     Queries Tavily and returns the raw JSON object with results.
@@ -217,7 +218,7 @@ def search_tavily(
         "query": query,
         "search_depth": "advanced",
         "include_answer": False,
-        "include_raw_content": False, 
+        "include_raw_content": include_raw_content,
         "max_results": max_results,
         "topic": "news", 
         "days": days
@@ -507,11 +508,10 @@ def send_perplexity_prompt(prompt, model=DEFAULT_PERPLEXITY_MODEL, system=None, 
 # ------------------------------------------------------------------
 
 def send_openai_prompt(prompt, model=OPENAI_MODEL_DEFAULT, system=None, stream=False, timeout=(10, 600), **kwargs):
+    from article_llm import chat_payload
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_KEY}"}
-    messages = [{"role": "user", "content": prompt}]
-    if system: messages.insert(0, {"role": "system", "content": system})
-    payload = {"model": model, "messages": messages, "stream": stream}
-    payload.update({k: v for k, v in kwargs.items() if v is not None})
+    usage_callback = kwargs.pop("usage_callback", None)
+    payload = chat_payload(prompt, model=model, system=system or "", stream=stream, **kwargs)
 
     if stream:
         def _gen():
@@ -521,14 +521,22 @@ def send_openai_prompt(prompt, model=OPENAI_MODEL_DEFAULT, system=None, stream=F
                         chunk = line[6:].strip()
                         if chunk == "[DONE]": break
                         try:
-                            content = requests.utils.json.loads(chunk)["choices"][0]["delta"].get("content")
+                            content = _json.loads(chunk)["choices"][0]["delta"].get("content")
                             if content: yield content
                         except: continue
         return _gen()
 
     resp = requests.post(OPENAI_API_URL, headers=headers, json=payload, timeout=timeout)
     if resp.status_code != 200: raise OpenAIAPIError(f"HTTP {resp.status_code}: {resp.text}")
-    return resp.json()["choices"][0]["message"]["content"]
+    data = resp.json()
+    if usage_callback:
+        usage_callback({"requested_model": model, "model": data.get("model"),
+                        "usage": data.get("usage") or {},
+                        "reasoning_effort": payload.get("reasoning_effort")})
+    choice = data["choices"][0]
+    if choice.get("finish_reason") == "length":
+        raise OpenAIAPIError("OpenAI article response was truncated")
+    return choice["message"]["content"]
 
 
 # ------------------------------------------------------------------

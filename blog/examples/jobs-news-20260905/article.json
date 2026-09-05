@@ -1,0 +1,92 @@
+{
+  "title": "August hiring strengthened, but September Fed policy remains unresolved",
+  "title_claim_ids": [
+    "jobs",
+    "revisions",
+    "july_policy"
+  ],
+  "dek": "Payrolls rose 162,000 and July’s reported loss became a gain. The September 15-16, 2026 Fed meeting will clarify policymakers’ assessment.",
+  "dek_claim_ids": [
+    "jobs",
+    "revisions",
+    "next_meeting"
+  ],
+  "takeaways": [
+    {
+      "text": "Upward revisions improve the recent hiring picture without establishing a lasting trend.",
+      "claim_ids": [
+        "jobs",
+        "revisions"
+      ]
+    },
+    {
+      "text": "The Fed’s July hold included three votes for an increase, not a September policy decision.",
+      "claim_ids": [
+        "july_policy"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "heading": "Hiring strengthened",
+      "paragraphs": [
+        {
+          "text": "BLS reported on September 4, 2026 that August payrolls increased by 162,000 while unemployment stayed at 4.1%. Revised gains were 31,000 for June and 21,000 for July, adding 55,000 jobs to earlier totals. July initially showed a 23,000 decline.",
+          "kind": "fact",
+          "claim_ids": [
+            "jobs",
+            "revisions"
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "Uneven gains",
+      "paragraphs": [
+        {
+          "text": "Food services and drinking places added 59,000 jobs; local government education added 42,000. Local government education largely reversed July’s fall and has changed little overall since January 2025. Information employment fell 23,000. That mix cautions against treating August’s improvement as broad-based.",
+          "kind": "analysis",
+          "claim_ids": [
+            "mix"
+          ]
+        },
+        {
+          "text": "Average hourly earnings rose 0.3% in August and 3.1% over the year. Those figures measure wages, not consumer inflation.",
+          "kind": "fact",
+          "claim_ids": [
+            "wages"
+          ]
+        }
+      ]
+    },
+    {
+      "heading": "What remains open for the Fed",
+      "paragraphs": [
+        {
+          "text": "On July 29, 2026, the Fed held its target range at 3.5%-3.75% by a 9-3 vote. All three dissenters preferred a quarter-point increase. Its statement described solid economic expansion and inflation above its 2% goal, partly reflecting supply shocks including energy.",
+          "kind": "fact",
+          "claim_ids": [
+            "july_policy",
+            "fed_inflation"
+          ]
+        },
+        {
+          "text": "For readers assessing interest-rate policy, stronger hiring provides employment evidence but does not resolve the Fed’s inflation concerns or establish its next action.",
+          "kind": "analysis",
+          "claim_ids": [
+            "jobs",
+            "revisions",
+            "fed_inflation"
+          ]
+        },
+        {
+          "text": "The September 15-16, 2026 meeting includes economic projections, offering the next confirmed opportunity to clarify policymakers’ assessment.",
+          "kind": "analysis",
+          "claim_ids": [
+            "next_meeting"
+          ]
+        }
+      ]
+    }
+  ]
+}

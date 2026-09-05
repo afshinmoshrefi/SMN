@@ -284,10 +284,14 @@ def discover_news_events(*, search: Callable | None = None, send: Callable | Non
         return result
     prompt = build_discovery_prompt(retrieved["sources"], as_of=clock.isoformat(), max_events=discovery_policy.max_events)
     result["discovery_prompt"] = prompt
+    usage_start = len(getattr(send, "calls", []))
     try:
         if send is None:
             from article_llm import ArticleLLM
-            send = ArticleLLM()
+            send = ArticleLLM(stage="news_discovery")
+        from article_llm import ArticleLLM
+        if isinstance(send, ArticleLLM):
+            send.stage = "news_discovery"
         result["extraction_calls"] += 1
         grounded = ground_discovered_events(send(prompt), retrieved["sources"], now=clock, policy=discovery_policy, coverage=coverage)
         result.update(grounded)
@@ -295,6 +299,8 @@ def discover_news_events(*, search: Callable | None = None, send: Callable | Non
     except Exception as exc:
         result["errors"].append("discovery_failed:" + type(exc).__name__)
         result.update(events=[], research={"sources": retrieved["sources"], "claims": []}, selection={"selected": [], "decisions": []})
+    finally:
+        result["model_usage"] = list(getattr(send, "calls", []))[usage_start:]
     return result
 
 

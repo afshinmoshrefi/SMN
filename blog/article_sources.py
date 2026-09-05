@@ -14,9 +14,53 @@ they do not rewrite article prose.
 from __future__ import annotations
 
 import html
+import datetime
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
+
+
+def attach_retrieved_evidence(research: Dict[str, Any], results: List[dict],
+                              retrieved_at: str = "") -> Dict[str, Any]:
+    """Bind synthesized source URLs to actual retrieved passages.
+
+    An LLM-created URL is not evidence. Keep the retrieved text available to
+    planning and review so subject/date/claim support can be assessed. A
+    retrieval match proves provenance, not that every synthesized claim is true.
+    """
+    def key(url):
+        parsed = urlsplit(str(url or ""))
+        return (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip('/'), parsed.query)
+
+    retrieved = {}
+    for item in results or []:
+        if not isinstance(item, dict) or not is_valid_http_source_url(item.get("url")):
+            continue
+        text = str(item.get("raw_content") or item.get("content") or "").strip()
+        if text and len(text) > len(retrieved.get(key(item["url"]), {}).get("text", "")):
+            retrieved[key(item["url"])] = {"text": text, "item": item}
+    kept = []
+    for source in research.get("sources") or []:
+        if not isinstance(source, dict) or not is_valid_http_source_url(source.get("url")):
+            continue
+        match = retrieved.get(key(source["url"]))
+        if not match:
+            continue
+        source["excerpt"] = match["text"][:6000]
+        source["retrieval_supported"] = True
+        source["retrieved_at"] = retrieved_at or datetime.datetime.now(datetime.timezone.utc).isoformat()
+        kept.append(source)
+    research["sources"] = kept
+    allowed = {source.get("id"): source for source in kept}
+    for claim in research.get("claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        ids = claim.get("source_ids") or []
+        quote = str(claim.get("evidence_quote") or "").strip()
+        claim["evidence_available"] = bool(quote and any(
+            quote.casefold() in allowed[sid]["excerpt"].casefold()
+            for sid in ids if sid in allowed))
+    return research
 
 
 _SOURCES_SECTION_RE = re.compile(
@@ -61,6 +105,14 @@ def _remap_reference_list(values: Any, mapping: Dict[int, int]) -> Any:
             if new_id is not None and new_id not in remapped:
                 remapped.append(new_id)
             continue
+        if isinstance(item, dict) and "id" in item:
+            # Some synthesis fields embed source objects rather than IDs.
+            # They belong to this source-reference list, unlike unrelated
+            # record IDs elsewhere in the research tree.
+            new_id = mapping.get(_as_source_id(item["id"]))
+            if new_id is None:
+                continue
+            item["id"] = new_id
         if isinstance(item, (dict, list)):
             _remap_reference_tree(item, mapping)
         remapped.append(item)

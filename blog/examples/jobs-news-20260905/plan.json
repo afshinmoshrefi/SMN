@@ -1,0 +1,47 @@
+{
+  "feasible": true,
+  "reader_question": "What does the August jobs report establish about US hiring, and what does it leave unresolved ahead of the September Fed meeting?",
+  "answer": "The September 4, 2026 report showed August payroll growth of 162,000, unchanged unemployment of 4.1%, and upward revisions that replaced July's initially reported job loss with a gain. Hiring strengthened relative to June and July, but the sector breakdown complicates any conclusion that the improvement was broad: local government education largely reversed a prior decline, while information employment fell. The report provides employment and wage evidence for readers assessing monetary policy, not a September rate decision. The September 15-16 Fed meeting and accompanying projections will clarify policymakers' assessment.",
+  "claim_ids": [
+    "jobs",
+    "revisions",
+    "mix",
+    "wages",
+    "july_policy",
+    "fed_inflation",
+    "next_meeting"
+  ],
+  "sections": [
+    {
+      "heading": "Hiring strengthened, and July's loss became a gain",
+      "purpose": "Establish the September 4 release date, August payroll and unemployment figures, and revised June and July totals. Explain why the revisions materially change the recent hiring picture without claiming a durable trend.",
+      "claim_ids": [
+        "jobs",
+        "revisions"
+      ]
+    },
+    {
+      "heading": "The gains were uneven across employers",
+      "purpose": "Identify food services, local government education and information as distinct employment outcomes relevant to workers and employers. Explain the education rebound and report hourly earnings growth, explicitly distinguishing wages from consumer inflation. Keep all BLS-derived material across the article within 200 words.",
+      "claim_ids": [
+        "mix",
+        "wages"
+      ]
+    },
+    {
+      "heading": "The policy implications remain open",
+      "purpose": "Explain the report's relevance to readers assessing interest-rate policy using the Fed's documented employment and inflation context. Clearly date the July 29 hold at 3.5%-3.75% and the three dissents favoring an increase; do not present them as September decisions or expectations. Identify the September 15-16 meeting and projections as the next confirmed opportunity to clarify the Fed's assessment.",
+      "claim_ids": [
+        "july_policy",
+        "fed_inflation",
+        "next_meeting"
+      ]
+    }
+  ],
+  "unknowns": [
+    "Whether August's stronger hiring will persist or become more broadly distributed across industries.",
+    "How policymakers will weigh the employment report against their inflation concerns at the September meeting.",
+    "What rate decision and economic projections the Fed will announce in September."
+  ],
+  "word_budget": 350
+}

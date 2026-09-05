@@ -124,8 +124,13 @@ def _filter_research_sources(research: Dict[str, Any],
 
         # 3. Ticker/company validation (when match_tokens are available)
         if match_tokens:
-            haystack = f"{title} {url}".lower()
-            if not any(token in haystack for token in match_tokens):
+            # Multi-company reporting often names the target only in its
+            # actual passage. Preserve that evidence; the claim reviewer
+            # separately distinguishes an analyst's employer from the stock.
+            excerpt = src.get("excerpt") or src.get("content") or ""
+            haystack = f"{title} {url} {excerpt}".lower()
+            if not any(re.search(r"(?<!\w)" + re.escape(token.lower()) + r"(?!\w)", haystack)
+                       for token in match_tokens):
                 rejected_count += 1
                 print(f"[FILTER] Rejected off-target source: '{title[:80]}' (no match for {symbol}/{company})")
                 continue
@@ -141,7 +146,7 @@ def _filter_research_sources(research: Dict[str, Any],
         print(f"[FILTER] Rejected {rejected_count} off-target source(s) for {symbol}")
     
     research["sources"] = valid_sources
-    return research
+    return normalize_research_source_ids(research)
 
 
 def _annotate_research_temporal(research: Dict[str, Any], freshness_days: int = 60) -> Dict[str, Any]:

@@ -159,7 +159,7 @@ def _git_commit() -> str:
 
 
 def _provenance_models() -> dict:
-    """Best-effort snapshot of which models produced each artifact."""
+    """Configured defaults only; model_usage.json records actual stage calls."""
     models = {
         # Hardcoded in AI_tools.synthesize_research_with_grok / get_company_domains_with_grok.
         "research_synthesis": "gpt-5-mini",
@@ -167,7 +167,8 @@ def _provenance_models() -> dict:
     }
     try:
         import AI_tools
-        models["article"] = getattr(AI_tools, "OPENAI_MODEL_DEFAULT", None)
+        models["article_configured_default"] = getattr(AI_tools, "OPENAI_MODEL_DEFAULT", None)
+        models["article"] = models["article_configured_default"]  # legacy default alias, not actual call provenance
         models["image_provider"] = getattr(AI_tools, "PREMIUM_IMAGE_PROVIDER", None)
         models["image_model"] = getattr(AI_tools, "DEFAULT_OPENAI_IMAGE_MODEL", None)
     except Exception:

@@ -99,10 +99,35 @@ STORE_RESEARCH_JSON_SIDECAR = False  # Disabled for now
 # ----------------------------------------------------------------------
 
 def _replace_title_in_html(html: str, new_title: str) -> str:
-    """Replace <title> and first <h1> with new_title."""
+    """Keep the visible and structured headline in agreement."""
     import re
-    html = re.sub(r'<title>.*?</title>', f'<title>{new_title}</title>', html, count=1, flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r'<h1[^>]*>.*?</h1>', f'<h1>{new_title}</h1>', html, count=1, flags=re.IGNORECASE | re.DOTALL)
+    import json
+    from html import escape
+    safe_title = escape(new_title)
+    html = re.sub(r'<title>.*?</title>', lambda m: f'<title>{safe_title}</title>', html, count=1, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r'<h1[^>]*>.*?</h1>', lambda m: f'<h1>{safe_title}</h1>', html, count=1, flags=re.IGNORECASE | re.DOTALL)
+    def replace_schema(match):
+        try:
+            value = json.loads(match.group(2))
+        except ValueError:
+            return match.group(0)
+        def update(item):
+            if isinstance(item, dict):
+                kind = item.get("@type", [])
+                if isinstance(kind, str):
+                    kind = [kind]
+                if any(t in ("Article", "NewsArticle", "BlogPosting") for t in kind):
+                    item["headline"] = new_title
+                for child in item.values():
+                    if isinstance(child, (dict, list)):
+                        update(child)
+            elif isinstance(item, list):
+                for child in item:
+                    update(child)
+        update(value)
+        return match.group(1) + json.dumps(value, ensure_ascii=False).replace("<", "\\u003c") + match.group(3)
+    html = re.sub(r'(<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>)(.*?)(</script\s*>)',
+                  replace_schema, html, flags=re.I | re.S)
     return html
 
 
@@ -296,6 +321,13 @@ def research_tavily(resource_id: str,
       "company": "{company}",
       "market_family": "{market_family}",
 
+      "claims": [{{
+        "id": "c1", "text": "One factual claim about the target company",
+        "subject": "Company/security the claim actually concerns",
+        "source_ids": [1], "event_date": null,
+        "evidence_quote": "Exact supporting passage copied from retrieved text"
+      }}],
+
       "price": {{
         "last": null,
         "change_percent": null,
@@ -350,7 +382,9 @@ def research_tavily(resource_id: str,
           "url": "https://...",
           "date": "YYYY-MM-DD",
           "domain_tier": "1",
-          "justification": "Why this source is trusted."
+          "justification": "Why this source is trusted.",
+          "document_type": "event_report or background",
+          "event_date": null
         }}
       ]
     }}
@@ -377,6 +411,8 @@ def research_tavily(resource_id: str,
         else:
             raise ValueError(f"Grok returned unparseable research JSON: {clean[:200]}")
     print("RESEARCH JSON KEYS:", list(research_json.keys()))
+    from article_sources import attach_retrieved_evidence
+    research_json = attach_retrieved_evidence(research_json, combined_results)
     article_audit.record("research.json", research_json)
     return research_json
 

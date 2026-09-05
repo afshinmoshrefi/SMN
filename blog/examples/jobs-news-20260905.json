@@ -1,0 +1,78 @@
+{
+  "verification_note": "Source pages inspected on September 5, 2026. This is a manually verified input packet for the real Astra generation example; it is not claimed to be an automatically discovered event. Quoted source passages are bounded. No article prose is supplied.",
+  "event": {
+    "event_id": "us-employment-2026-08",
+    "development_id": "bls-release-20260904",
+    "headline": "August US payrolls rose 162,000 as unemployment held at 4.1%",
+    "event_time": "2026-09-04T12:30:00Z",
+    "event_time_basis": "official_release",
+    "source_ids": ["bls"],
+    "claim_ids": ["jobs", "revisions", "mix", "wages"],
+    "significance": 5,
+    "significance_reason": "The monthly US employment release informs the economic outlook before the September Federal Reserve meeting.",
+    "audience_relevance": 5,
+    "relevance_reason": "Readers need to understand the difference between stronger hiring, market reactions, and an actual interest-rate decision.",
+    "material_development": true,
+    "major_event": true
+  },
+  "research": {
+    "sources": [
+      {
+        "id": "bls",
+        "title": "BLS: Employment Situation, August 2026",
+        "url": "https://www.bls.gov/news.release/archives/empsit_09042026.htm",
+        "published_at": "2026-09-04T12:30:00Z",
+        "verified_at": "2026-09-05T21:07:00Z",
+        "verified": true,
+        "source_type": "primary",
+        "max_summary_words": 200,
+        "excerpt": "THE EMPLOYMENT SITUATION - AUGUST 2026. 8:30 a.m. (ET) Friday, September 4, 2026. Total nonfarm payroll employment increased by 162,000 in August, and the unemployment rate was unchanged at 4.1 percent, the U.S. Bureau of Labor Statistics reported today. Employment in food services and drinking places increased by 59,000 in August, well above the average monthly gain of 12,000 over the prior 12 months. Local government education added 42,000 jobs in August, largely offsetting a decrease in the prior month. Local government education has shown little net change since January 2025. Information employment declined by 23,000 in August. In August, average hourly earnings for all employees on private nonfarm payrolls rose by 10 cents, or 0.3 percent, to $37.75. Over the year, average hourly earnings have increased by 3.1 percent. The change in total nonfarm payroll employment for June was revised up by 11,000, from +20,000 to +31,000, and the change for July was revised up by 44,000, from -23,000 to +21,000. With these revisions, employment in June and July combined is 55,000 higher than previously reported."
+      },
+      {
+        "id": "fed",
+        "title": "Federal Reserve: July 29, 2026 policy statement",
+        "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260729a.htm",
+        "published_at": "2026-07-29T18:00:00Z",
+        "verified_at": "2026-09-05T21:07:00Z",
+        "verified": true,
+        "source_type": "primary",
+        "role": "context",
+        "max_summary_words": 200,
+        "excerpt": "July 29, 2026. For release at 2:00 p.m. EDT. The Federal Open Market Committee approved the following statement for release by a 9 – 3 vote: The Committee decided to maintain the target range for the federal funds rate at 3-1/2 to 3-3/4 percent, in support of the Federal Reserve's dual mandate. The Committee is continuing its policy of maintaining ample reserves in the banking system. Economic activity is expanding at a solid pace despite elevated uncertainty that owes, in part, to the conflict in the Middle East. Productivity growth and capital investment are strong. Job gains have kept pace with the workforce, and the unemployment rate has changed little. Inflation remains elevated relative to the Committee's 2 percent goal, in part reflecting supply shocks that have driven price increases in certain sectors, including energy. The Committee will deliver price stability. Voting against the monetary policy action were Beth M. Hammack, Neel Kashkari, and Lorie K. Logan, who preferred to raise the target range for the federal funds rate by 1/4 percentage point at this meeting."
+      },
+      {
+        "id": "market",
+        "title": "Reuters via Kitco: Yields rise, stocks mostly ease after solid US jobs report",
+        "url": "https://www.kitco.com/news/off-the-wire/2026-09-04/yields-rise-stocks-mostly-ease-after-solid-us-jobs-report",
+        "published_at": "2026-09-04T21:53:00Z",
+        "verified_at": "2026-09-05T21:07:00Z",
+        "verified": true,
+        "source_type": "reporting",
+        "max_summary_words": 100,
+        "excerpt": "Treasury yields and the dollar rose, while the S&P 500 eased on Friday after U.S. job growth accelerated in August"
+      },
+      {
+        "id": "calendar",
+        "title": "Federal Reserve: 2026 FOMC meeting calendar",
+        "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+        "published_at": "2026-08-19T18:00:00Z",
+        "verified_at": "2026-09-05T21:07:00Z",
+        "verified": true,
+        "source_type": "primary",
+        "role": "context",
+        "max_summary_words": 60,
+        "excerpt": "2026 FOMC Meetings. September 15-16*. October 27-28. December 8-9*. * Meeting associated with a Summary of Economic Projections. Last Update: August 19, 2026"
+      }
+    ],
+    "claims": [
+      {"id": "jobs", "text": "BLS reported on September 4, 2026 that August nonfarm payrolls increased by 162,000 and unemployment remained 4.1%.", "source_ids": ["bls"]},
+      {"id": "revisions", "text": "BLS revised June payroll growth to 31,000 and July to 21,000. The two revisions together added 55,000 jobs to previously reported totals; July had originally been reported as a 23,000 decline.", "source_ids": ["bls"]},
+      {"id": "mix", "text": "August job growth included 59,000 in food services and drinking places and 42,000 in local government education. The latter largely reversed the prior month's fall and has changed little overall since January 2025. Information employment fell 23,000.", "source_ids": ["bls"]},
+      {"id": "wages", "text": "Average hourly earnings rose 0.3% in August and 3.1% over the year. This is a wage measure, not a consumer-inflation measure.", "source_ids": ["bls"]},
+      {"id": "july_policy", "text": "On July 29, 2026, the Fed held its target range at 3.5%-3.75% by a 9-3 vote. Three dissenters wanted a quarter-point increase. This describes the July decision, not a September decision.", "source_ids": ["fed"]},
+      {"id": "fed_inflation", "text": "The July Fed statement said economic activity was expanding at a solid pace and inflation remained above its 2% goal, partly due to supply shocks including energy. The statement did not announce a September action.", "source_ids": ["fed"]},
+      {"id": "reaction", "text": "Reuters reported that Treasury yields and the dollar rose while the S&P 500 eased on September 4 after the jobs release. This supplies direction only, not exact moves or proof of sole causation.", "source_ids": ["market"]},
+      {"id": "next_meeting", "text": "The official FOMC calendar lists September 15-16, 2026 as a meeting accompanied by a Summary of Economic Projections.", "source_ids": ["calendar"]}
+    ]
+  }
+}

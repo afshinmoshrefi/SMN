@@ -18,6 +18,7 @@ from news_prompts import (NewsOutputError, article_checks, build_plan_prompt,
                           build_write_prompt, evidence_packet, parse_object,
                           validate_plan, validate_review)
 from news_selection import NewsPolicy, utc_time, validate_event
+from article_llm import ArticleLLM, ArticleModelError
 
 
 def _preview_directory(output_dir: str | Path) -> Path:
@@ -75,7 +76,7 @@ def render_news_html(article: dict, evidence: dict) -> str:
         published = utc_time(source["published_at"]).strftime("%B %d, %Y")
         out.append(f'<li id="source-{number}"><a href="{html.escape(source["url"], quote=True)}" '
                    f'rel="noopener noreferrer">{html.escape(source["title"])}</a>'
-                   f' — {html.escape(published)}</li>')
+                   f' · {html.escape(published)}</li>')
     out.append('</ol></section></article>')
     return "\n".join(out)
 
@@ -111,7 +112,7 @@ def _write_artifacts(result: dict, directory: Path | None) -> dict:
     result["artifact_paths"] = paths
     manifest_path = directory / "manifest.json"
     manifest = {k: result[k] for k in ("status", "publishable", "article_type", "requested_model",
-                                       "as_of", "provider_calls", "revisions", "artifact_paths", "errors") if k in result}
+                                       "as_of", "provider_calls", "model_usage", "revisions", "artifact_paths", "errors") if k in result}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     paths["manifest"] = str(manifest_path)
     return result
@@ -144,15 +145,20 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
     evidence = evidence_packet(event, checked)
     result["evidence"] = evidence
     result["status"] = "hold"
+    usage_start = len(getattr(send, "calls", []))
 
     def call(stage: str, prompt: str) -> str:
         result["prompts"].append({"stage": stage, "prompt": prompt})
         result["provider_calls"] += 1
-        return send(prompt)
+        try:
+            if isinstance(send, ArticleLLM):
+                send.stage = stage
+            return send(prompt)
+        finally:
+            result["model_usage"] = list(getattr(send, "calls", []))[usage_start:]
 
     try:
         if send is None:
-            from article_llm import ArticleLLM
             send = ArticleLLM(model=model)
         plan = validate_plan(parse_object(call("plan", build_plan_prompt(evidence))), evidence)
         result["plan"] = plan
@@ -181,6 +187,9 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
         if result["status"] == "hold" and result["validation"].get("article", {}).get("passed"):
             result["article_html"] = render_news_html(result["article"], evidence)
     except NewsOutputError as exc:
+        result["errors"].append(str(exc))
+    except ArticleModelError as exc:
+        # Our transport's messages are deliberately sanitized and actionable.
         result["errors"].append(str(exc))
     except Exception as exc:
         # Provider exception strings can contain request headers or credentials.

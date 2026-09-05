@@ -1,0 +1,17 @@
+[
+  {
+    "passed": false,
+    "issues": [
+      {
+        "severity": "editorial",
+        "location": "sections[2].paragraphs[3]",
+        "problem": "The closing paragraph repeats both the takeaway that stronger hiring does not establish a lasting trend and the preceding policy analysis that the report leaves the Fed’s inflation assessment and next action unresolved. It adds no new information.",
+        "fix": "Delete this paragraph and end with the September 15-16, 2026 meeting and accompanying projections as the useful next development."
+      }
+    ]
+  },
+  {
+    "passed": true,
+    "issues": []
+  }
+]

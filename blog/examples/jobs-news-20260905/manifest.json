@@ -1,0 +1,158 @@
+{
+  "status": "draft_ready",
+  "publishable": false,
+  "article_type": "financial_news",
+  "requested_model": "gpt-6-astra",
+  "as_of": "2026-09-05T21:10:58.615518+00:00",
+  "provider_calls": 5,
+  "model_usage": [
+    {
+      "stage": "plan",
+      "requested_model": "gpt-6-astra",
+      "reasoning_effort": "low",
+      "prompt_sha256": "805a8bd39e097df16fc9de70d4e0d9f64530f5a6639be6038ae544b4f6c020ba",
+      "model": "gpt-6-astra",
+      "usage": {
+        "prompt_tokens": 2123,
+        "completion_tokens": 574,
+        "total_tokens": 2697,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 2120,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "finish_reason": "stop",
+      "service_tier": "default",
+      "status": "ok",
+      "duration_seconds": 12.298
+    },
+    {
+      "stage": "write",
+      "requested_model": "gpt-6-astra",
+      "reasoning_effort": "low",
+      "prompt_sha256": "ebc72d299e21dfa285e68fff99470b494437266b0f91107179d55dc21db953eb",
+      "model": "gpt-6-astra",
+      "usage": {
+        "prompt_tokens": 2673,
+        "completion_tokens": 731,
+        "total_tokens": 3404,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 2670,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "finish_reason": "stop",
+      "service_tier": "default",
+      "status": "ok",
+      "duration_seconds": 11.281
+    },
+    {
+      "stage": "review",
+      "requested_model": "gpt-6-astra",
+      "reasoning_effort": "low",
+      "prompt_sha256": "1db34e55c478aa84bf90c2f4c688c1d13d892030dd93f2ba722e75ed656bf970",
+      "model": "gpt-6-astra",
+      "usage": {
+        "prompt_tokens": 3271,
+        "completion_tokens": 151,
+        "total_tokens": 3422,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 3268,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 44,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "finish_reason": "stop",
+      "service_tier": "default",
+      "status": "ok",
+      "duration_seconds": 4.406
+    },
+    {
+      "stage": "revise",
+      "requested_model": "gpt-6-astra",
+      "reasoning_effort": "low",
+      "prompt_sha256": "260da63f2ec722696ca9f3129aef8222cafe273e957820561cb0f9f4c0e96aae",
+      "model": "gpt-6-astra",
+      "usage": {
+        "prompt_tokens": 3473,
+        "completion_tokens": 547,
+        "total_tokens": 4020,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 3470,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "finish_reason": "stop",
+      "service_tier": "default",
+      "status": "ok",
+      "duration_seconds": 6.693
+    },
+    {
+      "stage": "re_review",
+      "requested_model": "gpt-6-astra",
+      "reasoning_effort": "low",
+      "prompt_sha256": "67ac7ba83acdfccf3b33fbd48a763238ff41798901f48f950ca3f974959f7471",
+      "model": "gpt-6-astra",
+      "usage": {
+        "prompt_tokens": 3239,
+        "completion_tokens": 71,
+        "total_tokens": 3310,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 3236,
+          "audio_tokens": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 54,
+          "audio_tokens": 0,
+          "accepted_prediction_tokens": 0,
+          "rejected_prediction_tokens": 0
+        }
+      },
+      "finish_reason": "stop",
+      "service_tier": "default",
+      "status": "ok",
+      "duration_seconds": 3.309
+    }
+  ],
+  "revisions": 1,
+  "artifact_paths": {
+    "event": "/tmp/smn-first-pass-20260905/jobs-example/event.json",
+    "evidence": "/tmp/smn-first-pass-20260905/jobs-example/evidence.json",
+    "plan": "/tmp/smn-first-pass-20260905/jobs-example/plan.json",
+    "article": "/tmp/smn-first-pass-20260905/jobs-example/article.json",
+    "validation": "/tmp/smn-first-pass-20260905/jobs-example/validation.json",
+    "reviews": "/tmp/smn-first-pass-20260905/jobs-example/reviews.json",
+    "prompts": "/tmp/smn-first-pass-20260905/jobs-example/prompts.json",
+    "article_html": "/tmp/smn-first-pass-20260905/jobs-example/article.html",
+    "preview_html": "/tmp/smn-first-pass-20260905/jobs-example/preview.html"
+  },
+  "errors": []
+}

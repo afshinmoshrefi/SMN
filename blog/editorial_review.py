@@ -61,20 +61,18 @@ _EDITOR_ROLE = (
 
 
 def _default_send(prompt: str) -> str:
-    from AI_tools import send_openai_prompt
-    return send_openai_prompt(prompt, system=_EDITOR_ROLE + "Return only JSON.",
-                              stream=False, temperature=0.0)
+    from article_llm import ArticleLLM
+    return ArticleLLM(stage="editorial", system=_EDITOR_ROLE + "Return only JSON.")(prompt)
 
 
 def _default_repair_send(prompt: str) -> str:
     # The repairer returns a raw HTML document. A "Return only JSON" system prompt
     # here made the model wrap the article as {"html": "..."} and the JSON text
     # shipped downstream as the article (2026-07-16 incident).
-    from AI_tools import send_openai_prompt
-    return send_openai_prompt(prompt, system=_EDITOR_ROLE +
+    from article_llm import ArticleLLM
+    return ArticleLLM(stage="repair", system=_EDITOR_ROLE +
                               "Return only one complete raw HTML document — no JSON, "
-                              "no wrapper object, no code fences, no commentary.",
-                              stream=False, temperature=0.0)
+                              "no wrapper object, no code fences, no commentary.")(prompt)
 
 
 def review_article(article_html: str, facts: Dict[str, Any], research: Any = None,

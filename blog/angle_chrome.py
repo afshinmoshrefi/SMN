@@ -114,6 +114,7 @@ def render_meta_strip(cell: Dict[str, Any]) -> str:
     word = "higher" if cell["direction"] == "bullish" else "lower"
     lookback = (f"{cell['years']} years" if cell["mode"] == "cons"
                 else _pe_label(cell["years"]))
+    lookback = ((cell.get("evidence") or {}).get("cohort") or {}).get("label") or lookback
     return (
         '<div class="pattern-meta">'
         f'<span>Symbol: {_esc(cell["symbol"])}</span>'
@@ -201,15 +202,35 @@ def render_key_stats(cell: Dict[str, Any], cta_link: str = "",
             + "".join(rows) + footer + '</aside>')
 
 
-def render_figure(variant: str, images: List[Dict[str, str]]) -> str:
+def render_figure(variant: str, images: List[Dict[str, str]], cell: Optional[dict] = None) -> str:
     """One <figure> for a chart variant from the image manifest (caption and
     alt come from the manifest — already server-generated)."""
     img = next((i for i in images if i.get("variant") == variant), None)
     if img is None:
         return ""
     cap = img.get("caption") or img.get("alt") or variant
+    from article_chart_evidence import chart_accounting_basis
+    short_curve = variant == "cumulative" and chart_accounting_basis(img) == "short"
+    cohort = (((cell or {}).get("evidence") or {}).get("cohort") or {}).get("label")
+    if cohort and variant != "price":
+        meanings = {
+            "trend": "Average historical path",
+            "bars": "Ending return for each sampled observation",
+            "bars_mae_mfe": "Favorable and adverse movement measured from entry for each observation",
+            "bars_mfe": "Highest return measured from entry for each observation",
+            "bars_mae": "Lowest return measured from entry for each observation",
+            "cumulative": "Compounded historical window returns across the sampled observations",
+        }
+        cap = f"{meanings.get(variant, 'Historical analysis')}: {cohort}."
+        if short_curve:
+            cap += " This curve shows cumulative short-side profit; a gain is not a rise in the stock price."
+        if variant == "trend":
+            cap += (" The path includes context before the selected window; "
+                    f"the analyzed window begins {_fmt_date(cell['anchor_date'])}. This is not a forecast.")
+        elif "mae" in variant or "mfe" in variant:
+            cap += " These extrema do not show when the high or low occurred."
     return (f'<figure class="{variant}-chart">'
-            f'<img src="{_esc(img.get("url", ""))}" alt="{_esc(img.get("alt", cap))}" '
+            f'<img src="{_esc(img.get("url", ""))}" alt="{_esc(cap if cohort and variant != "price" else img.get("alt", cap))}" '
             f'width="{CHART_WIDTH_ATTR}" height="{CHART_HEIGHT_ATTR}">'
             f'<figcaption>{_esc(cap)}</figcaption></figure>')
 
@@ -227,6 +248,8 @@ def render_methodology(cell: Dict[str, Any], methodology_url: str = "",
                        book_url: str = "") -> str:
     lookback = (f"{cell['years']} years" if cell["mode"] == "cons"
                 else _pe_label(cell["years"]))
+    sample = ((cell.get("evidence") or {}).get("cohort") or {}).get("label")
+    observation_text = _esc(sample) if sample else f"{_esc(lookback)} of observations"
     extra = ""
     if methodology_url:
         extra += f' Read the full <a href="{_esc(methodology_url)}">data methodology</a>'
@@ -239,7 +262,7 @@ def render_methodology(cell: Dict[str, Any], methodology_url: str = "",
         '<h2>About this seasonal analysis</h2>'
         f'<p>Seasonal pattern data is sourced from '
         f'<a href="https://tradewave.ai/">TradeWave.ai</a>. This analysis covers a '
-        f'{cell["days"]} calendar-day window with {_esc(lookback)} of observations.'
+        f'{cell["days"]} calendar-day window with {observation_text}.'
         f'{extra} Past performance of seasonal patterns does not guarantee future '
         'results. This article is for informational purposes only and does not '
         'constitute investment advice.</p></section>')
@@ -284,7 +307,7 @@ def build_json_ld(headline: str, description: str, image_url: str,
         "image": image_url,
         "about": {"@type": "Thing", "name": company, "tickerSymbol": symbol},
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(payload, ensure_ascii=False, indent=2).replace("<", "\\u003c")
 
 
 # ============================================================
@@ -306,7 +329,7 @@ def build_chrome(card: Dict[str, Any], *, images: Optional[List[Dict[str, str]]]
         "METHODOLOGY": render_methodology(cell, methodology_url, book_url),
     }
     for variant in FIGURE_VARIANTS:
-        chrome[f"FIG:{variant}"] = render_figure(variant, images)
+        chrome[f"FIG:{variant}"] = render_figure(variant, images, cell)
     # SOURCES is rendered during assembly (needs the cited-id order).
     chrome["SOURCES"] = ""
     # lowercase sentinels are unmatchable by TOKEN_RE; used for head assembly
@@ -418,6 +441,26 @@ def assemble_article(prose: str, chrome: Dict[str, str], *,
         if tail not in used and chrome.get(tail):
             body += chrome[tail]
             used.append(tail)
+
+    # Michael's layout requirement is enforced by assembly, independent of
+    # where a writer happened to place the hero slot.
+    hero = chrome.get("HERO")
+    if hero and hero in body:
+        body = body.replace(hero, "")
+        body, placed = _insert_after(body, r'<p\b[^>]*class=["\'][^"\']*dek[^"\']*["\'][^>]*>.*?</p>', hero)
+        if not placed:
+            body, placed = _insert_after(body, r"<h1\b[^>]*>.*?</h1>", hero)
+        if not placed:
+            body = hero + body
+
+    def _label_takeaways(match):
+        content = match.group(0)
+        if re.search(r"<h[2-6]\b[^>]*>\s*Key Takeaways\s*</h[2-6]>", content, re.I):
+            return content
+        end = content.find(">") + 1
+        return content[:end] + '<h2>Key Takeaways</h2>' + content[end:]
+    body = re.sub(r'<(?P<box>div|aside|section)\b[^>]*class=["\'][^"\']*key-takeaways-box[^"\']*["\'][^>]*>.*?</(?P=box)>',
+                  _label_takeaways, body, flags=re.I | re.S)
 
     # Head assembly: title = H1 text, description = dek text.
     h1 = re.search(r"<h1[^>]*>(.*?)</h1>", body, re.I | re.S)
