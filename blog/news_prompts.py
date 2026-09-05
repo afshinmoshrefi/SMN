@@ -29,6 +29,7 @@ Separate what happened from interpretation, reported expectations from decisions
 Make clear why this event matters to the reader and what development would clarify its implications. Do not invent a date for the next development.
 Use specific calendar dates for dated news. The article's as-of time is supplied by code; a recent retrieval or refreshed generic webpage does not make an old event new.
 Use direct, economical prose. Each paragraph must add information; do not retell the opening in a summary, table and conclusion. No stock phrases, clever metaphors, market drama, unsupported mechanisms, generic disclaimers or procedural discussion of the research packet.
+Use original wording and no em dashes. Do not quote source prose unless necessary; never quote more than 25 words from one reporting source. Respect any source's max_summary_words limit for material derived from that source across the whole article.
 No HTML, Markdown citation markers, URLs or source numbers in text fields. Return the specified JSON only. Code renders safe text and source links from claim_ids.
 """
 
@@ -45,7 +46,7 @@ def evidence_packet(event: dict, validation: dict) -> dict:
                                         "event_time_basis", "claim_ids") if k in event},
         "claims": [{k: claim[k] for k in ("id", "text", "source_ids", "event_time") if k in claim}
                    for claim in validation["claims"]],
-        "sources": [{k: source[k] for k in ("id", "title", "url", "published_at", "source_type", "role", "excerpt")
+        "sources": [{k: source[k] for k in ("id", "title", "url", "published_at", "source_type", "role", "excerpt", "max_summary_words")
                      if k in source} for source in validation["sources"]],
     }
 
