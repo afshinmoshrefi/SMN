@@ -75,7 +75,9 @@ class DateOnlyUpdateRegressionTests(unittest.TestCase):
         grounded = ground_discovered_events(extraction(source), [source], now=NOW)
         event = grounded["events"][0]
         coverage = [{"event_id": event["event_id"], "article_id": "previous-draft",
-                     "development_ids": ["older-grounded-development"], "last_event_time": event["event_time"]}]
+                     "development_ids": ["older-grounded-development"], "last_event_time": event["event_time"],
+                     "source_body_hashes": {source["url"]: "0" * 64},
+                     "covered_claim_texts": ["The older fictional release left the sales outlook unchanged."]}]
         return event, grounded["research"], coverage
 
     def test_material_grounded_same_day_development_proposes_update(self):
@@ -110,6 +112,36 @@ class DateOnlyUpdateRegressionTests(unittest.TestCase):
         result = select_news_events([event], research, coverage=coverage, now=NOW)
         self.assertFalse(result["selected"])
         self.assertEqual(result["decisions"][0]["reasons"], ["older_than_existing_coverage"])
+
+    def test_unchanged_body_different_quote_is_not_a_new_development(self):
+        source = prepare_retrieved_sources(saved_search(), now=NOW)["sources"][0]
+        original = ground_discovered_events(extraction(source), [source], now=NOW)
+        original_event = original["events"][0]
+        coverage = [{"event_id": original_event["event_id"], "article_id": "already-covered",
+                     "development_ids": [original_event["development_id"]],
+                     "last_event_time": original_event["event_time"],
+                     "source_body_hashes": original_event["source_body_hashes"],
+                     "covered_claim_texts": [c["text"] for c in original["research"]["claims"]]}]
+        proposal = extraction(source)
+        proposal["events"][0]["claims"][0]["quote"] = source["excerpt"].split("\n\n")[0]
+        shorter = ground_discovered_events(proposal, [source], now=NOW)
+        self.assertNotEqual(original_event["development_id"], shorter["events"][0]["development_id"])
+        result = select_news_events(shorter["events"], shorter["research"], coverage=coverage, now=NOW)
+        self.assertFalse(result["selected"])
+
+    def test_changed_body_does_not_make_already_covered_quote_new(self):
+        event, research, coverage = self.grounded()
+        coverage[0]["covered_claim_texts"] = [research["claims"][0]["text"]]
+        result = select_news_events([event], research, coverage=coverage, now=NOW)
+        self.assertFalse(result["selected"])
+
+    def test_legacy_coverage_without_prior_evidence_snapshot_skips_equal_date(self):
+        for field in ("source_body_hashes", "covered_claim_texts"):
+            with self.subTest(field=field):
+                event, research, coverage = self.grounded()
+                del coverage[0][field]
+                result = select_news_events([event], research, coverage=coverage, now=NOW)
+                self.assertFalse(result["selected"])
 
 
 if __name__ == "__main__":

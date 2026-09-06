@@ -319,6 +319,8 @@ def ground_discovered_events(raw: str | dict, sources: list[dict], *, now: Any =
                      "development_id": "development-" + hashlib.sha256(development_identity.encode()).hexdigest()[:16],
                      "event_key": key, "development_key": development_key, "headline": candidate["headline"],
                      "source_urls": source_urls,
+                     "source_body_hashes": {source_map[sid]["url"]: source_map[sid].get("provenance", {}).get("body_sha256")
+                                            for sid in event_sources},
                      "event_time": event_at.isoformat(), "event_date": event_date.isoformat(),
                      "event_time_precision": "date", "event_time_basis": "official_release" if source_map[date_sid]["source_type"] == "primary" else "reported_event",
                      "date_evidence": candidate["date_evidence"], "claim_ids": event_claims, "source_ids": event_sources,

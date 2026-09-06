@@ -68,12 +68,24 @@ def _score_value(value: Any) -> float | None:
         return None
 
 
-def _has_grounded_development(event: dict, validation: dict) -> bool:
-    """Recognize discovery's exact-span development fingerprint, not a new label."""
+def _has_grounded_development(event: dict, validation: dict, existing: dict) -> bool:
+    """Require changed source evidence and newly covered grounded text.
+
+    Re-extracting a different quote from an unchanged article is not a new
+    development. Legacy coverage without evidence snapshots remains skipped
+    for equal date-only timestamps instead of guessing that new facts exist.
+    """
     source_map = {s["id"]: s for s in validation["sources"]}
     selected = {str(cid) for cid in event.get("claim_ids", [])}
     claims = [c for c in validation["claims"] if c["id"] in selected]
     normalize = lambda value: re.sub(r"\s+", " ", value).strip()
+    prior_hashes = existing.get("source_body_hashes")
+    prior_texts = existing.get("covered_claim_texts")
+    if (not isinstance(prior_hashes, dict) or not prior_hashes or not isinstance(prior_texts, list)
+            or not prior_texts or not all(isinstance(text, str) and text.strip() for text in prior_texts)):
+        return False
+    previously_covered = [normalize(text) for text in prior_texts]
+    new_evidence = False
     if not claims or len(claims) != len(selected):
         return False
     for claim in claims:
@@ -88,11 +100,22 @@ def _has_grounded_development(event: dict, validation: dict) -> bool:
             if (not isinstance(quote, str) or normalize(quote) != normalize(claim["text"])
                     or normalize(quote) not in normalize(source_map[str(span["source_id"])]["excerpt"])):
                 return False
+            source = source_map[str(span["source_id"])]
+            url = source["url"]
+            body_hash = source.get("provenance", {}).get("body_sha256")
+            old_hash = prior_hashes.get(url)
+            if (isinstance(body_hash, str) and re.fullmatch(r"[0-9a-f]{64}", body_hash)
+                    and isinstance(old_hash, str) and re.fullmatch(r"[0-9a-f]{64}", old_hash)
+                    and body_hash != old_hash
+                    and (event.get("source_body_hashes") or {}).get(url) == body_hash
+                    and not any(normalize(quote) in text for text in previously_covered)):
+                new_evidence = True
             matched = True
         if not matched:
             return False
     identity = "\n".join(sorted(normalize(c["text"]) for c in claims))
-    return event.get("development_id") == "development-" + hashlib.sha256(identity.encode()).hexdigest()[:16]
+    return (new_evidence and event.get("development_id") ==
+            "development-" + hashlib.sha256(identity.encode()).hexdigest()[:16])
 
 
 def validate_event(event: dict, research: dict, *, now: Any = None,
@@ -280,7 +303,7 @@ def select_news_events(events: list[dict], research: dict, *, coverage: list[dic
                 event_at, prior_at = utc_time(event["event_time"]), utc_time(existing["last_event_time"])
                 grounded_same_day = (event_at == prior_at and event.get("event_time_precision") == "date"
                                      and event.get("material_development") is True
-                                     and _has_grounded_development(event, validation))
+                                     and _has_grounded_development(event, validation, existing))
                 if event_at < prior_at or (event_at == prior_at and not grounded_same_day):
                     decisions.append({**row, "action": "skip", "reasons": ["older_than_existing_coverage"]})
                     continue
