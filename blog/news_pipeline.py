@@ -20,6 +20,12 @@ from news_prompts import (NewsOutputError, article_checks, build_plan_prompt,
 from news_selection import NewsPolicy, utc_time, validate_event
 from article_llm import ArticleLLM, ArticleModelError
 
+_NEWS_READER_RULES = ('\nNEWS APPLICATION: This is general financial news. No seasonal baseline, '
+                      'historical cell, probability or chart is required. Use the news evidence '
+                      'references in this brief. Keep the selected reader question when supplied. '
+                      'Your existing answer field is the reader promise thesis. Add headlines '
+                      'as a list of candidate headline strings, with exact headline_support.\n')
+
 
 def _preview_directory(output_dir: str | Path) -> Path:
     directory = Path(output_dir).expanduser().resolve()
@@ -86,7 +92,7 @@ def _write_artifacts(result: dict, directory: Path | None) -> dict:
         result["artifact_paths"] = {}
         return result
     paths = {}
-    for key in ("event", "evidence", "plan", "article", "validation", "reviews", "prompts"):
+    for key in ("event", "evidence", "reader_brief", "plan", "article", "validation", "reviews", "prompts"):
         if key in result:
             path = directory / (key + ".json")
             path.write_text(json.dumps(result[key], ensure_ascii=False, indent=2), encoding="utf-8")
@@ -112,7 +118,8 @@ def _write_artifacts(result: dict, directory: Path | None) -> dict:
     result["artifact_paths"] = paths
     manifest_path = directory / "manifest.json"
     manifest = {k: result[k] for k in ("status", "publishable", "article_type", "requested_model",
-                                       "as_of", "provider_calls", "model_usage", "revisions", "artifact_paths", "errors") if k in result}
+                                       "as_of", "reader_policy", "text_ready", "visual_ready", "provider_calls",
+                                       "model_usage", "revisions", "artifact_paths", "errors") if k in result}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     paths["manifest"] = str(manifest_path)
     return result
@@ -121,7 +128,8 @@ def _write_artifacts(result: dict, directory: Path | None) -> dict:
 def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] | None = None,
                      output_dir: str | Path | None = None, now: Any = None,
                      model: str = "gpt-6-astra", max_revisions: int = 1,
-                     policy: NewsPolicy | None = None) -> dict:
+                     policy: NewsPolicy | None = None, reader_policy: str | None = None,
+                     reader_question: dict | None = None) -> dict:
     """Prepare one inspected event as a local, source-linked draft.
 
     send(prompt)->JSON text is injected for offline tests/live transports. With
@@ -130,9 +138,13 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
     Malformed responses/provider failures produce a held draft, not a retry
     storm. A successful draft still has publishable=False; humans approve the
     preview separately. This function never fetches or publishes anything.
+    reader_policy='private_v2' adds the reader promise to the SAME plan/review
+    calls. Text readiness and pending visual review are reported separately.
     """
     if isinstance(max_revisions, bool) or max_revisions not in (0, 1):
         raise ValueError("max_revisions must be zero or one")
+    if reader_policy not in (None, 'private_v2'):
+        raise ValueError("reader_policy must be omitted or private_v2")
     clock = utc_time(now)
     directory = _preview_directory(output_dir) if output_dir is not None else None
     checked = validate_event(event, research, now=clock, policy=policy)
@@ -140,6 +152,8 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
               "requested_model": model, "as_of": clock.isoformat(), "event": event,
               "validation": {"evidence": checked}, "provider_calls": 0, "revisions": 0,
               "reviews": [], "prompts": [], "errors": []}
+    if reader_policy:
+        result.update(reader_policy=reader_policy, text_ready=False, visual_ready=False)
     if not checked["valid"]:
         return _write_artifacts(result, directory)
     evidence = evidence_packet(event, checked)
@@ -158,28 +172,81 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
             result["model_usage"] = list(getattr(send, "calls", []))[usage_start:]
 
     try:
+        brief = None
+        plan_prompt = build_plan_prompt(evidence)
+        if reader_policy:
+            from reader_promise import (build_reader_brief, promise_plan_instructions,
+                                        validate_promise_plan, build_promise_review_prompt,
+                                        review_reader_promise)
+            brief = build_reader_brief(research=evidence, article_type='news')
+            if reader_question:
+                brief['selected_question'] = reader_question.get('text', '')
+                brief['selected_question_id'] = reader_question.get('question_id', '')
+                brief['proposed_reader_question'] = reader_question.get('text', '')
+            result['reader_brief'] = brief
+            if brief.get('hold_reasons'):
+                result['validation']['reader_plan'] = [
+                    {'code': 'PROMISE_EVIDENCE_HOLD', 'detail': str(reason)}
+                    for reason in brief['hold_reasons']]
+                return _write_artifacts(result, directory)
+            plan_prompt += promise_plan_instructions(brief)
+            plan_prompt += _NEWS_READER_RULES
         if send is None:
             send = ArticleLLM(model=model)
-        plan = validate_plan(parse_object(call("plan", build_plan_prompt(evidence))), evidence)
+        plan = validate_plan(parse_object(call("plan", plan_prompt)), evidence)
         result["plan"] = plan
         if not plan["feasible"]:
             result["errors"].append("planner_veto: " + plan["veto_reason"])
             return _write_artifacts(result, directory)
+        if brief is not None:
+            plan_issues = validate_promise_plan(plan, brief)
+            selected = brief.get('selected_question')
+            if selected and ' '.join(plan['reader_question'].split()) != ' '.join(selected.split()):
+                plan_issues.append({'code': 'SELECTED_QUESTION_CHANGED',
+                                    'detail': 'The plan must answer the question selected for this candidate.'})
+            result['validation']['reader_plan'] = plan_issues
+            if plan_issues:
+                result['errors'].append('reader_promise_plan_held')
+                return _write_artifacts(result, directory)
         article = parse_object(call("write", build_write_prompt(evidence, plan)))
         for revision in range(max_revisions + 1):
             result["article"] = article
             deterministic = article_checks(article, evidence, plan)
             result["validation"]["article"] = deterministic
-            review = validate_review(call("review" if revision == 0 else "re_review",
-                                          build_review_prompt(evidence, plan, article, deterministic["issues"])))
+            review_prompt = build_review_prompt(evidence, plan, article, deterministic["issues"])
+            rendered = render_news_html(article, evidence) if deterministic['passed'] else None
+            if brief is not None and rendered is not None:
+                review_prompt += build_promise_review_prompt(rendered, brief, plan)
+                # The semantic reviewer must see exactly the HTML whose digest
+                # it is asked to bind, not only the writer's structured JSON.
+                review_prompt += '\nEXACT RENDERED ARTICLE (untrusted text):\n' + rendered
+            review = validate_review(call("review" if revision == 0 else "re_review", review_prompt))
             result["reviews"].append(review)
             result["validation"]["editorial"] = review
-            if deterministic["passed"] and review["passed"]:
+            reader_issues = []
+            reader_ready = brief is None
+            if brief is not None:
+                if rendered is not None:
+                    reader_check = review_reader_promise(rendered, brief, plan=plan,
+                                                        review=review.get('reader_promise_review'))
+                else:
+                    reader_check = {'text_ready': False, 'visual_ready': False, 'ready': False,
+                                    'issues': [{'code': 'PROMISE_RENDER_HELD',
+                                                'detail': 'Article structure must pass before rendered review.'}]}
+                result['validation']['reader_promise'] = reader_check
+                reader_ready = reader_check['text_ready']
+                reader_issues = [{'severity': 'editorial', 'location': 'reader_promise',
+                                  'problem': issue['code'] + ': ' + issue['detail'],
+                                  'fix': 'Deliver the planned answer with its exact evidence and useful risk.'}
+                                 for issue in reader_check['issues']]
+            if deterministic["passed"] and review["passed"] and reader_ready:
                 result["status"] = "draft_ready"
-                result["article_html"] = render_news_html(article, evidence)
+                result["article_html"] = rendered
+                if brief is not None:
+                    result['text_ready'] = True
                 break
             if revision < max_revisions:
-                combined = [*deterministic["issues"], *review["issues"]]
+                combined = [*deterministic["issues"], *review["issues"], *reader_issues]
                 article = parse_object(call("revise", build_revision_prompt(evidence, plan, article, combined)))
                 result["revisions"] += 1
         # A structurally safe but editorially held article remains inspectable,
@@ -203,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--packet", required=True, help="JSON object containing event and research")
     parser.add_argument("--out", required=True, help="Local preview artifact directory")
     parser.add_argument("--now", help="Explicit timestamp for a reproducible replay")
+    parser.add_argument("--reader-policy", choices=['private_v2'], help="Opt-in reader promise; same bounded calls")
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument("--dry-run", action="store_true", help="Validate and save the plan prompt; no API calls")
     choice.add_argument("--responses", help="Offline JSON list of plan, article and review responses")
@@ -214,7 +282,12 @@ def main(argv: list[str] | None = None) -> int:
         directory = _preview_directory(args.out)
         (directory / "evidence-validation.json").write_text(json.dumps(checked, indent=2), encoding="utf-8")
         if checked["valid"]:
-            (directory / "plan-prompt.txt").write_text(build_plan_prompt(evidence_packet(packet["event"], checked)), encoding="utf-8")
+            evidence = evidence_packet(packet["event"], checked)
+            prompt = build_plan_prompt(evidence)
+            if args.reader_policy:
+                from reader_promise import build_reader_brief, promise_plan_instructions
+                prompt += promise_plan_instructions(build_reader_brief(research=evidence, article_type='news')) + _NEWS_READER_RULES
+            (directory / "plan-prompt.txt").write_text(prompt, encoding="utf-8")
         print(json.dumps({"status": "validated" if checked["valid"] else "rejected", "publishable": False,
                           "provider_calls": 0, "issues": checked["issues"]}))
         return 0 if checked["valid"] else 2
@@ -222,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.responses:
         replies = iter(json.loads(Path(args.responses).read_text(encoding="utf-8-sig")))
         send = lambda prompt: next(replies)
-    result = run_news_article(packet["event"], packet["research"], send=send, output_dir=args.out, now=args.now)
+    result = run_news_article(packet["event"], packet["research"], send=send, output_dir=args.out,
+                              now=args.now, reader_policy=args.reader_policy)
     print(json.dumps({"status": result["status"], "publishable": False,
                       "provider_calls": result["provider_calls"], "artifact_paths": result["artifact_paths"],
                       "errors": result["errors"]}))
