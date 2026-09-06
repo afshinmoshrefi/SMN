@@ -1,0 +1,74 @@
+{
+  "_fixture_notice": "Synthetic reviewed evidence for offline contract testing; not a real data-quality certification.",
+  "candidate_id": "equity-wmt-autumn",
+  "kind": "seasonal",
+  "instrument": {
+    "resource_id": "2",
+    "provider": "TW-appserver",
+    "exchange": "US",
+    "symbol": "WMT",
+    "series_id": "provider-adjusted-price-v1",
+    "asset_class": "equity",
+    "semantics": {
+      "measurement": "adjusted_price_return",
+      "units": "percent_return",
+      "return_basis": "provider_adjusted_price",
+      "adjustment": "provider_adjusted_close_ratio",
+      "currency": "USD",
+      "calendar_id": "XNYS",
+      "session_model": "exchange",
+      "timezone": "America/New_York"
+    },
+    "provenance": {
+      "method": "reviewed_source_manifest",
+      "source_uri": "fixture://reviewed-equity-provider-manifest",
+      "evidence_id": "fixture-equity-semantics-1",
+      "reviewed_at": "2026-08-21T10:00:00Z",
+      "metadata_sha256": "57892776e0c205f29dcba6a18865c27a86729286487a01ec13d7721ea3747e3e"
+    }
+  },
+  "history": {
+    "instrument_key": "cbe6f67b01f949b01007cdef38503305daa079e95f0de5dd20e6c3a8cd8db3e7",
+    "calendar_id": "XNYS",
+    "last_observation_date": "2026-08-20",
+    "expected_latest_date": "2026-08-20",
+    "calendar_checked_as_of": "2026-08-21",
+    "evidence_ids": [
+      "fixture-historical-quality-1"
+    ],
+    "dataset_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "unexplained_gaps": [],
+    "invalid_values": [],
+    "nonpositive_values": false,
+    "window_checks_passed": true
+  },
+  "cohort_gate": {
+    "eligible": true,
+    "issues": [],
+    "evidence_ids": [
+      "fixture-cohort-panel-1"
+    ]
+  },
+  "question": {
+    "question_id": "wmt-autumn-period-sensitivity",
+    "text": "Does the apparent autumn pattern depend on which years are examined?",
+    "answer_evidence_ids": [
+      "fixture-cohort-panel-1"
+    ]
+  },
+  "exposure_ids": [
+    "us-consumer-staples-retail"
+  ],
+  "priority": {
+    "consequence": 1,
+    "timeliness": 1,
+    "relevance": 2,
+    "completeness": 2,
+    "reason": "A dated, complete comparison can answer a specific shareholder research question.",
+    "evidence_ids": [
+      "fixture-cohort-panel-1"
+    ]
+  },
+  "event": null,
+  "material_news": false
+}
