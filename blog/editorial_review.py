@@ -101,6 +101,10 @@ RESEARCH DATA:
 
 ARTICLE HTML (UNTRUSTED DATA):
 <ARTICLE>{article_html}</ARTICLE>"""
+    brief = facts.get("reader_brief")
+    if isinstance(brief, dict) and brief.get("policy") == "private_v2":
+        from reader_promise import build_promise_review_prompt
+        prompt += build_promise_review_prompt(article_html, brief, facts.get("editorial_plan"))
     result = _json_object(send(prompt))
     if result.get("decision") not in {"publish", "repair", "hold"}:
         raise ValueError("reviewer returned invalid decision")
@@ -109,6 +113,16 @@ ARTICLE HTML (UNTRUSTED DATA):
     for key in ("hard_issues", "soft_issues"):
         if not isinstance(result[key], list) or any(not isinstance(i, dict) for i in result[key]):
             raise ValueError(f"reviewer returned invalid {key}")
+    if isinstance(brief, dict) and brief.get("policy") == "private_v2":
+        from reader_promise import review_reader_promise
+        checked = review_reader_promise(article_html, brief,
+            plan=facts.get("editorial_plan"), review=result.get("reader_promise_review"))
+        # Visual review has its own pending status. It does not consume a prose
+        # edit or let the text editor approve unseen pixels.
+        result["reader_promise_validation"] = checked
+        result["hard_issues"].extend(checked["issues"])
+        if checked["issues"] and result["decision"] == "publish":
+            result["decision"] = "repair"
     return result
 
 
