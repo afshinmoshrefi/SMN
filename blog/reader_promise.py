@@ -276,7 +276,9 @@ class _Article(HTMLParser):
         if match is None:
             return
         for name, attrs, hidden, parts in self.stack[match:]:
-            value = " ".join(" ".join(parts).split())
+            # Inline tags do not create spaces: <strong>word</strong>. is word.
+            # Preserve source whitespace, then normalize it for quote matching.
+            value = " ".join("".join(parts).split())
             if not hidden and name in {"h1", "h2", "p", "li", "figcaption"} and value:
                 self.blocks.append({"tag": name, "class": attrs.get("class", ""), "text": value})
             if not hidden and name == "figure" and "hero" in attrs.get("class", "").split():
