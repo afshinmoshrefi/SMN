@@ -295,8 +295,15 @@ class _Article(HTMLParser):
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         hidden = any(f[2] for f in self.stack) or tag in {"head", "script", "style", "template"} or "hidden" in a or a.get("aria-hidden") == "true" or bool(re.search(r"display\s*:\s*none|visibility\s*:\s*hidden", a.get("style", ""), re.I))
+        if tag == 'picture':
+            a['_sources'] = []
+        picture = next((f for f in reversed(self.stack) if f[0] == 'picture'), None)
+        if tag == 'source' and picture is not None and not hidden:
+            picture[1]['_sources'].append(a)
         if tag == "img" and not hidden:
-            self.images.append({**a, "_hero": any(f[0] == "figure" and "hero" in f[1].get("class", "").split()
+            self.images.append({**a, '_picture': picture is not None,
+                                '_picture_sources': list(picture[1]['_sources']) if picture else [],
+                                "_hero": any(f[0] == "figure" and "hero" in f[1].get("class", "").split()
                                                  for f in self.stack)})
         if tag not in {"img", "br", "hr", "meta", "link", "input", "source", "wbr"}:
             self.stack.append([tag, a, hidden, []])
@@ -471,6 +478,12 @@ def review_hero(article_html: str, asset: dict | None = None, review: dict | Non
     views:[{kind:'mobile|desktop', path, sha256}]}. All five check names below
     are mandatory. Unknown provenance requires a visible hero illustration label.
     Trusted IDs must come from the private caller, not from the draft/LLM output.
+
+    Responsive assets add mobile:{path,url,sha256}. Their review also requires
+    mobile_asset_sha256; every check declares variants:['desktop','mobile'];
+    each screenshot view binds asset_url and asset_sha256 to its displayed
+    variant. Both actual image files and the picture's exact URLs are checked.
+    Existing single-image reviews retain their original contract.
     """
     issues, pending = [], []
     asset = asset if isinstance(asset, dict) else {}
@@ -487,6 +500,35 @@ def review_hero(article_html: str, asset: dict | None = None, review: dict | Non
     heroes = [i for i in parsed.images if i["_hero"]]
     if not asset.get("url") or len(heroes) != 1 or heroes[0].get("src") != asset["url"]:
         issues.append("reviewed_hero_not_in_rendered_article")
+    responsive = 'mobile' in asset
+    mobile = asset.get('mobile') if isinstance(asset.get('mobile'), dict) else {}
+    actual_mobile = None
+    if responsive:
+        try:
+            actual_mobile = _image_file(mobile.get('path'))
+        except (OSError, TypeError, ValueError):
+            pending.append('local_mobile_hero_bytes_unavailable')
+        if asset.get('sha256') != actual['sha256']:
+            pending.append('desktop_hero_manifest_hash_missing_or_stale')
+        if actual_mobile is not None:
+            if not actual_mobile.get('width') or not actual_mobile.get('height'):
+                pending.append('mobile_hero_must_be_png')
+            if mobile.get('sha256') != actual_mobile['sha256']:
+                pending.append('mobile_hero_manifest_hash_missing_or_stale')
+            if review.get('mobile_asset_sha256') != actual_mobile['sha256']:
+                pending.append('mobile_hero_review_hash_missing_or_stale')
+        if asset.get('evidence_sha256') and mobile.get('evidence_sha256') != asset['evidence_sha256']:
+            issues.append('responsive_hero_evidence_mismatch')
+        sources = heroes[0]['_picture_sources'] if len(heroes) == 1 else []
+        if (len(heroes) != 1 or not heroes[0]['_picture'] or len(sources) != 1
+                or not mobile.get('url') or sources[0].get('srcset') != mobile['url']
+                or not re.fullmatch(r'\(max-width:\s*600px\)', sources[0].get('media') or '')
+                or sources[0].get('type') != 'image/png'):
+            issues.append('reviewed_mobile_hero_not_in_rendered_article')
+    elif any(i['_picture_sources'] for i in heroes):
+        issues.append('unreviewed_responsive_hero_source')
+    if any(i.get('srcset') for i in heroes):
+        issues.append('unreviewed_hero_img_srcset')
     provenance = asset.get("provenance")
     provenance = provenance if isinstance(provenance, dict) else {}
     if provenance.get("kind") == "documentary":
@@ -516,6 +558,11 @@ def review_hero(article_html: str, asset: dict | None = None, review: dict | Non
         if not isinstance(check, dict):
             pending.append("malformed_visual_check")
             continue
+        if responsive and (not isinstance(check.get('variants'), list)
+                           or len(check['variants']) != 2
+                           or any(not isinstance(v, str) for v in check['variants'])
+                           or set(check['variants']) != {'desktop', 'mobile'}):
+            pending.append('both_hero_variants_must_be_reviewed:' + str(check.get('check')))
         if check.get("verdict") == "fail":
             issues.append("visual_" + str(check.get("check")) + ": " + _text(check.get("observation")))
         elif check.get("verdict") != "pass" or len(_text(check.get("observation"))) < 20:
@@ -530,6 +577,12 @@ def review_hero(article_html: str, asset: dict | None = None, review: dict | Non
             kind, width = view.get("kind"), image["width"]
             if image["sha256"] != view.get("sha256") or width is None:
                 continue
+            if responsive:
+                variant = mobile if kind == 'mobile' else asset
+                rendered_asset = actual_mobile if kind == 'mobile' else actual
+                if (rendered_asset is None or view.get('asset_url') != variant.get('url')
+                        or view.get('asset_sha256') != rendered_asset['sha256']):
+                    continue
             if (kind == "mobile" and 300 <= width <= 600) or (kind == "desktop" and width >= 900):
                 verified_views.add(kind)
         except (OSError, TypeError, ValueError):
@@ -537,4 +590,5 @@ def review_hero(article_html: str, asset: dict | None = None, review: dict | Non
     if verified_views != {"mobile", "desktop"}:
         pending.append("actual_mobile_and_desktop_crop_evidence_required")
     return {"ready": not issues and not pending, "status": "hold" if issues else "pending" if pending else "ready",
-            "issues": issues, "pending": list(dict.fromkeys(pending)), "asset_sha256": actual["sha256"]}
+            "issues": issues, "pending": list(dict.fromkeys(pending)), "asset_sha256": actual["sha256"],
+            **({'mobile_asset_sha256': actual_mobile['sha256']} if actual_mobile is not None else {})}

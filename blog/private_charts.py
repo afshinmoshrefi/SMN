@@ -13,6 +13,51 @@ from article_evidence import build_cell_evidence, round_percent
 from article_chart_evidence import chart_source_sha256
 
 
+def _render_mobile_comparison(symbol, views, window, limits, directory):
+    """Lay out the same three summaries vertically at a readable phone scale.
+
+    768px is a two-density portrait asset. At a 350px article width its main
+    labels remain roughly 15 CSS pixels instead of shrinking a desktop layout.
+    Data and the shared horizontal scale come from the desktop render call.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator, PercentFormatter
+    with plt.rc_context({'font.family': 'DejaVu Sans', 'font.size': 14,
+                         'axes.spines.top': False, 'axes.spines.right': False,
+                         'axes.spines.left': False, 'axes.spines.bottom': False}):
+        fig = plt.figure(figsize=(4.8, 7.2), dpi=160)
+        fig.text(.07, .965, f'{symbol}: same window', fontsize=20, weight='bold', va='top')
+        fig.text(.07, .916, 'Three historical samples', fontsize=15, va='top', color='#51616e')
+        fig.text(.07, .87, f"{window['start_date'][5:]} to {window['end_date'][5:]} · "
+                 f"{window['calendar_days']} days, inclusive", fontsize=12, va='top')
+        for index, ((label, summary), top) in enumerate(zip(views, (.81, .59, .37))):
+            value = summary['median_net_display']
+            color = '#32658c' if value >= 0 else '#b46f35'
+            fig.text(.07, top, label, fontsize=15, weight='bold', va='top', linespacing=1.12)
+            fig.text(.07, top-.079, f"{summary['first_year']}–{summary['last_year']} · n={summary['n']}",
+                     fontsize=12.5, color='#51616e', va='center')
+            fig.text(.93, top-.081, f'{value:+.2f}%', fontsize=19, weight='bold',
+                     color=color, ha='right', va='center')
+            ax = fig.add_axes((.09, top-.15, .82, .045))
+            ax.barh([0], [value], height=.72, color=color, zorder=3)
+            ax.set_xlim(*limits)
+            ax.set_ylim(-.6, .6)
+            ax.axvline(0, color='#35424c', linewidth=1, zorder=2)
+            ax.set_yticks([])
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
+            ax.xaxis.set_major_formatter(PercentFormatter(xmax=100, decimals=1))
+            ax.grid(axis='x', color='#d8dfe4', linewidth=.7, zorder=0)
+            ax.tick_params(axis='x', labelsize=11, length=0, labelbottom=index == 2)
+        fig.text(.5, .153, 'Median historical change · same scale', ha='center', fontsize=12)
+        fig.text(.07, .096, 'Adjusted-price changes. Samples overlap.', fontsize=11.5, color='#51616e')
+        fig.text(.07, .062, 'Historical observations, not forecasts.', fontsize=11.5, color='#51616e')
+        path = directory / 'comparison-hero-mobile.png'
+        fig.savefig(path, metadata={'Software': 'SMN private comparison illustration'})
+        plt.close(fig)
+    return {'path': str(path), 'url': path.as_uri(), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+            'width': 768, 'height': 1152}
+
+
 def render_baseline_bars(card: dict, output_dir: str | Path) -> dict:
     from news_pipeline import _preview_directory
     from cohort_policy import validate_selection_evidence, baseline_cell
@@ -142,10 +187,14 @@ def render_comparison_hero(card: dict, output_dir: str | Path) -> dict:
     source_path=directory/'comparison-hero-evidence.json'
     source_path.write_text(json.dumps({'identity':evidence['identity'],'window':evidence['window'],
                                       'views':views,'overlap':evidence['overlap']},indent=2),encoding='utf-8')
+    mobile = _render_mobile_comparison(card['symbol'], views, window, (low-pad, high+pad), directory)
+    evidence_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    mobile['evidence_sha256'] = evidence_hash
     result={'path':str(path),'url':path.as_uri(),'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+            'width':1800,'height':945,'mobile':mobile,
             'alt':f"{card['symbol']} median historical changes: " + '; '.join(label.replace('\n',' ') for label,_ in views),
             'caption':caption,
             'provenance':{'kind':'illustration','source_url':source_path.as_uri(),'credit':'SMN / supplied TradeWave historical observations'},
-            'evidence_sha256':hashlib.sha256(source_path.read_bytes()).hexdigest()}
+            'evidence_sha256':evidence_hash}
     (directory/'comparison-hero.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     return result
