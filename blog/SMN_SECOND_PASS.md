@@ -88,12 +88,25 @@ opening answer and body against a hash-bound brief. Missing qualifications and
 unsupported promises use the same single bounded revision; they do not start an
 unlimited rewrite loop.
 
+The transport binds each fresh editor response to the exact HTML and brief sent
+in that call. The raw model response and its echoed hashes remain auditable;
+copying a hash is no longer delegated to the language model. Imported/cached
+reviews still need matching digests. This binding never supplies a missing
+judgment, quote, evidence reference or qualification. Prominent qualification
+checks quote the existing preview/opening explanation, while their reasons
+verify detailed body statistics. This avoids rejecting a clear opening just
+because the reviewer selected a more detailed body paragraph.
+
 `text_ready` and `visual_ready` are separate. A hero concept, URL, alt text or
 writer's approval is insufficient for visual readiness. Local image bytes,
 provenance, specific observations about lettering/identity/crop/implications,
 and desktop/mobile screenshots are bound to the exact final HTML and trusted
 reviewer. Private historical charts show actual sample years and percentages.
 They are labeled illustrations, not documentary photographs or forecasts.
+Responsive comparison heroes use a portrait mobile image and landscape desktop
+image with identical evidence and scale. Both files, their displayed URLs and
+the corresponding screenshot bytes require review. Asset changes invalidate
+approval; the mobile image cannot inherit an unseen desktop-only approval.
 
 ## Reproduce privately
 
@@ -120,12 +133,28 @@ semantics and data quality; unknown inputs must remain held.
 
 ## Development validation
 
-The first integrated isolated run passed 403 tests using SMN Dev's existing
+The final integrated isolated run passed 466 tests using SMN Dev's existing
 Python dependencies with code copied only into `/tmp/smn-second-pass-20260906`.
 Local testing lacked `matplotlib` and `requests`; these were dependency import
 errors, not passes. Subsequent private-history and private-news changes received
 focused tests and independent review; the final receipt records the integrated
 count and exact source hashes.
+
+Four real Astra seasonal examples retained JPM/WMT/F/COST's original windows
+and used the corrected inclusive calculation. Independent arithmetic review
+recomputed 36 evidence summaries and found all prose counts, dates, returns,
+loss examples and overlap assertions supported. JPM/WMT explain cycle-era
+reversals, Ford preserves annual-recency and matched-cycle contrasts, and
+Costco describes agreement with weaker recent outcomes. VIXY was held before
+paid generation for unresolved specialized-fund semantics. Revised drafts used
+five calls each; one final editorial call reviewed unchanged prose after the
+responsive chart assembly. Raw responses, prior holds and final reviews remain
+separate artifacts. The final review page reports any remaining editorial hold.
+
+Browser assertions passed on all five example articles at 1280px and 390px:
+no horizontal overflow, unloaded images, broken internal anchors or duplicate
+heroes. Actual visual review separately checks both responsive variants; browser
+assertions alone do not certify a chart's meaning or pixel quality.
 
 The actual financial-news replay completed in five Astra Low calls, including
 one revision, with no seasonal premise. Its exact-byte reader review passed;

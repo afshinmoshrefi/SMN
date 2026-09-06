@@ -231,7 +231,7 @@ class PrivateNewsReaderTests(unittest.TestCase):
         self.assertFalse(result['text_ready'])
         self.assertIn('article_html', result)
 
-    def test_stale_review_after_revision_fails_in_five_call_budget(self):
+    def test_stale_review_content_after_revision_fails_in_five_call_budget(self):
         old_review = review_for(article())
         first_review = copy.deepcopy(old_review)
         first_review['reader_promise_review']['checks'][0]['judgment'] = 'needs_revision'
@@ -241,7 +241,13 @@ class PrivateNewsReaderTests(unittest.TestCase):
         self.assertEqual(result['status'], 'hold')
         self.assertEqual(result['provider_calls'], 5)
         self.assertEqual(result['revisions'], 1)
-        self.assertIn('PROMISE_REVIEW_PENDING', [i['code'] for i in result['validation']['reader_promise']['issues']])
+        # A fresh callback is bound to its actual request in code; repeating an
+        # old review's content still fails the exact visible-passage check.
+        self.assertIn('PROMISE_PASSAGE_MISSING', [i['code'] for i in result['validation']['reader_promise']['issues']])
+        bound = result['reviews'][-1]['reader_promise_review']
+        self.assertEqual(bound['model_reported_binding']['article_sha256'],
+                         old_review['reader_promise_review']['article_sha256'])
+        self.assertEqual(bound['article_sha256'], fingerprint(result['article_html']))
         self.assertIn(result['article_html'], prompts[-1])
 
     def test_revision_gets_new_bound_review_without_extra_call(self):
