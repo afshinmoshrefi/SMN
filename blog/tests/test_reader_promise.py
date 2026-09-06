@@ -200,6 +200,11 @@ class ReaderPromiseTests(unittest.TestCase):
         checked = rp.review_reader_promise(changed, brief, review=review)
         self.assertIn("PROMISE_REVIEW_PENDING", [i["code"] for i in checked["issues"]])
 
+    def test_inline_emphasis_preserves_visible_quote_spacing(self):
+        brief = case()["reader_brief"]
+        html = ARTICLE.replace("substantial losses.", "<strong>substantial losses</strong>.")
+        self.assertTrue(rp.review_reader_promise(html, brief, review=independent_review(html, brief))["text_ready"])
+
     def test_material_weak_answer_consumes_existing_review_failure_path(self):
         card = case()
         review = independent_review(ARTICLE, card["reader_brief"])
