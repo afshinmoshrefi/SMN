@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import math
+import hashlib
+import re
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -64,6 +66,33 @@ def _score_value(value: Any) -> float | None:
         return score if math.isfinite(score) and 0 <= score <= 5 else None
     except (ValueError, TypeError):
         return None
+
+
+def _has_grounded_development(event: dict, validation: dict) -> bool:
+    """Recognize discovery's exact-span development fingerprint, not a new label."""
+    source_map = {s["id"]: s for s in validation["sources"]}
+    selected = {str(cid) for cid in event.get("claim_ids", [])}
+    claims = [c for c in validation["claims"] if c["id"] in selected]
+    normalize = lambda value: re.sub(r"\s+", " ", value).strip()
+    if not claims or len(claims) != len(selected):
+        return False
+    for claim in claims:
+        support = claim.get("support")
+        if not isinstance(support, list) or not support:
+            return False
+        matched = False
+        for span in support:
+            if not isinstance(span, dict) or str(span.get("source_id")) not in source_map:
+                return False
+            quote = span.get("quote")
+            if (not isinstance(quote, str) or normalize(quote) != normalize(claim["text"])
+                    or normalize(quote) not in normalize(source_map[str(span["source_id"])]["excerpt"])):
+                return False
+            matched = True
+        if not matched:
+            return False
+    identity = "\n".join(sorted(normalize(c["text"]) for c in claims))
+    return event.get("development_id") == "development-" + hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
 def validate_event(event: dict, research: dict, *, now: Any = None,
@@ -248,7 +277,11 @@ def select_news_events(events: list[dict], research: dict, *, coverage: list[dic
         seen.add(identity)
         if existing.get("last_event_time"):
             try:
-                if utc_time(event["event_time"]) <= utc_time(existing["last_event_time"]):
+                event_at, prior_at = utc_time(event["event_time"]), utc_time(existing["last_event_time"])
+                grounded_same_day = (event_at == prior_at and event.get("event_time_precision") == "date"
+                                     and event.get("material_development") is True
+                                     and _has_grounded_development(event, validation))
+                if event_at < prior_at or (event_at == prior_at and not grounded_same_day):
                     decisions.append({**row, "action": "skip", "reasons": ["older_than_existing_coverage"]})
                     continue
             except ValueError:

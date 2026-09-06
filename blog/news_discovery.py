@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+from collections import OrderedDict
 from datetime import date, datetime, timezone
+from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 import hashlib
 import json
@@ -73,6 +75,57 @@ def _normalize_quote(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _article_body(raw: str, title: str) -> tuple[int, int]:
+    """Locate a contiguous article slice, preserving exact original offsets.
+
+    Tavily's Markdown can include thousands of navigation characters before
+    the real headline. Match that headline, then stop at explicit site/promo
+    furniture. No source wording is synthesized or rewritten here.
+    """
+    normalize = lambda text: re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
+    expected = normalize(title).replace(" yahoo finance", "")
+    start, best = 0, 0.0
+    for match in re.finditer(r"(?m)^#\s+(.+)$", raw):
+        heading = normalize(match.group(1))
+        score = SequenceMatcher(None, expected, heading).ratio()
+        if len(set(expected.split()) & set(heading.split())) >= 4 and score > max(best, 0.55):
+            start, best = match.start(), score
+    end = len(raw)
+    footer = re.search(
+        r"(?im)^(?:#{1,3}\s+(?:Recommended Stories|Read Next|Site Index|\[?More In\b|"
+        r"Don't miss this second chance|Should you buy stock in|Seeking Fresh Alternatives)|"
+        r"Our Standards:)", raw[start:])
+    if footer:
+        end = start + footer.start()
+    return start, end
+
+
+def _has_article_prose(fragment: str) -> bool:
+    """Do not equate a long media/navigation shell with retrieved reporting."""
+    paragraphs, sentences = [], 0
+    for block in re.split(r"\n\s*\n", fragment):
+        text = block.strip()
+        if not text or text.startswith(("#", "![", "* ", "1.", "|")):
+            continue
+        text = re.sub(r"!\[[^\]]*\]\([^\n]*?\)", "", text)
+        text = re.sub(r"\[([^\]]+)\]\([^\n]*?\)", r"\1", text)
+        text = re.sub(r"https?://\S+", "", text)
+        count = len(re.findall(r"\b[\w'-]+\b", text))
+        if count >= 20 and re.search(r"[.!?](?:[\s\"'”)]|$)", text):
+            paragraphs.append(count)
+            sentences += len(re.findall(r"[.!?](?:[\s\"'”)]|$)", text))
+    # Some retrievals flatten a full article into one paragraph. Preserve that
+    # substantive text rather than requiring the publisher's paragraph breaks.
+    return ((len(paragraphs) >= 2 and sum(paragraphs) >= 75)
+            or (sum(paragraphs) >= 150 and sentences >= 4))
+
+
+def _source_domain(url: str, policy: DiscoveryPolicy) -> str:
+    host = (urlsplit(url).hostname or "").lower()
+    return next((d for d in (*policy.primary_domains, *policy.reporting_domains)
+                 if host == d or host.endswith("." + d)), host)
+
+
 def _event_date(text: Any) -> date:
     """A full calendar date must occur literally in the retrieved passage."""
     if not isinstance(text, str):
@@ -95,7 +148,7 @@ def prepare_retrieved_sources(search_results: list[dict], *, now: Any = None,
     reference passages actually present in that inspected prefix.
     """
     policy, clock = policy or DiscoveryPolicy(), utc_time(now)
-    sources, rejected, seen, characters = [], [], set(), 0
+    sources, rejected, seen, candidates = [], [], set(), []
     for batch in search_results[:policy.max_queries]:
         if not isinstance(batch, dict) or not isinstance(batch.get("results"), list):
             rejected.append({"reason": "malformed_search_response"})
@@ -129,22 +182,50 @@ def prepare_retrieved_sources(search_results: list[dict], *, now: Any = None,
             if age < -0.1 or age > 96:
                 rejected.append({"url": url, "reason": "future_or_stale_document"})
                 continue
-            # These are the exact inspected bytes (apart from whitespace in
-            # subsequent quote matching), not a model-written summary.
-            passage = raw.strip()[:policy.max_source_characters]
-            if characters + len(passage) > policy.max_total_characters:
-                rejected.append({"url": url, "reason": "bounded_evidence_budget_exhausted"})
+            start, end = _article_body(raw, item.get("title") or "")
+            if not _has_article_prose(raw[start:end]):
+                rejected.append({"url": url, "reason": "substantive_article_body_missing",
+                                 "body_start": start, "body_end": end})
                 continue
-            characters += len(passage)
-            sid = "source-" + hashlib.sha256(url.encode()).hexdigest()[:12]
-            sources.append({"id": sid, "title": item.get("title") or "Retrieved financial report",
-                            "url": url, "published_at": published, "verified_at": clock.isoformat(),
-                            "verified": True, "verification_method": "retrieved_passage_and_exact_span_check",
-                            "source_type": source_type, "role": "event", "page_type": "article",
-                            "excerpt": passage,
-                            "provenance": {"retrieved_at": clock.isoformat(), "raw_content_sha256": hashlib.sha256(raw.encode()).hexdigest(),
-                                           "inspected_characters": len(passage), "retrieved_characters": len(raw),
-                                           "truncated_for_discovery": len(raw.strip()) > len(passage)}})
+            candidates.append({"item": item, "url": url, "source_type": source_type,
+                               "raw": raw, "published": published, "start": start, "end": end})
+
+    # Round-robin domains before allocating bounded context. Early syndications
+    # cannot consume the whole budget and exclude every corroborating source.
+    groups = OrderedDict()
+    for candidate in sorted(candidates, key=lambda c: c["source_type"] != "primary"):
+        groups.setdefault(_source_domain(candidate["url"], policy), []).append(candidate)
+    ordered = []
+    while any(groups.values()):
+        for group in groups.values():
+            if group:
+                ordered.append(group.pop(0))
+    remaining = policy.max_total_characters
+    for position, candidate in enumerate(ordered):
+        item, url, raw = candidate["item"], candidate["url"], candidate["raw"]
+        start, body_end = candidate["start"], candidate["end"]
+        allocation = min(policy.max_source_characters, remaining // (len(ordered) - position))
+        end = min(body_end, start + allocation)
+        passage = raw[start:end]
+        if not _has_article_prose(passage):
+            rejected.append({"url": url, "reason": "bounded_budget_cannot_include_substantive_body",
+                             "allocated_characters": allocation})
+            continue
+        remaining -= len(passage)
+        sid = "source-" + hashlib.sha256(url.encode()).hexdigest()[:12]
+        sources.append({"id": sid, "title": item.get("title") or "Retrieved financial report",
+                        "url": url, "published_at": candidate["published"], "verified_at": clock.isoformat(),
+                        "verified": True, "verification_method": "retrieved_passage_and_exact_span_check",
+                        "source_type": candidate["source_type"], "role": "event", "page_type": "article",
+                        "excerpt": passage,
+                        "provenance": {"retrieved_at": clock.isoformat(), "raw_content_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+                                       "body_start": start, "body_end": body_end,
+                                       "body_sha256": hashlib.sha256(raw[start:body_end].encode()).hexdigest(),
+                                       "inspected_start": start, "inspected_end": end,
+                                       "excerpt_sha256": hashlib.sha256(passage.encode()).hexdigest(),
+                                       "inspected_characters": len(passage), "retrieved_characters": len(raw),
+                                       "navigation_characters_removed": start,
+                                       "truncated_for_discovery": end < body_end}})
     return {"sources": sources, "rejected": rejected, "as_of": clock.isoformat()}
 
 

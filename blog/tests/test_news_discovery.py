@@ -22,7 +22,10 @@ def saved_search():
     return [{"results": [{"title": "Fictional test release, not real news",
                            "url": "https://bls.gov/news.release/fictional-fixture.htm",
                            "published_date": source["published_at"],
-                           "raw_content": "September 5, 2026. " + source["excerpt"],
+                           "raw_content": ("September 5, 2026. " + source["excerpt"] + "\n\n"
+                                           "This fictional release describes the revised company outlook and the investment plan together. "
+                                           "The company still expects positive sales growth, but has lowered the range of that expectation. "
+                                           "It does not establish a sector-wide decline or quantify the duration of weaker orders."),
                            "content": "Search snippet intentionally differs from retrieved article."}]}]
 
 
@@ -134,10 +137,12 @@ class NewsDiscoveryTests(unittest.TestCase):
             discover_news_events(search=search, queries=["one", "two", "three"], now=NOW)
 
     def test_truncated_evidence_is_labeled_and_cannot_ground_removed_text(self):
-        policy = replace(DiscoveryPolicy(), max_source_characters=220)
-        source = prepare_retrieved_sources(saved_search(), now=NOW, policy=policy)["sources"][0]
+        policy = replace(DiscoveryPolicy(), max_source_characters=900)
+        data = saved_search()
+        data[0]["results"][0]["raw_content"] += "\n\n" + data[0]["results"][0]["raw_content"]
+        source = prepare_retrieved_sources(data, now=NOW, policy=policy)["sources"][0]
         self.assertTrue(source["provenance"]["truncated_for_discovery"])
-        self.assertEqual(len(source["excerpt"]), 220)
+        self.assertEqual(len(source["excerpt"]), 900)
 
     def test_complete_replay_generates_private_article_and_never_publishes(self):
         with tempfile.TemporaryDirectory() as directory:

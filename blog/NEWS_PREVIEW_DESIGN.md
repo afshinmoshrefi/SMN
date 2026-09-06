@@ -70,6 +70,10 @@ Only retrieved `raw_content` establishes available evidence. Search snippets are
 
 The discovery extractor can inspect a bounded prefix of long retrieved articles. This is explicitly recorded in provenance. Unseen text cannot ground claims. The article evidence packet is bounded independently. Date-only event evidence is represented at UTC midnight as a conservative freshness lower bound with `event_time_precision: "date"`; writers receive the precision and actual calendar date.
 
+The September 6 validation correction first locates the actual article headline and cuts explicit navigation, recommendation and promotional sections. The retained evidence remains a contiguous slice of the retrieved text; body and excerpt offsets plus hashes are recorded. A headline/photo shell with no substantial reporting is rejected. Full reporting flattened into one paragraph remains eligible. Candidate bodies are allocated in rounds across source domains, with a fair share of the remaining character budget, so early syndicated pages cannot exclude every independent source. Exact passage checks still apply to the retained excerpt.
+
+For date-only events, a materially new development may propose an update on the same calendar date even though the timestamp is equal. This requires an exact-span-grounded claim set whose fingerprint matches the new development ID; a renamed event alone is insufficient. Already covered developments and older events remain excluded. Neither the strict full-event-date rule nor the 48-hour cutoff was relaxed by this correction.
+
 Event identity uses the dated primary document when available, otherwise a canonical reporting URL. Development identity uses grounded claim text, so changes to a model's event label do not create duplicate articles. Coverage rows can include `source_urls` to propose an update when a source develops over the following two days. Cross-publisher reports without a shared canonical source may still require editorial reconciliation in preview mode; no claim of complete semantic deduplication is made. Neither the scanner nor selector silently marks preview drafts as published coverage.
 
 Run from `blog`:
