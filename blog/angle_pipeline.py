@@ -200,10 +200,22 @@ def generate_angle_news_article(resource_id: str, symbol: str, *,
                                 run_editorial: bool = True,
                                 angle_index: int = 0,
                                 send_plan=None, send_write=None,
-                                editorial_send=None) -> Dict[str, Any]:
+                                editorial_send=None,
+                                private_preview: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """End-to-end angle article. Returns the artifacts dict from angle_writer
     plus pipeline fields (research_used, hero_url, publish_result, timings).
-    Publishing requires publish=True AND config.angle_publish_enabled."""
+    Publishing requires publish=True AND config.angle_publish_enabled.
+    A supplied private_preview packet uses the isolated second-pass workflow:
+    explicit evidence only, no research/hero fetches, fallback, queue or publisher.
+    """
+    if private_preview is not None:
+        if publish or angle_index:
+            raise ValueError("Private selection previews cannot publish or switch to another angle")
+        from private_selection import generate_private_article
+        return generate_private_article(private_preview, expected_resource_id=str(resource_id),
+                                        expected_symbol=symbol, expected_anchor=anchor,
+                                        send_plan=send_plan, send_write=send_write,
+                                        editorial_send=editorial_send)
     start_time = time.time()
     send_plan = send_plan or ArticleLLM(stage="plan", system="Return only a JSON object.")
     send_write = send_write or ArticleLLM(stage="write", system="Return only one HTML fragment, with no code fences or commentary.")

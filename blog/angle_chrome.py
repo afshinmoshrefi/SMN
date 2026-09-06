@@ -328,6 +328,25 @@ def build_chrome(card: Dict[str, Any], *, images: Optional[List[Dict[str, str]]]
         "KEY_STATS": render_key_stats(cell, cta_link, methodology_url, book_url),
         "METHODOLOGY": render_methodology(cell, methodology_url, book_url),
     }
+    if card.get('selection_evidence') is not None:
+        from article_evidence import build_cell_evidence
+        evidence = build_cell_evidence(cell)
+        returns, cohort = evidence['returns'], evidence['cohort']
+        chrome['KEY_STATS'] = ('<aside class="key-stats"><h3>Main annual history</h3>'
+            f'<div class="row"><span>Higher closes</span><span>{cell["up_years"]} of {cell["n"]}</span></div>'
+            f'<div class="row"><span>Median ending return</span><span>{returns["median_net"]:+.2f}%</span></div>'
+            f'<div class="row"><span>Worst ending return</span><span>{cell["worst_net"]:+.2f}% ({cell["worst_year"]})</span></div>'
+            f'<p>{_esc(cohort["label"])}. Historical percentage changes before costs.</p></aside>')
+        chrome['_private'] = True
+    if card.get('selection_evidence') is not None and hero_url:
+        asset = card.get('hero_asset') or {}
+        if asset.get('url') != hero_url or not asset.get('alt') or not asset.get('caption'):
+            raise ValueError('Private hero needs a matching manifest, alt text and caption')
+        # Preserve the supplied image's natural ratio. The separate pixel
+        # review verifies identity, lettering, implications and actual crops.
+        chrome['HERO'] = (f'<figure class="hero"><img src="{_esc(hero_url)}" '
+            f'alt="{_esc(asset["alt"])}" style="width:100%;height:auto">'
+            f'<figcaption>{_esc(asset["caption"])}</figcaption></figure>')
     for variant in FIGURE_VARIANTS:
         chrome[f"FIG:{variant}"] = render_figure(variant, images, cell)
     # SOURCES is rendered during assembly (needs the cited-id order).
@@ -453,8 +472,23 @@ def assemble_article(prose: str, chrome: Dict[str, str], *,
         if not placed:
             body = hero + body
 
+    if chrome.get('_private'):
+        # One label for the whole opening summary, even when a generated
+        # inner takeaway box also contains a heading. Preserve all prose.
+        summary_seen = False
+        def _one_summary(match):
+            nonlocal summary_seen
+            if summary_seen:
+                return ''
+            summary_seen = True
+            return '<h2>Key Takeaways</h2>'
+        body = re.sub(r'<h[2-6]\b[^>]*>\s*(?:Summary|Key Takeaways)\s*</h[2-6]>',
+                      _one_summary, body, flags=re.I)
+
     def _label_takeaways(match):
         content = match.group(0)
+        if chrome.get('_private') and re.search(r'<h[2-6]\b[^>]*>\s*Key Takeaways\s*</h[2-6]>', body, re.I):
+            return content
         if re.search(r"<h[2-6]\b[^>]*>\s*Key Takeaways\s*</h[2-6]>", content, re.I):
             return content
         end = content.find(">") + 1

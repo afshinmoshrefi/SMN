@@ -8,10 +8,22 @@ must not be hidden by replacing a figure caption with the card's numbers.
 from __future__ import annotations
 
 from datetime import date
+import hashlib
+import json
+from pathlib import Path
 import re
 from typing import Any
 
 from article_evidence import build_cell_evidence, finite_number, inclusive_window
+
+
+def chart_source_sha256(card: dict) -> str:
+    cell = card['story_cell']
+    source = {'instrument': {k: (card.get('instrument') or {}).get(k) for k in
+                            ('resource_id', 'provider', 'exchange', 'symbol', 'series_id', 'semantics')},
+              'anchor_date': cell['anchor_date'], 'days': cell['days'], 'years': cell['years'],
+              'per_year': cell['per_year']}
+    return hashlib.sha256(json.dumps(source, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
 
 def chart_accounting_basis(image: dict) -> str:
@@ -71,22 +83,74 @@ def validate_chart_evidence(card: dict, images: list[dict] | None,
     semantics/individual fields are not invented or treated as a mismatch.
     """
     n, window = _story_identity(card)
+    strict = card.get('selection_evidence') is not None
+    cell = card.get('story_cell') or {}
     selected = set(selected_variants) if selected_variants is not None else None
     errors = []
+    supplied = {str(i.get('variant')) for i in images or [] if isinstance(i, dict)}
+    if strict and selected is not None:
+        for missing in sorted(selected - supplied):
+            errors.append({'code': 'CHART_NOT_SUPPLIED', 'detail': f'{missing} has no supplied renderer artifact'})
     for image in images or []:
         if not isinstance(image, dict):
             continue
         variant = str(image.get('variant') or '')
-        if not variant or variant == 'price' or variant.startswith('price_proj_'):
+        if not variant:
             continue
         if selected is not None and variant not in selected:
             continue
+        contextual = variant == 'price' or variant.startswith('price_proj_')
+        if contextual and not strict:
+            continue
         semantics = image.get('semantics')
         if semantics is None:
+            if strict:
+                errors.append({'code': 'CHART_EVIDENCE_MISSING',
+                               'detail': f'{variant} needs renderer identity and sample metadata in private previews'})
             continue
         if not isinstance(semantics, dict):
             errors.append({'code': 'CHART_EVIDENCE_INVALID',
                            'detail': f'{variant} chart has malformed renderer metadata'})
+            continue
+        if strict:
+            if contextual:
+                errors.append({'code': 'CHART_CONTEXT_NOT_SUPPORTED',
+                               'detail': 'Private historical previews currently accept percent-only sample charts, not raw-price or projected-price context'})
+            expected_measurement = (card.get('instrument') or {}).get('semantics', {}).get('measurement')
+            if not expected_measurement or semantics.get('measurement') != expected_measurement:
+                errors.append({'code': 'CHART_MEASUREMENT_MISMATCH',
+                               'detail': f'{variant} measurement is not bound to the reviewed instrument'})
+            try:
+                bound = semantics.get('source_sha256') == chart_source_sha256(card)
+                actual = hashlib.sha256(Path(image.get('path', '')).read_bytes()).hexdigest()
+                bound = bound and actual == image.get('sha256')
+            except (OSError, TypeError, ValueError, KeyError):
+                bound = False
+            if not bound:
+                errors.append({'code': 'CHART_ARTIFACT_UNBOUND',
+                               'detail': f'{variant} needs matching local raster bytes and the exact percent-only source hash'})
+            for field, expected in (('symbol', card.get('symbol')), ('resource_id', card.get('resource_id'))):
+                if str(semantics.get(field, '')) != str(expected):
+                    errors.append({'code': 'CHART_INSTRUMENT_MISMATCH',
+                                   'detail': f'{variant} {field} does not match the selected instrument'})
+            if not contextual:
+                required = {'n', 'window_start', 'window_end', 'years', 'observed_years', 'direction'}
+                if required - semantics.keys():
+                    errors.append({'code': 'CHART_EVIDENCE_MISSING',
+                                   'detail': f'{variant} is missing required sample/return metadata'})
+                if (not isinstance(semantics.get('years'), str)
+                        or semantics.get('years') != cell.get('years')):
+                    errors.append({'code': 'CHART_LOOKBACK_MISMATCH',
+                                   'detail': f'{variant} lookback differs from the fixed article history'})
+                expected_years = sorted(r['year'] for r in cell.get('per_year', []))
+                actual_years = semantics.get('observed_years')
+                if not isinstance(actual_years, list) or actual_years != expected_years:
+                    errors.append({'code': 'CHART_YEARS_MISMATCH',
+                                   'detail': f'{variant} does not plot the exact article observation years'})
+                if semantics.get('direction') != 'long':
+                    errors.append({'code': 'CHART_RETURN_BASIS_MISMATCH',
+                                   'detail': f'{variant} must plot underlying price returns, not an inferred short trade'})
+        if contextual:
             continue
         if 'n' in semantics:
             observed = finite_number(semantics['n'])

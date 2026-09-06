@@ -56,7 +56,7 @@ def _guidance_for(card: Dict[str, Any]) -> str:
 ANGLE_GUIDANCE = {
     "SEASONAL_CONTEXT": """A fixed annual baseline and its comparisons supply context.
 - Answer the supported reader question. The sample need not have a strong winning record.
-- Keep the selected window and annual baseline. Explain material agreement, era sensitivity or descriptive contrast using the exact compared years.
+- Keep the selected window and annual baseline. Identify compared cohorts by their actual date span, sample size and sampling rule; enumerate individual years only when irregular membership is material.
 - A cycle sample has no automatic precedence. Overlapping groups are not independent confirmations, and different eras do not isolate a cycle effect.
 - Include one consequential risk and relevant sourced context. Do not replace useful interpretation with repeated generic cautions.""",
     "COLLISION": """News and the historical pattern point in different directions.
@@ -186,7 +186,13 @@ preview_or_opening must appear in the dek or opening answer. The answer must be
 self-contained: do not begin 'No:' or 'Yes:' unless the visible question is
 present. Use one labeled takeaways section, without a second repeated summary.
 Preserve the main story cell even when another comparison looks stronger. Every
-selection summary claim carries its actual years and n. The hero brief is only
+cohort is identified once with its actual date span, n and sampling rule
+(annual, matching cycle, or complementary noncycle). Do not enumerate every
+sampled year in prose unless irregular membership is material; full year lists
+remain in the evidence. The opening is one or two plain sentences answering
+the question, not a list of dates and counts. Keep comparisons that change
+interpretation or fulfill required qualifications; omit additional corroborating
+subsections. Explain shared overlap/causality limits once. The hero brief is only
 a concept; do not claim it depicts an actual event or company facility without
 verified provenance. Write no image-review IDs or other policy internals.
 The final title, dek and opening must make the same useful supported promise.

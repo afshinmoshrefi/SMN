@@ -85,6 +85,7 @@ def build_reader_brief(card: dict | None = None, research: dict | None = None,
         if not refs:
             holds.append("unsupported_required_qualification:" + item["id"])
         prominent = item["id"] in {"cohort.era_sensitive", "cohort.genuine_contrast", "cohort.mixed",
+                                   "cohort.annual_recency_5", "cohort.annual_recency_10",
                                    "baseline.no_strict_majority"}
         qualifications.append({"id": item["id"], "text": item["text"],
                                "evidence_refs": refs,
@@ -194,6 +195,15 @@ catalogue of warnings. Explain why the question matters using a dated event or t
 window; a calendar reference need not imply breaking news. Include one
 consequential supported risk. Explain required qualifications once, naturally;
 those marked preview_or_opening must qualify the title/dek or opening answer.
+For every qualification, retain ALL of its supplied evidence_refs in the plan;
+do not shorten that internal reference list. It records required comparison
+coverage, not the number of facts or sentences to repeat in reader prose.
+Identify each cohort once by its exact date span, sample size and sampling rule.
+Do not plan enumerated year lists or a section for every available sensitivity
+check. Preserve all required contrary evidence, then choose only comparisons
+that help answer the selected question. A headline should state the useful
+finding naturally; neither the word 'Seasonality' nor an internal angle label
+is a mandatory headline prefix.
 Do not let an old CLOCKWORK/REGIME label imply a strong pattern or cycle cause.
 Add this reader_promise object to the plan (references are exact evidence_index
 keys; known IDs alone do not prove a sentence):
