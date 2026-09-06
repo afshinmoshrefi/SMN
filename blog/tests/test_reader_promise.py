@@ -97,6 +97,51 @@ def independent_review(html, brief):
 
 
 class ReaderPromiseTests(unittest.TestCase):
+    def test_selected_brief_rebuilds_facts_and_qualifications_ignoring_supplied_brief(self):
+        card = case()
+        card["selected_question"] = {"question_id": "acme-window", "text": "Does the historical window justify a strong directional view?"}
+        card["reader_brief"] = {"policy": "legacy", "required_qualifications": []}
+        before = deepcopy(card)
+        brief = rp.build_selected_reader_brief(card)
+        self.assertEqual(brief["policy"], "private_v2")
+        self.assertEqual(brief["selected_question_id"], "acme-window")
+        self.assertEqual(brief["proposed_reader_question"], card["selected_question"]["text"])
+        self.assertEqual(len(brief["required_qualifications"]), 2)
+        self.assertEqual(brief["evidence_index"]["selection:"+EARLIER]["median_net"], -4.0)
+        self.assertEqual(card, before)
+        mutated = deepcopy(brief)
+        mutated["required_qualifications"].pop()
+        self.assertNotEqual(mutated, rp.build_selected_reader_brief(card))
+
+    def test_selected_brief_cannot_fallback_to_generic_question_when_selection_missing(self):
+        for question in (None, {}, {"question_id": "selected", "text": " "}, {"text": "What does history say?"}):
+            card = case()
+            card["selected_question"] = question
+            brief = rp.build_selected_reader_brief(card)
+            self.assertIn("selected_reader_question_missing", brief["hold_reasons"])
+
+    def test_selected_question_identity_survives_planning_and_independent_review(self):
+        card = case()
+        card["selected_question"] = {"question_id": "acme-window", "text": "Why do the two histories disagree?"}
+        card["reader_brief"] = rp.build_selected_reader_brief(card)
+        brief, plan = card["reader_brief"], plan_for(card)
+        review = independent_review(ARTICLE, brief)
+        for value in (None, "different-question"):
+            plan["reader_promise"]["selected_question_id"] = value
+            self.assertIn("PROMISE_QUESTION_MISMATCH", [i["code"] for i in rp.validate_promise_plan(plan, brief)])
+            review["expected_question_id"] = value
+            self.assertIn("PROMISE_QUESTION_MISMATCH", [i["code"] for i in rp.review_reader_promise(ARTICLE, brief, review=review)["issues"]])
+        plan["reader_promise"]["selected_question_id"] = "acme-window"
+        review["expected_question_id"] = "acme-window"
+        self.assertFalse(rp.validate_promise_plan(plan, brief))
+        checked = rp.review_reader_promise(ARTICLE, brief, plan=plan, review=review)
+        self.assertTrue(checked["text_ready"])
+        self.assertIn("already selected question", rp.promise_plan_instructions(brief))
+        self.assertIn("matching ID alone cannot establish", rp.build_promise_review_prompt(ARTICLE, brief, plan))
+        # Same-ID semantic drift must still use the existing editor failure path.
+        review["checks"][2].update(judgment="needs_revision", reason="The writer substituted a method question for the selected reader concern.")
+        self.assertFalse(rp.review_reader_promise(ARTICLE, brief, plan=plan, review=review)["text_ready"])
+
     def test_evidence_to_plan_writer_and_independent_editor(self):
         card = case()
         brief, plan = card["reader_brief"], plan_for(card)

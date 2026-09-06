@@ -158,6 +158,25 @@ def build_reader_brief(card: dict | None = None, research: dict | None = None,
             "hold_reasons": list(dict.fromkeys(holds))}
 
 
+def build_selected_reader_brief(card: dict, research: dict | None = None) -> dict:
+    """Rebuild the private seasonal brief from evidence and a selected question.
+
+    Ignore any caller-supplied reader_brief. The selected question is an upstream
+    editorial choice; its ID binds later planning/review, while the existing
+    independent editor still judges whether the evidence answers its meaning.
+    """
+    brief = build_reader_brief(card, research)
+    selected = card.get("selected_question")
+    selected = selected if isinstance(selected, dict) else {}
+    question_id, question = _text(selected.get("question_id")), _text(selected.get("text"))
+    if not question_id or not question:
+        brief["hold_reasons"].append("selected_reader_question_missing")
+        return brief
+    brief.update(selected_question=question, selected_question_id=question_id,
+                 proposed_reader_question=question)
+    return brief
+
+
 def promise_plan_instructions(brief: dict | None) -> str:
     if not brief or brief.get("policy") != POLICY:
         return ""
@@ -167,8 +186,11 @@ Use the unchanged main story cell. The selection evidence has already fixed the
 window and baseline. Do not replace it with the strongest lookback or discard a
 material contradiction. Verified selection summary medians/counts are licensed
 for prose comparisons with their actual dates and n; they are not chart data.
-Choose one useful reader question and a supported answer, not a catalogue of
-warnings. Explain why the question matters using a dated event or the research
+When the brief has selected_question and selected_question_id, answer that
+already selected question; do not substitute a different question because its
+historical pattern is stronger. Put its exact ID in reader_promise.selected_question_id.
+Otherwise choose one useful reader question. Give a supported answer, not a
+catalogue of warnings. Explain why the question matters using a dated event or the research
 window; a calendar reference need not imply breaking news. Include one
 consequential supported risk. Explain required qualifications once, naturally;
 those marked preview_or_opening must qualify the title/dek or opening answer.
@@ -206,6 +228,8 @@ def validate_promise_plan(plan: dict, brief: dict) -> list[dict]:
     if not isinstance(promise, dict):
         fail("PROMISE_MISSING", "Private plan requires reader_promise")
         return issues
+    if brief.get("selected_question_id") and promise.get("selected_question_id") != brief["selected_question_id"]:
+        fail("PROMISE_QUESTION_MISMATCH", "The plan must answer the exact selected reader question ID")
     if not _text(plan.get("reader_question")) or not _text(plan.get("thesis", plan.get("answer"))):
         fail("PROMISE_ANSWER", "A concrete question and supported answer are required")
     refs(promise.get("answer_support"), "answer")
@@ -302,8 +326,14 @@ consequential risk is useful; repeated qualifications without new understanding
 are an editorial defect. Material contrast must qualify the preview or opening
 when required. Source/cycle references have separate namespaces and remain
 stable even when the displayed citation numbers change.
+If selected_question is present, assess that question's actual meaning, not a
+replacement chosen by the writer. A matching ID alone cannot establish this;
+the answer and reader_value checks must explain how the visible answer resolves
+the selected question. Mark a change of question needs_revision.
 Return reader_promise_review with article_sha256 and brief_sha256 exactly as
-given, expected_question, delivered_answer, and checks. Every required check
+given, expected_question, delivered_answer, and checks. When the brief has a
+selected_question_id, also return expected_question_id with that exact ID.
+Every required check
 needs {check_id, judgment: supported|needs_revision|unassessable,
 quote: exact visible article passage, evidence_refs: [evidence_index keys],
 reason: specific support or mismatch}. For title/dek quote that element; for
@@ -336,6 +366,8 @@ def review_reader_promise(article_html: str, brief: dict, *, plan: dict | None =
         fail("PROMISE_REVIEW_PENDING", "Independent review is missing or belongs to different article/evidence bytes")
     if not _text(review.get("expected_question")) or not _text(review.get("delivered_answer")):
         fail("PROMISE_REVIEW_INCOMPLETE", "Reviewer must identify the expected question and delivered answer")
+    if brief.get("selected_question_id") and review.get("expected_question_id") != brief["selected_question_id"]:
+        fail("PROMISE_QUESTION_MISMATCH", "Reviewer must assess the exact selected reader question ID")
     checks = review.get("checks") or []
     ids = [c["check_id"] for c in checks if isinstance(c, dict) and isinstance(c.get("check_id"), str)] if isinstance(checks, list) else []
     required = _requirements(brief)
