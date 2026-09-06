@@ -194,7 +194,8 @@ def generate_angle_article(card: Dict[str, Any], *,
         from reader_promise import build_selected_reader_brief
         if (not run_editorial or card.get('reader_brief') != build_selected_reader_brief(card, research)
                 or card.get('reader_brief', {}).get('policy') != 'private_v2'
-                or card.get('reader_brief', {}).get('hold_reasons')):
+                or card.get('reader_brief', {}).get('hold_reasons')
+                or (card.get('editorial_mode') == 'current_context' and not card.get('editorial_assignment'))):
             return {"status": "hold", "publishable": False,
                     "detail": "Private generation requires a reader brief and independent editorial review"}
     angle = card["angle"]["name"]

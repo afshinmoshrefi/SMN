@@ -1,8 +1,9 @@
 """Explicit, frozen-input selection and drafting for SMN's private second pass.
 
 This is a separate entry point, not a scheduler or publication switch. Inputs
-include reviewed instrument/session manifests and a question chosen before the
-historical comparisons. No network discovery or alternate-window fallback.
+include reviewed instrument/session manifests and current sourced context.
+Commissioning chooses the question before article planning, without changing
+the fixed history window. No network discovery or alternate-window fallback.
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ def prepare_candidate(candidate: dict, *, as_of: str) -> dict:
     item = deepcopy(candidate)
     item.pop('cohort_gate', None)
     item.pop('news_gate', None)
+    item.pop('context_gate', None)
     if item.get('kind') == 'news':
         from private_news import prepare_news_candidate
         return prepare_news_candidate(item, as_of=as_of)
@@ -55,6 +57,14 @@ def prepare_candidate(candidate: dict, *, as_of: str) -> dict:
         cells=inputs.get('cells'), observations=inputs.get('observations'),
         coverage=inputs.get('coverage'), instrument=item.get('instrument'),
         anchor_date=inputs.get('anchor_date'), days=inputs.get('days'), as_of=as_of)
+    mode = item.get('editorial_mode', 'current_context')
+    item['editorial_mode'] = mode
+    if mode != 'historical_review':
+        from current_context import build_current_context
+        item['context_gate'] = build_current_context(item, as_of=as_of)
+        if mode != 'current_context':
+            item['context_gate']['eligible'] = False
+            item['context_gate']['issues'].append('UNKNOWN_EDITORIAL_MODE')
     check = validate_selection_evidence(evidence)
     evidence_id = 'cohort:' + str(item.get('candidate_id', ''))
     item['selection_evidence'] = evidence
@@ -63,6 +73,9 @@ def prepare_candidate(candidate: dict, *, as_of: str) -> dict:
         'issues': [*check['issues'], *[i for i in evidence.get('issues', []) if i.get('severity') == 'hold']],
         'evidence_ids': [evidence_id],
         'evidence_sha256': hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(',', ':')).encode()).hexdigest()}
+    if mode not in {'current_context', 'historical_review'}:
+        item['cohort_gate']['eligible'] = False
+        item['cohort_gate']['issues'].append('UNKNOWN_EDITORIAL_MODE')
     if history_derivation is not None and history_derivation.get('status') != 'passed':
         item['cohort_gate']['eligible'] = False
         item['cohort_gate']['issues'].extend(history_derivation.get('issues') or ['HISTORY_DERIVATION_HELD'])
@@ -76,11 +89,41 @@ def prepare_candidate(candidate: dict, *, as_of: str) -> dict:
                           'reason': 'Answer the selected question with fixed-window comparisons.'},
                 'story_cell': cell, 'auxiliary_cells': comparison_cells(evidence),
                 'selection_evidence': evidence, 'policy_mode': 'private_v2', 'publishable': False}
+        card['editorial_mode'] = mode
+        if mode == 'current_context':
+            # The adapter supplies facts, not a prewritten story question.
+            # This provisional identity is replaced after commissioning, then
+            # coverage is checked again against the actual selected question.
+            item['question'] = {'question_id': 'pending:' + str(item.get('candidate_id', '')),
+                'text': 'What do the current disclosures mean for ' + cell['symbol'] + ' shareholders?',
+                'answer_evidence_ids': [evidence_id, *item['context_gate']['evidence_ids']]}
+            card['angle'] = {'name': 'BUSINESS_TEST', 'runner_up': [],
+                             'reason': 'Provisional until current-context commissioning.'}
+            card['current_context'] = deepcopy(item['context_gate']['context'])
+            assignment = item.get('editorial_assignment')
+            card['editorial_assignment_pending'] = not bool(assignment)
+            if assignment:
+                from current_context import validate_assignment
+                issues = validate_assignment(assignment, card['current_context'], evidence)
+                if issues:
+                    item['context_gate']['eligible'] = False
+                    item['context_gate']['issues'].extend(issues)
+                else:
+                    card['editorial_assignment'] = deepcopy(assignment)
+                    card['angle'] = {'name': assignment['angle'], 'runner_up': [],
+                                     'reason': assignment['angle_reason']}
+                    item['question'] = {'question_id': 'current:' + hashlib.sha256(
+                        assignment['reader_question'].encode()).hexdigest()[:20],
+                        'text': assignment['reader_question'],
+                        'answer_evidence_ids': [evidence_id, *item['context_gate']['evidence_ids']]}
         if item.get('hero_asset'):
             card['hero_asset'] = deepcopy(item['hero_asset'])
         question = item.get('question') or {}
         card['selected_question'] = {k: question.get(k, '') for k in ('question_id', 'text')}
-        card['reader_brief'] = build_selected_reader_brief(card, item.get('research'))
+        if mode != 'historical_review' and not item['context_gate']['eligible']:
+            card['reader_brief'] = {'hold_reasons': list(item['context_gate']['issues'])}
+        else:
+            card['reader_brief'] = build_selected_reader_brief(card, item.get('research'))
         item['card'] = card
         if card['reader_brief'].get('hold_reasons'):
             item['cohort_gate']['eligible'] = False
@@ -121,6 +164,27 @@ def generate_private_article(packet: dict, *, expected_resource_id=None,
     if item['kind'] == 'news':
         from private_news import generate_private_news
         return {**result, **generate_private_news(item, as_of=as_of, send=send_write)}
+    if item.get('editorial_mode') == 'current_context':
+        from current_context import build_assignment_prompt, parse_assignment
+        from article_llm import ArticleLLM, ArticleModelError
+        # Always commission afresh here. Supplied assignment objects are useful
+        # for pure inspection, not permission to bypass a live editorial choice.
+        sender = send_plan if send_plan is not None else ArticleLLM(stage='commission', system='Return JSON only.')
+        try:
+            assignment = parse_assignment(sender(build_assignment_prompt(
+                item['card']['current_context'], item['selection_evidence'])),
+                item['card']['current_context'], item['selection_evidence'])
+        except (ValueError, TypeError, KeyError, ArticleModelError) as exc:
+            return {**result, 'hold_reason': 'current_context_assignment_failed',
+                    'assignment_error_type': type(exc).__name__}
+        if assignment.get('feasible') is not True:
+            return {**result, 'hold_reason': 'current_context_editorial_veto', 'assignment': assignment}
+        candidate = {**candidate, 'editorial_assignment': assignment}
+        selected = select_private_candidates([candidate], as_of=as_of, coverage=packet.get('coverage', ()))
+        item = selected['candidates'][0]
+        result.update(selection=selected['lineup'], assignment=assignment)
+        if not selected['lineup']['selected']:
+            return result
     from angle_writer import generate_angle_article
     from article_llm import ArticleModelError
     presentation = item.get('presentation') or {}

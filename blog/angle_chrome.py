@@ -74,6 +74,9 @@ ARTICLE_CSS = """
     .direct-answer { font-size:1.05rem; font-weight:600; color:var(--ink); border-left:3px solid var(--accent); padding-left:12px; margin:0 0 14px; }
     .methodology-note { border-top:1px solid var(--rule); margin-top:28px; padding-top:14px; font-size:.95rem; color:var(--muted); }
     .methodology-note h2 { font-size:1.1rem; color:var(--ink); margin:0 0 8px; }
+    .historical-detail { border:1px solid var(--rule); border-radius:8px; padding:12px 16px; margin:18px 0 24px; }
+    .historical-detail summary { cursor:pointer; color:var(--accent); font-weight:600; }
+    .historical-detail[open] summary { margin-bottom:16px; }
 """.strip("\n")
 
 

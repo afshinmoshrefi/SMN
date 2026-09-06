@@ -1,5 +1,10 @@
 # SMN private selection and reader-value pilot — September 6, 2026
 
+**Later owner review rejected these automated articles' editorial direction.**
+The calculations were retained. The subsequent current-context correction is
+documented in [SMN_EDITORIAL_CONTEXT.md](SMN_EDITORIAL_CONTEXT.md); it supersedes
+this document's history-first private writing flow on the current branch.
+
 The accepted first development pass writes clearer articles, but its inherited
 selector can lead with whichever annual or election-cycle sample looks strongest.
 This second pass fixes the article window before comparison, keeps one main

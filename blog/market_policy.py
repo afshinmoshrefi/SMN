@@ -284,6 +284,13 @@ def _candidate_check(candidate: Mapping, now: datetime) -> tuple[dict, list[dict
         if not _passed_gate(cohort):
             reasons.append(_reason('COHORT_HELD', 'The separate cohort/calculation gate must pass.', issues=copy.deepcopy(cohort.get('issues', []))))
         supported = _ids(cohort.get('evidence_ids'))
+        if candidate.get('editorial_mode') == 'current_context':
+            context = candidate.get('context_gate') or {}
+            if not _passed_gate(context):
+                reasons.append(_reason('CURRENT_CONTEXT_HELD', 'Verified current asset research is required.',
+                                       issues=copy.deepcopy(context.get('issues', []))))
+            else:
+                supported |= _ids(context.get('evidence_ids'))
     elif kind == 'news':
         event = candidate.get('event') or {}
         gate = candidate.get('news_gate') or {}

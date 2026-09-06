@@ -2,6 +2,7 @@
   "_fixture_notice": "Synthetic reviewed evidence for offline contract testing; not a real data-quality certification.",
   "candidate_id": "equity-wmt-autumn",
   "kind": "seasonal",
+  "editorial_mode": "historical_review",
   "instrument": {
     "resource_id": "2",
     "provider": "TW-appserver",

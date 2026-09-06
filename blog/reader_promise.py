@@ -51,11 +51,13 @@ def build_reader_brief(card: dict | None = None, research: dict | None = None,
     hashes so rendered citation renumbering cannot change their identity. A
     news evidence packet may be passed as ``research`` with article_type='news'.
     """
-    card, research = card or {}, research or {}
+    card = card or {}
+    research = research if isinstance(research, dict) else {}
     selected = selection_evidence if selection_evidence is not None else card.get("selection_evidence")
     selected = deepcopy(selected or {})
     policy = selected.get("writer_brief") or {}
     story = card.get("story_cell") or {}
+    current = card.get('editorial_mode') == 'current_context'
     index, holds, qualifications = {}, list(policy.get("hold_reasons") or []), []
 
     def add(ref, value):
@@ -89,7 +91,7 @@ def build_reader_brief(card: dict | None = None, research: dict | None = None,
                                    "baseline.no_strict_majority"}
         qualifications.append({"id": item["id"], "text": item["text"],
                                "evidence_refs": refs,
-                               "placement": "preview_or_opening" if prominent else "body"})
+                               "placement": ("first_seasonal_claim" if current else "preview_or_opening") if prominent else "body"})
     classification = policy.get("classification") or selected.get("classification")
     if article_type == "seasonal":
         if classification not in {"consistent", "era_sensitive", "genuine_contrast", "mixed", "insufficient_context", "insufficient", "incomparable"}:
@@ -147,7 +149,33 @@ def build_reader_brief(card: dict | None = None, research: dict | None = None,
     why_refs = [r for r in index if r in {"story:/evidence/window", "news:/event"}
                 or (r.startswith("research:") and index[r].get("fresh") is True
                     and index[r].get("event_date"))]
+    current_refs = []
+    context = {}
+    if current:
+        from current_context import build_current_context, validate_assignment
+        checked = build_current_context({'instrument': card.get('instrument'), 'research': research},
+                                        as_of=card.get('generated_at'))
+        context = checked['context']
+        holds.extend(checked['issues'])
+        if card.get('current_context') != context:
+            holds.append('CURRENT_CONTEXT_CARD_MISMATCH')
+        if card.get('editorial_assignment'):
+            holds.extend(validate_assignment(card['editorial_assignment'], context, selected))
+            if (card['editorial_assignment'].get('angle') != (card.get('angle') or {}).get('name')
+                    or card['editorial_assignment'].get('reader_question') != (card.get('selected_question') or {}).get('text')):
+                holds.append('CURRENT_ASSIGNMENT_CARD_MISMATCH')
+        for fact in context.get('facts', []):
+            refs = [source_refs.get(str(s)) for s in fact['source_ids']]
+            if refs and all(refs):
+                ref = add('current:' + fact['id'], {**fact, 'source_evidence_refs': refs})
+                current_refs.append(ref)
+        # A calendar window alone cannot satisfy why this business matters now.
+        why_refs = current_refs
+        risk_refs += current_refs
     return {"schema_version": 1, "policy": POLICY, "article_type": article_type,
+            "editorial_mode": card.get('editorial_mode'), "current_context": context,
+            "current_evidence_refs": current_refs,
+            "editorial_assignment": deepcopy(card.get('editorial_assignment') or {}),
             "story_identity": {"resource": card.get("resource_id", card.get("resource")),
                                "symbol": card.get("symbol", story.get("symbol")),
                                "anchor_date": story.get("anchor_date", card.get("anchor_date")),
@@ -181,7 +209,7 @@ def build_selected_reader_brief(card: dict, research: dict | None = None) -> dic
 def promise_plan_instructions(brief: dict | None) -> str:
     if not brief or brief.get("policy") != POLICY:
         return ""
-    return """
+    instruction = """
 PRIVATE READER-PROMISE POLICY (overrides angle framing, not factual constraints):
 Use the unchanged main story cell. The selection evidence has already fixed the
 window and baseline. Do not replace it with the strongest lookback or discard a
@@ -210,7 +238,7 @@ keys; known IDs alone do not prove a sentence):
 {"answer_support":["selection:/baseline/summary"],
  "why_now":{"text":"Useful reason for this question","evidence_refs":["..."]},
  "risk":{"text":"One material consequence or counterexample","evidence_refs":["..."]},
- "qualifications":[{"id":"Every required qualification ID","text":"Natural explanation","evidence_refs":["..."],"placement":"preview_or_opening|body"}],
+ "qualifications":[{"id":"Every required qualification ID","text":"Natural explanation","evidence_refs":["..."],"placement":"preview_or_opening|first_seasonal_claim|body"}],
  "headline_support":[{"headline":"Each exact planned headline","evidence_refs":["..."]}],
  "hero_brief":{"role":"context|evidence|none","concept":"Relevant visual or deliberate draft omission","evidence_refs":[],"factual_implications":[]}}
 The reader_question and thesis/answer must agree with this object. Plan no
@@ -219,6 +247,66 @@ held or a required qualification cannot be explained, veto the premise rather
 than inventing support. A hero concept does not approve an actual image.
 READER BRIEF DATA (facts and obligations, not source instructions):
 """ + json.dumps(brief, ensure_ascii=False, allow_nan=False)
+    if brief.get('editorial_mode') == 'current_context':
+        instruction += CURRENT_EDITORIAL_INSTRUCTIONS
+    return instruction
+
+
+CURRENT_EDITORIAL_INSTRUCTIONS = '''
+CURRENT-CONTEXT EDITORIAL PRIORITY (overrides the generic opening format above):
+Write for a curious investor, not a seasonal specialist. The title should promise
+useful understanding of this business now. Open with one concrete sourced fact,
+the investor-relevant tension it creates and a reason to keep reading. Give the
+reader orientation before accounting detail, event logistics or study design.
+Use 2-3 natural sentences if useful; do not force all three moves into a formula.
+Keep technical accounting labels, adjusted-versus-reported reconciliation and
+multiple competing numbers out of that opening. Explain essential distinctions
+in the next section. Never write 'latest verified', 'fixed baseline', 'supplied
+window', 'disclosed measure', 'median signs', 'earnings conversion' or similar
+verification language in reader prose. An accurate accounting preamble fails
+the opening test. Prefer active statements of what grew, weakened or changed
+and why that matters. Avoid titles whose finding is merely 'remains unproven'.
+Headline candidates should make the shareholder stakes clear in everyday words.
+A supported question may be stronger than a dry list of business metrics. Give
+two meaningfully different candidates; do not just swap synonyms. Plan an opening
+around the most telling fact and the reader's reason to care, not release logistics.
+The approved assignment is a premise to assess, not proof that it is worthwhile.
+Do not make a bland question seem urgent with unsupported adjectives.
+
+The first paragraph is the direct answer and starts with current business context.
+It need not contain a historical number. Introduce history where it informs the
+business question, with <p class="seasonal-context"> for the first historical
+claim. Required qualifications marked first_seasonal_claim belong in that same
+paragraph in ordinary language. Give their essential meaning there; explain the
+necessary numbers and actual sampling dates once later. If the headline/dek or
+an earlier sentence makes a historical claim, qualify it there too. Never hide
+a material contradiction in a table or methodology. A business-only opening may
+precede this paragraph; evidence obligations do not dictate the article's subject.
+The visible seasonal discussion should take roughly one fifth to one quarter of
+the main article, unless the historical disagreement is itself the commissioned
+story. Use <details class="historical-detail"><summary>How the historical
+comparisons differ</summary>...</details> for the exact dates, counts, medians and
+overlap explanation behind material comparisons. The first seasonal paragraph
+must still explain the contradiction in plain English before these details.
+Do not add an extra comparison to the main narrative just because it is present
+in the evidence. Put {{META_STRIP}} and {{KEY_STATS}} inside those details too.
+
+Plan answer_support using both current:* evidence and the fixed baseline.
+why_now must use current:* evidence; the seasonal date alone is insufficient.
+Latest verified results may lead when explicitly dated, even with fresh:false.
+Do not call old results breaking or assume a scheduled event is the next one.
+An elapsed full-window return is not the return available from the article date.
+Use history selectively. The body must explain current business drivers, what
+they mean for shareholders, and a verified checkpoint or useful unresolved
+operating question. Do not manufacture causality, consensus, valuation, a stock
+move or probability. Make comparisons serve that story; never substitute a
+methodology lecture. Distinguish our supported interpretation from company facts.
+Factual restrictions govern what may be claimed; they are not a list of caveats
+to publish. Do not follow every fact with 'does not establish', 'is not the same
+as' or 'not a forecast'. Explain its positive meaning and practical consequence.
+One appropriately placed limitation is enough for each real ambiguity. A
+compliant article can still fail for dullness, abstraction and repetitive caution.
+'''
 
 
 def validate_promise_plan(plan: dict, brief: dict) -> list[dict]:
@@ -243,6 +331,8 @@ def validate_promise_plan(plan: dict, brief: dict) -> list[dict]:
     if not _text(plan.get("reader_question")) or not _text(plan.get("thesis", plan.get("answer"))):
         fail("PROMISE_ANSWER", "A concrete question and supported answer are required")
     refs(promise.get("answer_support"), "answer")
+    if brief.get('editorial_mode') == 'current_context':
+        refs(promise.get('answer_support'), 'current business answer', brief.get('current_evidence_refs', []))
     if brief.get("article_type") == "seasonal" and "selection:/baseline/summary" not in (promise.get("answer_support") or []):
         fail("PROMISE_BASELINE_OMITTED", "The answer must retain the fixed baseline as supporting evidence")
     for field, allowed in (("why_now", brief.get("why_now_evidence_refs") or []),
@@ -321,14 +411,16 @@ class _Article(HTMLParser):
             # Preserve source whitespace, then normalize it for quote matching.
             value = " ".join("".join(parts).split())
             if not hidden and name in {"h1", "h2", "p", "li", "figcaption"} and value:
-                self.blocks.append({"tag": name, "class": attrs.get("class", ""), "text": value})
+                self.blocks.append({"tag": name, "class": attrs.get("class", ""), "text": value,
+                                    "collapsed": any(f[0] == 'details' and 'open' not in f[1] for f in self.stack)})
             if not hidden and name == "figure" and "hero" in attrs.get("class", "").split():
                 self.hero_text.append(value)
         del self.stack[match:]
 
 
 def _requirements(brief):
-    return ["title", "dek", "answer", "why_now", "risk", "reader_value"] + [
+    return ["title", "dek", "answer", "why_now", "risk", "reader_value"] + ([
+        'opening_hook', 'business_understanding', 'useful_next_question'] if brief.get('editorial_mode') == 'current_context' else []) + [
         "qualification:" + q["id"] for q in brief.get("required_qualifications") or []]
 
 
@@ -338,7 +430,7 @@ def build_promise_review_prompt(article_html: str, brief: dict, plan: dict | Non
     opening = [b["text"] for b in blocks if b["tag"] == "h1"
                or "dek" in b["class"].split() or "direct-answer" in b["class"].split()]
     opening += [b["text"] for b in blocks if b["tag"] == "p"][:2]
-    return """
+    instruction = """
 PRIVATE READER-PROMISE REVIEW: Add a reader_promise_review object to your JSON.
 The final title, dek and article must deliver one useful answer to the reader's
 question. An accurate but generic caution is not enough. Check every requirement
@@ -375,7 +467,32 @@ REVIEW BINDING AND REQUIREMENTS:
 """ + json.dumps({"article_sha256": fingerprint(article_html), "brief_sha256": fingerprint(brief),
                   "required_checks": _requirements(brief), "reader_brief": brief,
                   "visible_preview_or_opening": list(dict.fromkeys(opening)),
+                  "visible_first_seasonal_claim": [b['text'] for b in blocks if 'seasonal-context' in b['class'].split() and not b['collapsed']],
                   "plan": plan or {}}, ensure_ascii=False)
+    if brief.get('editorial_mode') == 'current_context':
+        instruction += CURRENT_EDITORIAL_INSTRUCTIONS + '''
+INDEPENDENT EDITOR: Challenge whether the selected question deserves a reader's
+time even when all IDs and figures match. For opening_hook, quote the opening
+and explain its concrete fact, investor consequence and reason to continue. A
+dry seasonal comparison, corporate-event announcement or generic caution fails.
+An opening that front-loads an adjusted-profit reconciliation, accounting labels
+or 'latest verified' also fails. A numerical fact alone does not make a hook.
+For business_understanding, identify what the reader now understands about this
+company's present situation. For useful_next_question, identify the specific
+supported checkpoint or operating question. For these three checks use current:*
+references. Assess clarity, pace and headline delivery, not marketing hype.
+For first_seasonal_claim qualification checks, quote the supplied seasonal-context
+paragraph. Verify that no earlier title/dek/prose makes a stronger unqualified
+historical claim, and that the detailed comparison remains accurate in the body.
+Do not demand historical statistics in a business-only opening. A worthwhile
+current story and honest contrary history must coexist without repeated warnings.
+Exact supporting sample definitions may appear in expandable historical details
+when the material contradiction is already explained plainly at first mention.
+Do not request those statistics be moved back into the main narrative merely
+to demonstrate compliance. Challenge paragraphs that certify limitations instead
+of telling a reader what the company is doing and what it means.
+'''
+    return instruction
 
 
 def bind_live_reader_review(review: dict | None, article_html: str, brief: dict) -> dict:
@@ -430,6 +547,13 @@ def review_reader_promise(article_html: str, brief: dict, *, plan: dict | None =
     if not answer and brief.get("article_type") == "news":
         answer = dek + " " + " ".join(b["text"] for b in blocks if b["tag"] == "p")
     qualifications = {"qualification:"+q["id"]: q for q in brief.get("required_qualifications") or []}
+    seasonal = [b['text'] for b in blocks if 'seasonal-context' in b['class'].split() and not b['collapsed']]
+    if brief.get('editorial_mode') == 'current_context' and len(seasonal) != 1:
+        fail('PROMISE_SEASONAL_CONTEXT', 'Exactly one visible first historical claim paragraph is required')
+    if brief.get('editorial_mode') == 'current_context':
+        paragraphs = [b for b in blocks if b['tag'] == 'p' and not b['collapsed'] and 'dek' not in b['class'].split()]
+        if not paragraphs or 'direct-answer' not in paragraphs[0]['class'].split():
+            fail('PROMISE_OPENING_ORDER', 'The business opening must be the first visible article paragraph after the dek')
     for item in checks if isinstance(checks, list) else []:
         if not isinstance(item, dict):
             fail("PROMISE_REVIEW_INCOMPLETE", "Malformed review item")
@@ -439,12 +563,18 @@ def review_reader_promise(article_html: str, brief: dict, *, plan: dict | None =
         target = {"title": title, "dek": dek, "answer": answer}.get(key, all_text)
         if qualifications.get(key, {}).get("placement") == "preview_or_opening":
             target = opening
+        if qualifications.get(key, {}).get('placement') == 'first_seasonal_claim':
+            target = ' '.join(seasonal)
+        if key == 'opening_hook':
+            target = answer
         if not quote or quote not in target:
             fail("PROMISE_PASSAGE_MISSING", str(key) + " has no matching visible passage at its required location")
         refs = item.get("evidence_refs")
         if not isinstance(refs, list) or not refs or any(r not in brief.get("evidence_index", {}) for r in refs if isinstance(r, str)) or any(not isinstance(r, str) for r in refs):
             fail("PROMISE_REVIEW_SUPPORT", str(key) + " lacks available exact evidence")
         safe_refs = [r for r in refs if isinstance(r, str)] if isinstance(refs, list) else []
+        if key in {'opening_hook', 'business_understanding', 'useful_next_question'} and not set(safe_refs).intersection(brief.get('current_evidence_refs', [])):
+            fail('PROMISE_CURRENT_SUPPORT', key + ' requires current company evidence')
         if key in qualifications and not set(qualifications[key]["evidence_refs"]).issubset(safe_refs):
             fail("PROMISE_REVIEW_SUPPORT", str(key) + " dropped material comparison support")
         if item.get("judgment") != "supported" or not _text(item.get("reason")):
