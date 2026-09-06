@@ -363,18 +363,20 @@ def build_selection_evidence(card=None, *, cells=None, observations=None, instru
     def qualify(key, text, *refs):
         requirements.append({'id': key, 'text': text, 'evidence_refs': list(refs)})
 
-    if classification == 'era_sensitive':
-        qualify('cohort.era_sensitive', 'The result changes with the historical period. Explain the dated recent and earlier observations; do not silently select the stronger sample.',
-                '/baseline/summary', '/cycle/full/summary', '/cycle/within_baseline/summary', '/cycle/earlier/summary', '/recent')
-    elif classification == 'genuine_contrast':
+    if relations['recent_vs_earlier_cycle'] == 'contrast':
+        qualify('cohort.era_sensitive', 'The recent and earlier cycle observations have contrasting median signs. Explain these dated samples and their actual counts; do not silently select the stronger sample.',
+                '/cycle/within_baseline/summary', '/cycle/earlier/summary')
+    for n in ('5', '10'):
+        if recent[n]['comparison'] == 'contrast':
+            qualify(f'cohort.annual_recency_{n}',
+                    f'The most recent {n} annual windows and preceding {20-int(n)} windows have contrasting median signs. Explain the dated disjoint samples and actual counts. This may share one natural passage with other period qualifications; duplicate paragraphs are not required.',
+                    f'/recent/{n}')
+    if relations['same_span_cycle_vs_noncycle'] == 'contrast':
         qualify('cohort.genuine_contrast', 'The same-calendar-span cycle and complementary noncycle observations have contrasting median signs. Describe mixed history and sample sizes; this is a descriptive contrast, not a causal or predictive finding.',
                 '/cycle/within_baseline/summary', '/cycle/noncycle_within_baseline/summary')
     elif classification == 'mixed':
         qualify('cohort.mixed', 'At least one compared group has a flat median rather than a clear positive or negative median. Describe the actual dated results; do not turn a flat result into directional agreement.',
                 '/baseline/summary', '/cycle/full/summary', '/cycle/within_baseline/summary', '/cycle/noncycle_within_baseline/summary', '/cycle/earlier/summary')
-    if classification != 'era_sensitive' and (relations['recent_vs_earlier_cycle'] == 'contrast' or any(r['comparison'] == 'contrast' for r in recent.values())):
-        qualify('cohort.era_sensitive', 'The recent and earlier observations differ in median direction. Retain this period sensitivity even when another cohort contrast is the main classification.',
-                '/cycle/within_baseline/summary', '/cycle/earlier/summary', '/recent')
     if recent_cycle_rows:
         qualify('cohort.overlap', 'The cycle observations inside the main sample are reused observations, not independent confirmation. Compare them with complementary noncycle years.', '/overlap')
         if len(recent_cycle_rows) < policy.cycle_min_n:
