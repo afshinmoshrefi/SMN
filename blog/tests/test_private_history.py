@@ -96,6 +96,18 @@ class PrivateHistoryTests(unittest.TestCase):
         r=derive_history_panel(**a)
         self.assertEqual(r['status'],'held')
         self.assertIn('UNREPRESENTABLE_WINDOW_RETURN',[i['code'] for i in r['issues']])
+
+    def test_audit_day_close_controls_boundary_even_when_caller_claims_yesterday(self):
+        a=self.args();a['as_of']='2026-09-04T21:00:00Z'
+        a['ohlc'][-1]['date']='2026-09-03'
+        a['session_manifest']['sessions'].insert(-1,'2026-09-03')
+        a['session_manifest']['expected_latest_date']='2026-09-03'
+        a['session_manifest']['audit_session_close']='2026-09-04T20:00:00Z'
+        self.assertEqual(derive_history_panel(**a)['status'],'held')
+        a['as_of']='2026-09-04T15:00:00Z'
+        self.assertEqual(derive_history_panel(**a)['status'],'passed')
+        a['session_manifest'].pop('audit_session_close')
+        self.assertEqual(derive_history_panel(**a)['status'],'held')
         a=self.args();a['ohlc'][-1]['date']='2026-09-07'
         self.assertEqual(derive_history_panel(**a)['status'],'held')
 
