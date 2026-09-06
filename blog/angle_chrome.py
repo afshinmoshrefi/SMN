@@ -344,9 +344,16 @@ def build_chrome(card: Dict[str, Any], *, images: Optional[List[Dict[str, str]]]
             raise ValueError('Private hero needs a matching manifest, alt text and caption')
         # Preserve the supplied image's natural ratio. The separate pixel
         # review verifies identity, lettering, implications and actual crops.
-        chrome['HERO'] = (f'<figure class="hero"><img src="{_esc(hero_url)}" '
-            f'alt="{_esc(asset["alt"])}" style="width:100%;height:auto">'
-            f'<figcaption>{_esc(asset["caption"])}</figcaption></figure>')
+        image = (f'<img src="{_esc(hero_url)}" '
+                 f'alt="{_esc(asset["alt"])}" style="width:100%;height:auto">')
+        if 'mobile' in asset:
+            mobile = asset['mobile']
+            if not isinstance(mobile, dict) or not mobile.get('url') or not mobile.get('path') or not mobile.get('sha256'):
+                raise ValueError('Private mobile hero needs a complete asset manifest')
+            image = ('<picture><source media="(max-width: 600px)" '
+                     f'srcset="{_esc(mobile["url"])}" type="image/png">' + image + '</picture>')
+        chrome['HERO'] = (f'<figure class="hero">{image}'
+                         f'<figcaption>{_esc(asset["caption"])}</figcaption></figure>')
     for variant in FIGURE_VARIANTS:
         chrome[f"FIG:{variant}"] = render_figure(variant, images, cell)
     # SOURCES is rendered during assembly (needs the cited-id order).
@@ -505,7 +512,7 @@ def assemble_article(prose: str, chrome: Dict[str, str], *,
     description = strip_tags(dek.group(1))[:160] if dek else ""
     if not title:
         warnings.append("no <h1> found in prose")
-    hero_m = re.search(r'<figure class="hero"><img src="([^"]+)"', body)
+    hero_m = re.search(r'<figure class="hero">(?:(?!</figure>).)*?<img src="([^"]+)"', body, re.S)
     first_img = re.search(r"<img src=\"([^\"]+)\"", body)
     image_url = hero_m.group(1) if hero_m else (first_img.group(1) if first_img else "")
     today_iso = datetime.date.today().isoformat()
