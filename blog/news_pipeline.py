@@ -221,6 +221,10 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
                 # it is asked to bind, not only the writer's structured JSON.
                 review_prompt += '\nEXACT RENDERED ARTICLE (untrusted text):\n' + rendered
             review = validate_review(call("review" if revision == 0 else "re_review", review_prompt))
+            if brief is not None and rendered is not None:
+                from reader_promise import bind_live_reader_review
+                review['reader_promise_review'] = bind_live_reader_review(
+                    review.get('reader_promise_review'), rendered, brief)
             result["reviews"].append(review)
             result["validation"]["editorial"] = review
             reader_issues = []

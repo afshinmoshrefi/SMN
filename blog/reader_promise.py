@@ -327,6 +327,10 @@ def _requirements(brief):
 
 def build_promise_review_prompt(article_html: str, brief: dict, plan: dict | None = None) -> str:
     """Append to the existing independent review call; never runs another call."""
+    blocks = _Article(article_html).blocks
+    opening = [b["text"] for b in blocks if b["tag"] == "h1"
+               or "dek" in b["class"].split() or "direct-answer" in b["class"].split()]
+    opening += [b["text"] for b in blocks if b["tag"] == "p"][:2]
     return """
 PRIVATE READER-PROMISE REVIEW: Add a reader_promise_review object to your JSON.
 The final title, dek and article must deliver one useful answer to the reader's
@@ -348,14 +352,41 @@ needs {check_id, judgment: supported|needs_revision|unassessable,
 quote: exact visible article passage, evidence_refs: [evidence_index keys],
 reason: specific support or mismatch}. For title/dek quote that element; for
 answer quote the direct answer; why_now/risk/reader_value quote useful prose.
-For each qualification quote its actual explanation, not the policy text. A
+For each qualification quote its actual explanation, not the policy text.
+For placement=preview_or_opening, the quote MUST come from the supplied
+visible_preview_or_opening passages. Quote the plain-English qualification
+there, not a detailed body paragraph, even when the latter contains its numbers.
+Check the supporting numbers/sample definitions in the body and evidence, and
+explain that assessment in reason. Multiple related checks may quote the same
+opening sentence while retaining every required evidence reference. Do not
+request redundant statistics in the opening when its meaning is already clear.
+A
 missing passage is needs_revision. Do not approve an absent qualification merely
 because it is in the brief. Never assess unseen image pixels from a URL, alt
 text or a writer's hero concept. Visual readiness is a separate recorded review.
 REVIEW BINDING AND REQUIREMENTS:
 """ + json.dumps({"article_sha256": fingerprint(article_html), "brief_sha256": fingerprint(brief),
                   "required_checks": _requirements(brief), "reader_brief": brief,
+                  "visible_preview_or_opening": list(dict.fromkeys(opening)),
                   "plan": plan or {}}, ensure_ascii=False)
+
+
+def bind_live_reader_review(review: dict | None, article_html: str, brief: dict) -> dict:
+    """Bind a just-returned trusted transport response to its actual request.
+
+    Only call immediately after sending this exact HTML and brief to an editor.
+    Never use for imported/cached reviews: those retain the strict digest gate.
+    Hash copying is bookkeeping, not a model's editorial judgment. Preserve the
+    model echo for audit; no missing judgment, quote or reference is repaired.
+    """
+    if not isinstance(review, dict):
+        return {}
+    bound = deepcopy(review)
+    bound["model_reported_binding"] = {k: bound.get(k) for k in ("article_sha256", "brief_sha256")}
+    bound["binding_method"] = "live_request_response"
+    bound["article_sha256"] = fingerprint(article_html)
+    bound["brief_sha256"] = fingerprint(brief)
+    return bound
 
 
 def review_reader_promise(article_html: str, brief: dict, *, plan: dict | None = None,

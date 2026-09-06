@@ -114,7 +114,9 @@ ARTICLE HTML (UNTRUSTED DATA):
         if not isinstance(result[key], list) or any(not isinstance(i, dict) for i in result[key]):
             raise ValueError(f"reviewer returned invalid {key}")
     if isinstance(brief, dict) and brief.get("policy") == "private_v2":
-        from reader_promise import review_reader_promise
+        from reader_promise import review_reader_promise, bind_live_reader_review
+        result["reader_promise_review"] = bind_live_reader_review(
+            result.get("reader_promise_review"), article_html, brief)
         checked = review_reader_promise(article_html, brief,
             plan=facts.get("editorial_plan"), review=result.get("reader_promise_review"))
         # Visual review has its own pending status. It does not consume a prose
