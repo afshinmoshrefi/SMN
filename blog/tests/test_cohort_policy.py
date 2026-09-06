@@ -57,7 +57,7 @@ class SavedCohortTests(unittest.TestCase):
         self.assertEqual(e['comparisons']['same_span_cycle_vs_noncycle'], 'consistent')
         self.assertEqual(e['recent']['5']['recent']['median_net'], -3.4)
         self.assertEqual(e['recent']['5']['preceding']['median_net'], 4.01)
-        self.assertIn('cohort.era_sensitive', {q['id'] for q in e['writer_brief']['required_qualifications']})
+        self.assertIn('cohort.annual_recency_5', {q['id'] for q in e['writer_brief']['required_qualifications']})
 
     def test_ford_preserves_flat_and_no_majority(self):
         e = build_selection_evidence(**case('F'))
@@ -287,6 +287,59 @@ class CanonicalRoundingTests(unittest.TestCase):
         e = build_cell_evidence({'anchor_date': '2026-08-21', 'days': 30, 'years': '1',
                                 'per_year': [{'year': 2025, 'net': 1.875, 'mfe': 4.1, 'mae': -1}]})
         self.assertEqual(e['giveback']['median_pp'], 2.23)
+
+
+class QualificationScopeTests(unittest.TestCase):
+    @staticmethod
+    def qualifications(e):
+        return {q['id']: q for q in e['writer_brief']['required_qualifications']}
+
+    def test_jpm_and_wmt_cycle_reversal_require_only_the_cycle_pair(self):
+        for symbol in ('JPM','WMT'):
+            with self.subTest(symbol=symbol):
+                e=build_selection_evidence(**case(symbol));q=self.qualifications(e)
+                self.assertEqual(q['cohort.era_sensitive']['evidence_refs'],
+                                 ['/cycle/within_baseline/summary','/cycle/earlier/summary'])
+                self.assertTrue(all(v['comparison']=='consistent' for v in e['recent'].values()))
+                self.assertNotIn('cohort.annual_recency_5',q)
+                self.assertNotIn('cohort.annual_recency_10',q)
+
+    def test_jnj_annual_reversal_does_not_require_irrelevant_cycle_refs(self):
+        e=build_selection_evidence(**case('JNJ'));q=self.qualifications(e)
+        self.assertEqual(q['cohort.annual_recency_5']['evidence_refs'],['/recent/5'])
+        self.assertNotIn('cohort.annual_recency_10',q)
+        self.assertNotIn('cohort.era_sensitive',q)
+
+    def test_corrected_f_keeps_both_annual_reversals_and_matched_contrast(self):
+        a=json.loads((Path(__file__).parent/'fixtures/cohort_policy_corrected_f.json').read_text())
+        e=build_selection_evidence(**a);q=self.qualifications(e)
+        self.assertEqual(e['classification'],'genuine_contrast')
+        self.assertEqual(e['baseline']['summary']['median_net_display'],-0.67)
+        self.assertNotIn('cohort.era_sensitive',q)
+        self.assertEqual(q['cohort.annual_recency_5']['evidence_refs'],['/recent/5'])
+        self.assertEqual(q['cohort.annual_recency_10']['evidence_refs'],['/recent/10'])
+        self.assertEqual(q['cohort.genuine_contrast']['evidence_refs'],
+                         ['/cycle/within_baseline/summary','/cycle/noncycle_within_baseline/summary'])
+        self.assertTrue(validate_selection_evidence(e)['ok'])
+
+    def test_simultaneous_cycle_and_annual_reversals_are_all_retained(self):
+        a=panel_case()
+        for r in a['observations']:
+            if r['year']<2006 and r['year']%4==2:r['net']=-5
+            elif r['year']>=2021:r['net']=-2
+        e=build_selection_evidence(**a);q=self.qualifications(e)
+        self.assertTrue({'cohort.era_sensitive','cohort.annual_recency_5','cohort.annual_recency_10'}<=set(q))
+        self.assertEqual(len(q),len(e['writer_brief']['required_qualifications']))
+
+    def test_annual_reversal_survives_insufficient_cycle_context(self):
+        a=panel_case(start=2012)
+        a['coverage'].update(start_year=1986,series_start_year=2012,series_start_evidence_ref='synthetic-inception')
+        for r in a['observations']:
+            if r['year']>=2021:r['net']=-2
+        e=build_selection_evidence(**a);q=self.qualifications(e)
+        self.assertEqual(e['classification'],'insufficient_context')
+        self.assertIn('cohort.annual_recency_5',q)
+        self.assertIn('cohort.insufficient_context',q)
 
 
 if __name__ == '__main__': unittest.main()
