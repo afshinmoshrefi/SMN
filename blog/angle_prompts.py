@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 # Word-budget bands per angle (design §3): a clamp, not a quota — the PLAN
 # derives an upper bound from the evidence, never a minimum article length.
 ANGLE_BANDS = {
+    "SEASONAL_CONTEXT": (350, 750),
     "COLLISION": (450, 1000),
     "TAILWIND": (450, 900),
     "CLOCKWORK": (400, 1000),
@@ -53,6 +54,11 @@ def _guidance_for(card: Dict[str, Any]) -> str:
 # paragraphs to imitate (imitation is how new templates are born).
 # ============================================================
 ANGLE_GUIDANCE = {
+    "SEASONAL_CONTEXT": """A fixed annual baseline and its comparisons supply context.
+- Answer the supported reader question. The sample need not have a strong winning record.
+- Keep the selected window and annual baseline. Explain material agreement, era sensitivity or descriptive contrast using the exact compared years.
+- A cycle sample has no automatic precedence. Overlapping groups are not independent confirmations, and different eras do not isolate a cycle effect.
+- Include one consequential risk and relevant sourced context. Do not replace useful interpretation with repeated generic cautions.""",
     "COLLISION": """News and the historical pattern point in different directions.
 - Open with the verified event and the relevant historical contrast, plainly.
 - Explain what the historical sample does and does not tell a reader about this event. An unconditional seasonal record is not a study of earnings disappointments or the same news setup.
@@ -149,7 +155,42 @@ def _card_digest(card: Dict[str, Any]) -> Dict[str, Any]:
                                "down_years", "direction", "median_net", "quotables",
                                "anchor_date", "lookback_label", "evidence")}
         for c in card.get("auxiliary_cells", [])]
+    if (card.get("reader_brief") or {}).get("policy") == "private_v2":
+        # The index contains only licensed facts/source passages, with stable
+        # selection/research namespaces. No selector scores are exposed.
+        slim["reader_brief"] = card["reader_brief"]
     return slim
+
+
+def _invariants_for(card: Dict[str, Any]) -> str:
+    if (card.get("reader_brief") or {}).get("policy") != "private_v2":
+        return INVARIANTS
+    lines = [line for line in INVARIANTS.splitlines()
+             if not line.startswith("- Auxiliary-cell numbers")]
+    lines.append("- Verified selection evidence summaries license comparison counts and medians in prose with exact dates and n. Use only reader_brief.evidence_index facts; these summaries never relabel a story-cell chart. Other auxiliary values retain the counts-only rule.")
+    return "\n".join(lines)
+
+
+def _private_stage(card: Dict[str, Any], stage: str) -> str:
+    brief = card.get("reader_brief")
+    if not brief or brief.get("policy") != "private_v2":
+        return ""
+    if stage == "plan":
+        from reader_promise import promise_plan_instructions
+        return promise_plan_instructions(brief)
+    return """
+PRIVATE READER PROMISE: The approved plan's reader_promise binds the answer,
+why-now evidence, one consequential risk, and every required qualification.
+Explain all required qualifications naturally once; material contrasts marked
+preview_or_opening must appear in the dek or opening answer. The answer must be
+self-contained: do not begin 'No:' or 'Yes:' unless the visible question is
+present. Use one labeled takeaways section, without a second repeated summary.
+Preserve the main story cell even when another comparison looks stronger. Every
+selection summary claim carries its actual years and n. The hero brief is only
+a concept; do not claim it depicts an actual event or company facility without
+verified provenance. Write no image-review IDs or other policy internals.
+The final title, dek and opening must make the same useful supported promise.
+"""
 
 
 def _research_digest(research: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -246,7 +287,7 @@ The angle engine assigned this piece the {angle} angle as a candidate framing. F
 ANGLE GUIDANCE ({angle}):
 {_guidance_for(card)}
 
-{INVARIANTS}
+{_invariants_for(card)}
 
 ANGLE CARD (authoritative data):
 {json.dumps(_card_digest(card), ensure_ascii=False)}
@@ -284,7 +325,8 @@ Planning rules:
 - Use each number where it does the most work. The summary supplies the answer; the body explains it rather than repeating the same opening and table. Use the smallest set of annual examples that changes interpretation.
 - Explicitly distinguish overlapping lookbacks from independent evidence, and sampled election years from consecutive years. Do not claim cycle outperformance without a matched comparison. Use computed evidence dates; never derive intrawindow timing from MFE/MAE.
 - bridge_after_beat: index (0-based) of the beat after which the TradeWave bridge lands, per the angle guidance.
-- Set "feasible": false with a one-sentence veto_reason ONLY if the research cannot support this angle at all (fallback angles available: {fallbacks}). Vetoing on preference is not allowed."""
+- Set "feasible": false with a one-sentence veto_reason ONLY if the research cannot support this angle at all (fallback angles available: {fallbacks}). Vetoing on preference is not allowed.
+{_private_stage(card, 'plan')}"""
 
 
 class PlanError(ValueError):
@@ -293,7 +335,8 @@ class PlanError(ValueError):
 
 def parse_plan(raw: str, angle: str,
                available_charts: Optional[List[str]] = None,
-               research: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+               research: Optional[Dict[str, Any]] = None,
+               reader_brief: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Parse + validate the PLAN JSON. Raises PlanError with a specific,
     feed-back-able message (the orchestrator allows exactly one retry).
     When available_charts is given, planned charts must be a subset of it
@@ -393,6 +436,10 @@ def parse_plan(raw: str, angle: str,
             problems.append("bridge_after_beat out of range")
     if not isinstance(plan.get("source_ids", []), list):
         problems.append("source_ids must be a list")
+    if reader_brief and reader_brief.get("policy") == "private_v2":
+        from reader_promise import validate_promise_plan
+        problems.extend(issue["code"] + ": " + issue["detail"]
+                        for issue in validate_promise_plan(plan, reader_brief))
     if problems:
         raise PlanError("; ".join(problems))
     return plan
@@ -430,7 +477,7 @@ THE PLAN (yours; follow it):
 ANGLE GUIDANCE ({angle}):
 {_guidance_for(card)}
 
-{INVARIANTS}
+{_invariants_for(card)}
 
 {STYLE}
 
@@ -453,6 +500,7 @@ ANGLE CARD (authoritative TradeWave data — quote numbers exactly):
 RESEARCH JSON (only permitted external context):
 {research_block}
 
+{_private_stage(card, 'write')}
 Return only the HTML fragment."""
 
 
@@ -477,7 +525,8 @@ Rules for fixing:
 - INTERNAL_METRIC_LEAK: delete any mention of p-values, tail probabilities, scores, or engine internals entirely; they are not TradeWave statistics.
 - QUOTABLE_WELDED: the sentence names a year and then pastes a quotable naming it again. Rewrite it as ONE clean sentence that states the year once. Keep every number; change only the phrasing.
 
-{INVARIANTS}
+{_invariants_for(card)}
+{_private_stage(card, 'revise')}
 
 ANGLE CARD:
 {json.dumps(_card_digest(card), ensure_ascii=False)}
