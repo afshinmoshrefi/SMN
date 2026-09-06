@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 import math
 import re
 from statistics import median
@@ -62,8 +63,20 @@ def clean_observations(rows: list[dict]) -> tuple[list[dict], dict]:
                    "missing_mae": sum(r["mae"] is None for r in valid)}
 
 
-def _median(values: list[float]) -> float | None:
-    return round(median(values), 2) if values else None
+def round_percent(value) -> float:
+    """Round decimal percentage facts half-up, avoiding binary-float tie drift."""
+    return float(Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+
+def rounded_median(values: list[float]) -> float | None:
+    return round_percent(median([Decimal(str(v)) for v in values])) if values else None
+
+
+def rounded_mean(values: list[float]) -> float | None:
+    return round_percent(sum(Decimal(str(v)) for v in values) / len(values)) if values else None
+
+
+_median = rounded_median
 
 
 def summarize_returns(rows: list[dict]) -> dict:
@@ -77,10 +90,10 @@ def summarize_returns(rows: list[dict]) -> dict:
             "up_years": sum(n > 0 for n in nets),
             "down_years": sum(n < 0 for n in nets),
             "flat_years": sum(n == 0 for n in nets),
-            "up_rate_pct": round(100 * sum(n > 0 for n in nets) / len(nets), 2) if nets else None,
-            "down_rate_pct": round(100 * sum(n < 0 for n in nets) / len(nets), 2) if nets else None,
+            "up_rate_pct": round_percent(Decimal(100 * sum(n > 0 for n in nets)) / len(nets)) if nets else None,
+            "down_rate_pct": round_percent(Decimal(100 * sum(n < 0 for n in nets)) / len(nets)) if nets else None,
             "median_net": _median(nets),
-            "avg_net": round(sum(nets) / len(nets), 2) if nets else None,
+            "avg_net": rounded_mean(nets),
             "best_year": best.get('year'), "best_net": best.get('net'),
             "worst_year": worst.get('year'), "worst_net": worst.get('net')}
 
@@ -109,7 +122,7 @@ def build_cell_evidence(cell: dict) -> dict:
     # separate medians generally do not describe the same observation.
     paired = [r for r in rows if r["mfe"] is not None and r["mfe"] >= r["net"]]
     quality['invalid_giveback_pairs'] = sum(r['mfe'] is not None and r['mfe'] < r['net'] for r in rows)
-    givebacks = [r["mfe"] - r["net"] for r in paired]
+    givebacks = [Decimal(str(r["mfe"])) - Decimal(str(r["net"])) for r in paired]
     giveback = {"median_pp": _median(givebacks), "n": len(paired),
                 "years": [r["year"] for r in paired],
                 "definition": "Median of each observation's highest return minus its ending return; "

@@ -141,7 +141,7 @@ class WindowAndCohortTests(unittest.TestCase):
         self.assertEqual((recent['n'], earlier['n']), (5, 10))
         self.assertFalse(set(recent['years']) & set(earlier['years']))
         self.assertEqual(recent['median_net'], 4.68)
-        self.assertEqual(earlier['median_net'], 8.12)
+        self.assertEqual(earlier['median_net'], 8.13)  # 8.125, decimal half-up
         self.assertIn((5, 5), _allowed_pairs(make_card()))
 
     def test_small_samples_omit_comparison_and_risk_timing_is_unknown(self):
