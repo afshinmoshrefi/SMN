@@ -79,7 +79,7 @@ def render_baseline_bars(card: dict, output_dir: str | Path) -> dict:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from matplotlib.ticker import PercentFormatter
+    from matplotlib.ticker import FuncFormatter
 
     years = [r['year'] for r in rows]
     nets = [r['net'] for r in rows]
@@ -90,7 +90,7 @@ def render_baseline_bars(card: dict, output_dir: str | Path) -> dict:
                       color=['#32658c' if v>=0 else '#b46f35' for v in nets],width=.68,zorder=3)
         ax.axhline(0,color='#35424c',linewidth=.9,zorder=2)
         ax.set_xticks(range(len(years)),[str(y) for y in years],rotation=45,ha='right')
-        ax.yaxis.set_major_formatter(PercentFormatter(xmax=100,decimals=0))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f'{value:g}%'))
         ax.set_ylabel('Return over the historical window')
         ax.grid(axis='y',color='#d8dfe4',linewidth=.6,zorder=0)
         ax.margins(y=.2)
