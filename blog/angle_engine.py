@@ -44,7 +44,8 @@ import time
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from article_evidence import build_cell_evidence, clean_observations, inclusive_window
+from article_evidence import (build_cell_evidence, clean_observations, inclusive_window,
+                              rounded_median, rounded_mean)
 
 try:
     import requests  # required for network mode only; fixtures work without it
@@ -306,13 +307,13 @@ def derive_cell(raw: Dict[str, Any], *, resource_id: Any, symbol: str,
         horizon_tag=horizon_tag,
         n=len(per_year), up_years=up, down_years=down, flat_years=flat,
         direction=direction,
-        median_net=round(_median(nets), 2),
-        avg_net=round(sum(nets) / len(nets), 2),
+        median_net=rounded_median(nets),
+        avg_net=rounded_mean(nets),
         best_year=best['year'], best_net=best['net'],
         worst_year=worst['year'], worst_net=worst['net'],
-        median_mfe=(round(_median([p['mfe'] for p in per_year if p['mfe'] is not None]), 2)
+        median_mfe=(rounded_median([p['mfe'] for p in per_year if p['mfe'] is not None])
                     if any(p['mfe'] is not None for p in per_year) else None),
-        median_mae=(round(_median([p['mae'] for p in per_year if p['mae'] is not None]), 2)
+        median_mae=(rounded_median([p['mae'] for p in per_year if p['mae'] is not None])
                     if any(p['mae'] is not None for p in per_year) else None),
         per_year=per_year, stats_raw=stats,
     )
