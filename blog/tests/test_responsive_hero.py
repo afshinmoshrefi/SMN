@@ -137,6 +137,19 @@ class ResponsiveHeroTests(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec('matplotlib'), 'matplotlib renderer dependency unavailable')
 class MobileChartRenderTests(unittest.TestCase):
+    def test_baseline_axis_preserves_fractional_percentage_ticks(self):
+        import matplotlib.pyplot as plt
+        try:
+            with tempfile.TemporaryDirectory() as directory, patch.object(plt, 'close'):
+                private_charts.render_baseline_bars(card_fixture(), directory)
+                formatter = plt.gcf().axes[0].yaxis.get_major_formatter()
+                for value, expected in ((2.5, '2.5%'), (7.5, '7.5%'), (12.5, '12.5%'),
+                                        (-2.5, '-2.5%'), (.005, '0.005%')):
+                    with self.subTest(value=value):
+                        self.assertEqual(formatter(value), expected)
+        finally:
+            plt.close('all')
+
     def test_mobile_and_desktop_share_exact_evidence_and_real_png_hashes(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(private_charts, '_render_mobile_comparison', wraps=private_charts._render_mobile_comparison) as mobile:
