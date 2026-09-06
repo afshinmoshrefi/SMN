@@ -68,9 +68,15 @@ def derive_history_panel(ohlc, session_manifest, *, instrument, anchor_date,
         # date has completed. A supplied older boundary cannot hide it.
         prior=[d for d in sessions if d<now.date()]
         if prior and latest<max(prior):raise ValueError('stale completed-session boundary')
-        if latest==now.date():
-            close=datetime.fromisoformat(session_manifest['expected_latest_close'].replace('Z','+00:00'))
-            if close.tzinfo is None or close.astimezone(timezone.utc)>now or close.date()!=latest:raise ValueError('same-day close not completed')
+        if now.date() in sessions:
+            # Audit-day close must be supplied even if the caller claims the
+            # previous session is latest. Otherwise it can conceal today's
+            # completed but missing data by claiming an older boundary.
+            close_text=session_manifest.get('audit_session_close',session_manifest.get('expected_latest_close'))
+            close=datetime.fromisoformat(close_text.replace('Z','+00:00'))
+            if close.tzinfo is None or close.astimezone(timezone.utc).date()!=now.date():raise ValueError('audit-day close is unknown')
+            expected_boundary=now.date() if close.astimezone(timezone.utc)<=now else max(prior)
+            if latest!=expected_boundary:raise ValueError('incorrect as-of completed-session boundary')
         last=cutoff.year
         while _date(inclusive_window(date(last,anchor.month,anchor.day).isoformat(),days)['end_date'])>=cutoff:last-=1
         first=last-requested_years+1
