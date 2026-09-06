@@ -55,13 +55,21 @@ def prepare_news_candidate(candidate: dict, *, as_of, policy: NewsPolicy | None 
     depend on source numbering, retrieval time or editorial wording. Fact hashes identify text,
     not semantic novelty: this adapter never invents a supersession relation.
     """
-    clock, policy = utc_time(as_of), policy or NewsPolicy()
+    clock = utc_time(as_of)
+    activity = candidate.get('kind') == 'activity' or candidate.get('discovery_route') == 'stock_volume'
+    # The latest COMPLETED session remains current over exchange holidays.
+    # The arithmetic adapter verifies its calendar boundary before this grace.
+    policy = policy or (NewsPolicy(max_event_age_hours=120, max_source_age_hours=120) if activity else NewsPolicy())
     if policy.enabled or policy.automatic_publication:
         raise ValueError('Private news policy must remain disabled and unpublished')
     for field in ('max_event_age_hours', 'max_source_age_hours', 'max_verification_age_hours'):
         if type(getattr(policy, field)) is not int or getattr(policy, field) <= 0:
             raise ValueError('Private freshness limits must be positive whole hours')
-    item = deepcopy(candidate)
+    if activity:
+        from stock_activity import attach_activity_event
+        item = attach_activity_event(candidate, as_of=as_of)
+    else:
+        item = deepcopy(candidate)
     for key in ('news_gate', 'cohort_gate', 'seasonal_eligible', 'news_eligible', 'event', 'news_validation'):
         item.pop(key, None)
     packet = item.get('news_packet') or {}
@@ -69,6 +77,8 @@ def prepare_news_candidate(candidate: dict, *, as_of, policy: NewsPolicy | None 
     event, research = packet.get('event', {}), packet.get('research', {})
     checked = validate_event(event, research, now=clock, policy=policy)
     issues = list(checked['issues'])
+    if activity and not item['activity_gate']['research_candidate']:
+        issues.append('stock_volume_not_an_eligible_research_candidate')
     event = event if isinstance(event, dict) else {}
     sources = {s['id']: s for s in checked['sources']}
     claims = {c['id']: c for c in checked['claims']}
@@ -132,8 +142,12 @@ def generate_private_news(candidate: dict, *, as_of, send=None, output_dir=None)
         return {'status': 'hold', 'publishable': False, 'policy_mode': 'private_v2',
                 'provider_calls': 0, 'selection': lineup, 'news_gate': item['news_gate']}
     packet = item['news_packet']
+    policy = (NewsPolicy(max_event_age_hours=120, max_source_age_hours=120)
+              if item.get('discovery_route') == 'stock_volume' else None)
     result = run_news_article(packet['event'], packet['research'], send=send,
                               now=as_of, output_dir=output_dir, reader_policy='private_v2',
-                              reader_question=item.get('question'))
+                              reader_question=item.get('question'), policy=policy)
     result.update(news_gate=item['news_gate'], policy_mode='private_v2', publishable=False)
+    if item.get('activity_gate'):
+        result['activity_gate'] = item['activity_gate']
     return result

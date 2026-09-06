@@ -32,7 +32,7 @@ def prepare_candidate(candidate: dict, *, as_of: str) -> dict:
     item.pop('cohort_gate', None)
     item.pop('news_gate', None)
     item.pop('context_gate', None)
-    if item.get('kind') == 'news':
+    if item.get('kind') in {'news', 'activity'}:
         from private_news import prepare_news_candidate
         return prepare_news_candidate(item, as_of=as_of)
     inputs = item.get('seasonality') or {}

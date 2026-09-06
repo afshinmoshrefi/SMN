@@ -29,6 +29,7 @@ Separate what happened from interpretation, reported expectations from decisions
 Make clear why this event matters to the reader and what development would clarify its implications. Do not invent a date for the next development.
 Use specific calendar dates for dated news. The article's as-of time is supplied by code; a recent retrieval or refreshed generic webpage does not make an old event new.
 Use direct, economical prose. Each paragraph must add information; do not retell the opening in a summary, table and conclusion. No stock phrases, clever metaphors, market drama, unsupported mechanisms, generic disclaimers or procedural discussion of the research packet.
+Lead with the consequential development and the reader's stake in it. For unusual trading activity, connect the observed move to the relevant reported business development in the opening, without claiming that timing proves causation. Round large counts naturally while preserving their meaning; calculation precision belongs in the evidence. Explain what the reader should watch, not what the research system cannot prove. Source limitations constrain the prose and should be stated only where they change a reader's interpretation. Do not turn the opening into a lesson about statistical causation, data adjustments or trader anonymity. A phrase such as "after the release" can report chronology without making a causal claim.
 Use original wording and no em dashes. Do not quote source prose unless necessary; never quote more than 25 words from one reporting source. Respect any source's max_summary_words limit for material derived from that source across the whole article.
 No HTML, Markdown citation markers, URLs or source numbers in text fields. Return the specified JSON only. Code renders safe text and source links from claim_ids.
 """
@@ -52,7 +53,8 @@ def evidence_packet(event: dict, validation: dict) -> dict:
 
 
 def build_plan_prompt(evidence: dict) -> str:
-    return _GROUNDING + """
+    from news_seasonality import context_instructions
+    return _GROUNDING + context_instructions(evidence) + """
 Task: PLAN a concise news explanation before writing it. Select one useful reader question that the evidence can answer. The focus is the event, not a required seasonal hook.
 Return this JSON shape:
 {"feasible":true,"reader_question":"...","answer":"...","claim_ids":["c1"],
@@ -60,6 +62,11 @@ Return this JSON shape:
  "unknowns":["A material unresolved question"],"word_budget":550}
 If the evidence cannot sustain an accurate useful article, return {"feasible":false,"veto_reason":"specific reason"}.
 Use 2 to 5 sections and a word_budget between 300 and 700. Allocate space to what happened, why it matters and who is affected, material uncertainty, and what to watch next. These are reader needs, not mandatory section titles; choose natural headings. Fewer sections are preferable when they answer the question fully. claim_ids must come from the packet.
+When seasonal_context.status is available, also return
+"seasonal_context_decision":{"action":"include|omit","record_ids":["chosen record ID"],"reason":"why this history helps answer this event's question, or why it would distract"}.
+An include decision requires the corresponding seasonal:ID in claim_ids and a
+planned compact connection paragraph. At most two records. An omit decision has
+record_ids:[] and an explicit editorial reason. Availability alone does not demand inclusion.
 EVIDENCE DATA:
 """ + json.dumps(evidence, ensure_ascii=False)
 
@@ -90,11 +97,16 @@ def validate_plan(plan: dict, evidence: dict) -> dict:
     budget = plan.get("word_budget")
     if isinstance(budget, bool) or not isinstance(budget, int) or not 300 <= budget <= 700:
         raise NewsOutputError("Plan word_budget must be 300 to 700")
+    from news_seasonality import validate_context_decision
+    context_issues = validate_context_decision(plan, evidence)
+    if context_issues:
+        raise NewsOutputError(','.join(context_issues))
     return plan
 
 
 def build_write_prompt(evidence: dict, plan: dict) -> str:
-    return _GROUNDING + """
+    from news_seasonality import context_instructions
+    return _GROUNDING + context_instructions(evidence) + """
 Task: WRITE the article using the evidence and approved plan. Return this JSON shape:
 {"title":"...","title_claim_ids":["c1"],"dek":"...","dek_claim_ids":["c1"],
  "takeaways":[{"text":"One useful implication or distinction","claim_ids":["c1"]}],
@@ -105,10 +117,20 @@ EVIDENCE DATA:
 
 
 def build_review_prompt(evidence: dict, plan: dict, article: dict, issues: list[str]) -> str:
-    return _GROUNDING + """
+    from news_seasonality import context_instructions
+    return _GROUNDING + context_instructions(evidence) + """
 Task: Independently REVIEW the draft against actual source excerpts, not just claim labels. Check title, dek, takeaways, section headings and paragraphs. A known citation ID does not prove the text is supported. Find unsupported or misattributed facts, bad chronology, numerical mistakes, quotations absent from evidence, causal overreach, implications stronger than evidence, stale news portrayed as current, missing material caveats, repetition and paragraphs that add no value.
 Return {"passed":true,"issues":[]} or {"passed":false,"issues":[{"severity":"hard|editorial","location":"...","problem":"...","fix":"..."}]}.
 Any substantive factual or editorial issue requires passed=false. A draft must answer the reader's question economically and identify useful next developments without inventing schedules. Do not demand seasonal statistics, a TradeWave bridge or an AI probability. Do not add new facts in suggested fixes.
+Hold an opening that spends its space on research limitations before explaining the actual development and investor consequence. Judge whether caution is useful in its location or merely copied from the evidence's technical interpretation limits.
+If seasonal_context.status is available, independently judge the include/omit
+decision and return seasonal_context_review with decision_appropriate (boolean)
+and reason. If included, also return connection_quote (exact paragraph),
+reader_value (specific explanation), qualifications_complete (boolean), and
+calendar_not_event_conditioned (boolean). An unrelated statistic, missing
+material contrary history, bond price/yield confusion, or calendar returns
+presented as post-news/event returns requires false. Check figures against the
+computed records. Compact context can be useful without predicting an outcome.
 EVIDENCE DATA:
 """ + json.dumps(evidence, ensure_ascii=False) + "\nPLAN DATA:\n" + json.dumps(plan, ensure_ascii=False) + \
         "\nDRAFT DATA:\n" + json.dumps(article, ensure_ascii=False) + "\nDETERMINISTIC CHECKS:\n" + json.dumps(issues)
@@ -202,5 +224,7 @@ def article_checks(article: dict, evidence: dict, plan: dict) -> dict:
     normalized = [re.sub(r"\W+", " ", t.lower()).strip() for t in texts]
     if len(set(normalized)) != len(normalized):
         issues.append("duplicated_text")
+    from news_seasonality import check_context_article
+    issues.extend(check_context_article(article, plan, evidence))
     return {"passed": not issues, "issues": list(dict.fromkeys(issues)), "word_count": words,
             "word_budget": plan["word_budget"]}

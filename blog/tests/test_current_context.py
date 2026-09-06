@@ -34,6 +34,10 @@ def assignment(angle='GROWTH_CHECK'):
         'reader_question': 'What does sales growth tell Walmart shareholders about the outlook?',
         'reader_value': 'Whether sales growth changes the operating outlook.',
         'why_now': 'The latest quarterly sales update.', 'fact_ids': ['sales', 'outlook'],
+        'story_connection': {'trigger': 'seasonal_window', 'trigger_fact_ids': [],
+            'context_fact_ids': ['sales', 'outlook'], 'checkpoint_fact_ids': [],
+            'relationship': 'contextual', 'connection': 'The current outlook gives the approaching seasonal period business context.',
+            'reader_payoff': 'Understand what to watch as the seasonal period unfolds.'},
         'angle_reason': 'An operating update needs interpretation, with history as context.'}
 
 
@@ -73,8 +77,8 @@ class CurrentContextTests(unittest.TestCase):
         item = prepare_candidate(c, as_of=NOW)
         self.assertTrue(item['context_gate']['eligible'])
         self.assertEqual(c, original)
-        self.assertNotIn('story:/evidence/window', item['card']['reader_brief']['why_now_evidence_refs'])
-        self.assertTrue(all(r.startswith('current:') for r in item['card']['reader_brief']['why_now_evidence_refs']))
+        self.assertIn('publication:/window', item['card']['reader_brief']['why_now_evidence_refs'])
+        self.assertTrue(any(r.startswith('current:') for r in item['card']['reader_brief']['why_now_evidence_refs']))
 
     def test_research_adapter_does_not_need_to_prewrite_the_question(self):
         c = current_candidate()
@@ -183,6 +187,38 @@ class CurrentContextTests(unittest.TestCase):
         brief = {'editorial_mode': 'current_context', 'required_qualifications': []}
         article = '<p class="dek">Context</p><p>Twenty historical observations.</p><p class="direct-answer">Business fact.</p><p class="seasonal-context">Mixed history.</p>'
         self.assertIn('PROMISE_OPENING_ORDER', [i['code'] for i in review_reader_promise(article, brief)['issues']])
+
+    def test_old_background_cannot_pass_as_recent_news(self):
+        prepared = prepare_candidate(current_candidate(), as_of=NOW)
+        value = assignment()
+        value['story_connection'].update(trigger='recent_development', trigger_fact_ids=['sales'])
+        with self.assertRaisesRegex(ValueError, 'Old background'):
+            parse_assignment(json.dumps(value), prepared['card']['current_context'], prepared['selection_evidence'])
+
+    def test_missing_connection_and_invented_checkpoint_hold(self):
+        prepared = prepare_candidate(current_candidate(), as_of=NOW)
+        for change in ('missing', 'checkpoint'):
+            value = assignment()
+            if change == 'missing':
+                value.pop('story_connection')
+            else:
+                value['story_connection']['checkpoint_fact_ids'] = ['sales']
+            with self.assertRaises(ValueError):
+                parse_assignment(json.dumps(value), prepared['card']['current_context'], prepared['selection_evidence'])
+
+    def test_late_publication_hook_cannot_pass_by_quoting_the_ending(self):
+        from reader_promise import review_reader_promise, fingerprint
+        prepared = prepare_candidate(current_candidate(), as_of=NOW)
+        brief = prepared['card']['reader_brief']
+        prose = ('<h1>Company</h1><p class="dek">Background</p><p class="direct-answer">Sales grew.</p>'
+                 '<p>More fundamentals.</p><p>Even more fundamentals.</p>'
+                 '<p class="seasonal-context">The seasonal window starts soon.</p>')
+        review = {'article_sha256': fingerprint(prose), 'brief_sha256': fingerprint(brief),
+            'checks': [{'check_id': 'publication_reason', 'judgment': 'supported',
+                'quote': 'The seasonal window starts soon.', 'evidence_refs': ['publication:/window', 'current:sales'],
+                'reason': 'This passage is too late, even though its facts are supported.'}]}
+        issues = review_reader_promise(prose, brief, review=review)['issues']
+        self.assertTrue(any(i['code'] == 'PROMISE_PASSAGE_MISSING' and 'publication_reason' in i['detail'] for i in issues))
 
 
 if __name__ == '__main__':

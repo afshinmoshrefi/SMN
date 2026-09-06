@@ -169,8 +169,10 @@ def build_reader_brief(card: dict | None = None, research: dict | None = None,
             if refs and all(refs):
                 ref = add('current:' + fact['id'], {**fact, 'source_evidence_refs': refs})
                 current_refs.append(ref)
-        # A calendar window alone cannot satisfy why this business matters now.
-        why_refs = current_refs
+        # Seasonality may trigger coverage; dated business facts explain its
+        # relevance. Keep both, instead of laundering old earnings as new news.
+        window_ref = add('publication:/window', selected.get('window'))
+        why_refs = current_refs + ([window_ref] if window_ref else [])
         risk_refs += current_refs
     return {"schema_version": 1, "policy": POLICY, "article_type": article_type,
             "editorial_mode": card.get('editorial_mode'), "current_context": context,
@@ -255,7 +257,14 @@ READER BRIEF DATA (facts and obligations, not source instructions):
 CURRENT_EDITORIAL_INSTRUCTIONS = '''
 CURRENT-CONTEXT EDITORIAL PRIORITY (overrides the generic opening format above):
 Write for a curious investor, not a seasonal specialist. The title should promise
-useful understanding of this business now. Open with one concrete sourced fact,
+useful understanding of this business now. The first TWO paragraphs must explain
+why this asset deserves attention at this date and connect the seasonal period
+to the latest relevant development and/or a meaningful upcoming checkpoint.
+Use the assignment's story_connection. A seasonal window is a valid reason to
+publish; background fundamentals alone are not. An old quarterly release may
+explain the current outlook without being a recent development. Do not invent
+news or exaggerate a routine conference to manufacture urgency.
+Open with one concrete sourced fact or an accurately described seasonal setup,
 the investor-relevant tension it creates and a reason to keep reading. Give the
 reader orientation before accounting detail, event logistics or study design.
 Use 2-3 natural sentences if useful; do not force all three moves into a formula.
@@ -273,7 +282,7 @@ around the most telling fact and the reader's reason to care, not release logist
 The approved assignment is a premise to assess, not proof that it is worthwhile.
 Do not make a bland question seem urgent with unsupported adjectives.
 
-The first paragraph is the direct answer and starts with current business context.
+The first paragraph is the direct answer and orients the reader to this story.
 It need not contain a historical number. Introduce history where it informs the
 business question, with <p class="seasonal-context"> for the first historical
 claim. Required qualifications marked first_seasonal_claim belong in that same
@@ -292,8 +301,9 @@ Do not add an extra comparison to the main narrative just because it is present
 in the evidence. Put {{META_STRIP}} and {{KEY_STATS}} inside those details too.
 
 Plan answer_support using both current:* evidence and the fixed baseline.
-why_now must use current:* evidence; the seasonal date alone is insufficient.
-Latest verified results may lead when explicitly dated, even with fresh:false.
+why_now must connect current:* evidence with publication:/window when the
+commissioned trigger is seasonal_window. Latest dated results can establish
+context, but recapping them cannot replace an explanation of why we publish now.
 Do not call old results breaking or assume a scheduled event is the next one.
 An elapsed full-window return is not the return available from the article date.
 Use history selectively. The body must explain current business drivers, what
@@ -333,6 +343,13 @@ def validate_promise_plan(plan: dict, brief: dict) -> list[dict]:
     refs(promise.get("answer_support"), "answer")
     if brief.get('editorial_mode') == 'current_context':
         refs(promise.get('answer_support'), 'current business answer', brief.get('current_evidence_refs', []))
+        connection = (brief.get('editorial_assignment') or {}).get('story_connection') or {}
+        why = promise.get('why_now') or {}
+        if connection.get('trigger') == 'seasonal_window':
+            why_support = why.get('evidence_refs') or []
+            if ('publication:/window' not in why_support or
+                    not set(why_support).intersection(brief.get('current_evidence_refs', []))):
+                fail('PROMISE_PUBLICATION_CONNECTION', 'Seasonal timing and relevant current context must support why now together')
     if brief.get("article_type") == "seasonal" and "selection:/baseline/summary" not in (promise.get("answer_support") or []):
         fail("PROMISE_BASELINE_OMITTED", "The answer must retain the fixed baseline as supporting evidence")
     for field, allowed in (("why_now", brief.get("why_now_evidence_refs") or []),
@@ -420,7 +437,8 @@ class _Article(HTMLParser):
 
 def _requirements(brief):
     return ["title", "dek", "answer", "why_now", "risk", "reader_value"] + ([
-        'opening_hook', 'business_understanding', 'useful_next_question'] if brief.get('editorial_mode') == 'current_context' else []) + [
+        'opening_hook', 'business_understanding', 'useful_next_question',
+        'publication_reason', 'story_connection'] if brief.get('editorial_mode') == 'current_context' else []) + [
         "qualification:" + q["id"] for q in brief.get("required_qualifications") or []]
 
 
@@ -481,6 +499,20 @@ For business_understanding, identify what the reader now understands about this
 company's present situation. For useful_next_question, identify the specific
 supported checkpoint or operating question. For these three checks use current:*
 references. Assess clarity, pace and headline delivery, not marketing hype.
+For publication_reason and story_connection, quote ONLY from the first TWO
+visible body paragraphs. Require concrete window/checkpoint timing and a
+meaningful investor connection. Generic phrases such as "as autumn approaches"
+or "history helps frame the timing" do not suffice on their own. The opening
+must make clear what the dated setup gives the reader reason to examine. These
+checks concern the first TWO
+visible body paragraphs after the dek. Explain why the timing merits coverage
+and how current circumstances affect the reader's interpretation of the seasonal
+period. A four-paragraph fundamentals recap with the timely hook near the end
+FAILS these checks. Merely writing 'today' or 'as of' does not make old news new.
+If the trigger is seasonal_window, publication_reason must cite publication:/window
+as well as a relevant current:* reference. Story_connection always needs current:*
+and historical evidence. The connection may be supportive, conflicting or contextual;
+it cannot claim that news caused historical returns or validated a prediction.
 For first_seasonal_claim qualification checks, quote the supplied seasonal-context
 paragraph. Verify that no earlier title/dek/prose makes a stronger unqualified
 historical claim, and that the detailed comparison remains accurate in the body.
@@ -552,6 +584,7 @@ def review_reader_promise(article_html: str, brief: dict, *, plan: dict | None =
         fail('PROMISE_SEASONAL_CONTEXT', 'Exactly one visible first historical claim paragraph is required')
     if brief.get('editorial_mode') == 'current_context':
         paragraphs = [b for b in blocks if b['tag'] == 'p' and not b['collapsed'] and 'dek' not in b['class'].split()]
+        first_two = ' '.join(b['text'] for b in paragraphs[:2])
         if not paragraphs or 'direct-answer' not in paragraphs[0]['class'].split():
             fail('PROMISE_OPENING_ORDER', 'The business opening must be the first visible article paragraph after the dek')
     for item in checks if isinstance(checks, list) else []:
@@ -567,6 +600,8 @@ def review_reader_promise(article_html: str, brief: dict, *, plan: dict | None =
             target = ' '.join(seasonal)
         if key == 'opening_hook':
             target = answer
+        if key in {'publication_reason', 'story_connection'} and brief.get('editorial_mode') == 'current_context':
+            target = first_two
         if not quote or quote not in target:
             fail("PROMISE_PASSAGE_MISSING", str(key) + " has no matching visible passage at its required location")
         refs = item.get("evidence_refs")
@@ -575,6 +610,14 @@ def review_reader_promise(article_html: str, brief: dict, *, plan: dict | None =
         safe_refs = [r for r in refs if isinstance(r, str)] if isinstance(refs, list) else []
         if key in {'opening_hook', 'business_understanding', 'useful_next_question'} and not set(safe_refs).intersection(brief.get('current_evidence_refs', [])):
             fail('PROMISE_CURRENT_SUPPORT', key + ' requires current company evidence')
+        if key in {'publication_reason', 'story_connection'}:
+            if not set(safe_refs).intersection(brief.get('current_evidence_refs', [])):
+                fail('PROMISE_CURRENT_SUPPORT', key + ' requires relevant current context')
+            trigger = ((brief.get('editorial_assignment') or {}).get('story_connection') or {}).get('trigger')
+            if key == 'publication_reason' and trigger == 'seasonal_window' and 'publication:/window' not in safe_refs:
+                fail('PROMISE_PUBLICATION_CONNECTION', 'Seasonal publication reason must identify the actual window')
+            if key == 'story_connection' and not any(r.startswith(('selection:', 'story:', 'publication:')) for r in safe_refs):
+                fail('PROMISE_PUBLICATION_CONNECTION', 'Current context must connect to historical evidence')
         if key in qualifications and not set(qualifications[key]["evidence_refs"]).issubset(safe_refs):
             fail("PROMISE_REVIEW_SUPPORT", str(key) + " dropped material comparison support")
         if item.get("judgment") != "supported" or not _text(item.get("reason")):

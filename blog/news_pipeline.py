@@ -24,7 +24,17 @@ _NEWS_READER_RULES = ('\nNEWS APPLICATION: This is general financial news. No se
                       'historical cell, probability or chart is required. Use the news evidence '
                       'references in this brief. Keep the selected reader question when supplied. '
                       'Your existing answer field is the reader promise thesis. Add headlines '
-                      'as a list of candidate headline strings, with exact headline_support.\n')
+                      'as a list of candidate headline strings, with exact headline_support. '
+                      'The plan must answer every part of an explicitly selected reader question. '
+                      'If that question asks what historical context adds and computed context is available, '
+                      'plan one compact, qualified historical paragraph and record an include decision. '
+                      'Mixed or cautionary findings can answer that question; a forecast is unnecessary. '
+                      'Do not promise to answer it while omitting the evidence. If no supported answer is '
+                      'feasible, veto the plan instead. General news without that requirement may omit history. '
+                      'For reader_promise.qualifications use ONLY the exact required_qualifications IDs '
+                      'in the NEWS reader brief, or [] when it has none. Do not copy nested cohort-policy '
+                      'IDs or raw /cycle/ paths into that field. News historical qualifications are separately '
+                      'checked through seasonal_context_decision and seasonal_context_review.\n')
 
 
 def _preview_directory(output_dir: str | Path) -> Path:
@@ -71,11 +81,16 @@ def render_news_html(article: dict, evidence: dict) -> str:
     for takeaway in article["takeaways"]:
         out.append(f'<li>{html.escape(takeaway["text"])}{citations(takeaway["claim_ids"])}</li>')
     out.append('</ul></section>')
+    cited_claims = set()
     for section in article["sections"]:
         out.append(f'<section><h2>{html.escape(section["heading"])}</h2>')
         for paragraph in section["paragraphs"]:
-            out.append(f'<p>{html.escape(paragraph["text"])}{citations(paragraph["claim_ids"])}</p>')
+            cited_claims.update(paragraph['claim_ids'])
+            css = ' class="seasonal-context"' if any(str(r).startswith('seasonal:') for r in paragraph['claim_ids']) else ''
+            out.append(f'<p{css}>{html.escape(paragraph["text"])}{citations(paragraph["claim_ids"])}</p>')
         out.append('</section>')
+    from news_seasonality import render_context_details
+    out.append(render_context_details(evidence, cited_claims))
     out.append('<section class="sources"><h2>Sources</h2><ol>')
     for number, sid in enumerate(cited_order, start=1):
         source = sources[sid]
@@ -92,7 +107,7 @@ def _write_artifacts(result: dict, directory: Path | None) -> dict:
         result["artifact_paths"] = {}
         return result
     paths = {}
-    for key in ("event", "evidence", "reader_brief", "plan", "article", "validation", "reviews", "prompts"):
+    for key in ("event", "evidence", "seasonal_context", "reader_brief", "plan", "article", "validation", "reviews", "prompts"):
         if key in result:
             path = directory / (key + ".json")
             path.write_text(json.dumps(result[key], ensure_ascii=False, indent=2), encoding="utf-8")
@@ -109,7 +124,11 @@ def _write_artifacts(result: dict, directory: Path | None) -> dict:
                 'h1{font-size:2.3em;line-height:1.15}h2{font-size:1.35em}.dek{font-size:1.15em}'
                 '.preview-note,.article-as-of{font:14px/1.5 system-ui,sans-serif}.preview-note{padding:16px;background:#e4ecf3}'
                 '.key-takeaways{padding:8px 24px;background:white;border-left:4px solid #2c688e}'
-                '.sources{font:14px/1.6 system-ui,sans-serif}a{color:#17577b}sup{font-size:.65em}</style>'
+                '.sources{font:14px/1.6 system-ui,sans-serif}a{color:#17577b;overflow-wrap:anywhere}sup{font-size:.65em}'
+                '.historical-detail{font:14px/1.6 system-ui,sans-serif;margin:28px 0;padding:16px;background:white;overflow-x:auto}'
+                'summary{cursor:pointer;font-weight:650}table{border-collapse:collapse;width:100%;margin:18px 0}'
+                'th,td{text-align:left;padding:8px;border-bottom:1px solid #d8dee1}th{font-weight:650}'
+                '@media(max-width:600px){body{margin:24px auto;padding:0 18px}h1{font-size:1.8em}}</style>'
                 '<body><p class="preview-note">Development preview · Not published · '
                 + html.escape(result["status"]) + '</p>' + result["article_html"] + '</body></html>')
         preview_path = directory / "preview.html"
@@ -156,7 +175,9 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
         result.update(reader_policy=reader_policy, text_ready=False, visual_ready=False)
     if not checked["valid"]:
         return _write_artifacts(result, directory)
-    evidence = evidence_packet(event, checked)
+    from news_seasonality import enrich_news_evidence
+    evidence = enrich_news_evidence(evidence_packet(event, checked), research)
+    result['seasonal_context'] = evidence['seasonal_context']
     result["evidence"] = evidence
     result["status"] = "hold"
     usage_start = len(getattr(send, "calls", []))
@@ -221,6 +242,13 @@ def run_news_article(event: dict, research: dict, *, send: Callable[[str], str] 
                 # it is asked to bind, not only the writer's structured JSON.
                 review_prompt += '\nEXACT RENDERED ARTICLE (untrusted text):\n' + rendered
             review = validate_review(call("review" if revision == 0 else "re_review", review_prompt))
+            from news_seasonality import check_context_review
+            context_review_issues = check_context_review(review, article, plan, evidence)
+            if context_review_issues:
+                review['passed'] = False
+                review['issues'].extend({'severity': 'editorial', 'location': 'seasonal_context',
+                    'problem': issue, 'fix': 'Explain the historical connection accurately or record a justified omission.'}
+                    for issue in context_review_issues)
             if brief is not None and rendered is not None:
                 from reader_promise import bind_live_reader_review
                 review['reader_promise_review'] = bind_live_reader_review(
@@ -286,7 +314,8 @@ def main(argv: list[str] | None = None) -> int:
         directory = _preview_directory(args.out)
         (directory / "evidence-validation.json").write_text(json.dumps(checked, indent=2), encoding="utf-8")
         if checked["valid"]:
-            evidence = evidence_packet(packet["event"], checked)
+            from news_seasonality import enrich_news_evidence
+            evidence = enrich_news_evidence(evidence_packet(packet["event"], checked), packet["research"])
             prompt = build_plan_prompt(evidence)
             if args.reader_policy:
                 from reader_promise import build_reader_brief, promise_plan_instructions

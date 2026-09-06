@@ -142,8 +142,13 @@ Return exactly:
 {"feasible":true,"hold_reason":"","angle":"one allowed angle",
  "reader_question":"one plain investor question, no more than 40 words",
  "reader_value":"what understanding the reader gains",
- "why_now":"specific business relevance as of the supplied date",
+ "why_now":"why this particular story deserves attention at this date",
  "fact_ids":["at least one current_baseline ID plus any relevant fact IDs"],
+ "story_connection":{"trigger":"seasonal_window|recent_development|upcoming_checkpoint",
+   "trigger_fact_ids":[],"context_fact_ids":["relevant existing fact ID"],
+   "checkpoint_fact_ids":[],"relationship":"supportive|conflicting|checkpoint|contextual",
+   "connection":"how the current development or checkpoint changes the reader's interpretation of this seasonal period",
+   "reader_payoff":"what the reader will understand or know to watch"},
  "angle_reason":"why this framing fits these facts and the history, at most 80 words"}.
 Use feasible:false with hold_reason when no worthwhile supported story exists.
 Do not manufacture tension or claim stock performance, valuation, analyst
@@ -151,6 +156,24 @@ expectations or causal history explanations absent from the evidence.
 Do not make ordinary uncertainty about the future the headline finding. Tell
 the reader what the operating facts mean, not merely what cannot be proved.
 Factual limitations constrain claims; they are not sentences to copy into prose.
+
+The seasonal window can itself justify publication. You do NOT need breaking
+news. Connect its actual timing to the latest MATERIAL development that still
+matters, and/or a meaningful verified checkpoint. A dated quarterly outlook is
+useful context; it cannot become a new event merely because we rechecked it.
+For seasonal_window leave trigger_fact_ids empty: code binds the exact window.
+For recent_development select facts no older than seven days. For
+upcoming_checkpoint cite a next_checkpoint fact. Context and checkpoint IDs
+must also occur in fact_ids. Explain the relationship, not three disconnected
+summaries. Supportive news is not independent statistical confirmation. Never
+change historical samples to agree with news. A conference appearance without
+a meaningful reader question is a weak premise. The first TWO paragraphs must
+make the publication reason and connection intelligible, before a fundamentals
+recap. An underway seasonal window must be described as underway, never as an
+opportunity to capture the full historical return from today's date.
+The commissioned question should explain why covering this asset at this time
+is useful. Give the writer concrete window/checkpoint dates and an investor
+question connected to those dates, not a generic operating-performance question.
 
 ALLOWED ANGLES:
 ''' + json.dumps(ANGLES) + '\nCURRENT CONTEXT:\n' + json.dumps(context, ensure_ascii=False) + '\nFIXED HISTORICAL EVIDENCE:\n' + json.dumps(historical, ensure_ascii=False)
@@ -175,6 +198,40 @@ def parse_assignment(raw, context, selection_evidence):
     if (not isinstance(refs, list) or not refs or any(not isinstance(r, str) or r not in facts for r in refs)
             or not any(facts[r]['role'] == 'current_baseline' for r in refs)):
         raise ValueError('Editorial assignment needs current baseline support')
+    connection = assignment.get('story_connection')
+    if not isinstance(connection, dict):
+        raise ValueError('Editorial assignment needs a timely story connection')
+    for key in ('connection', 'reader_payoff'):
+        if not _text(connection.get(key)):
+            raise ValueError('Story connection missing ' + key)
+    if connection.get('relationship') not in {'supportive', 'conflicting', 'checkpoint', 'contextual'}:
+        raise ValueError('Unknown relationship between current context and history')
+    for key in ('trigger_fact_ids', 'context_fact_ids', 'checkpoint_fact_ids'):
+        ids = connection.get(key)
+        if not isinstance(ids, list) or any(not isinstance(r, str) or r not in refs for r in ids):
+            raise ValueError('Unbound story connection facts')
+    if not connection['context_fact_ids'] or any(facts[r]['role'] == 'next_checkpoint' for r in connection['context_fact_ids']):
+        raise ValueError('Story connection needs relevant present or past context')
+    if any(facts[r]['role'] != 'next_checkpoint' for r in connection['checkpoint_fact_ids']):
+        raise ValueError('Unverified future checkpoint')
+    trigger, trigger_ids = connection.get('trigger'), connection['trigger_fact_ids']
+    now = _date(context.get('as_of'))
+    if trigger == 'seasonal_window':
+        window = selection_evidence.get('window') or {}
+        end = _date(window.get('end_date'))
+        start = _date(window.get('start_date'))
+        if trigger_ids or not now or not start or not end or end < now or (start - now).days > 30:
+            raise ValueError('Seasonal publication reason is expired or too remote')
+    elif trigger == 'recent_development':
+        if not trigger_ids or any(facts[r]['role'] == 'next_checkpoint' or not now or
+                not 0 <= (now - _date(facts[r]['event_date'])).days <= 7 for r in trigger_ids):
+            raise ValueError('Old background cannot serve as a new development')
+    elif trigger == 'upcoming_checkpoint':
+        if not trigger_ids or any(facts[r]['role'] != 'next_checkpoint' for r in trigger_ids):
+            raise ValueError('Publication reason needs a verified upcoming checkpoint')
+    else:
+        raise ValueError('Unknown publication reason')
+    assignment['schema_version'] = 2
     assignment['binding_sha256'] = assignment_binding(context, selection_evidence)
     return assignment
 
