@@ -119,10 +119,14 @@ def _source(value, index):
                 normalized.append({'malformed': True}); continue
             if raw:
                 parts = str(row.get('pct', '')).split(',')
+                prices = [finite_number(v) for v in str(row.get('price', '')).split(',')]
+                placeholder = (len(parts) == 3 and all(finite_number(v.strip()) == 0 for v in parts)
+                               and (len(prices) != 2 or any(v is None or v <= 0 for v in prices)))
                 normalized.append({'year': row.get('year'),
-                    **({k: v.strip() for k, v in zip(('net', 'mfe', 'mae'), parts)} if len(parts) == 3 else {'malformed': True})})
+                    **({k: v.strip() for k, v in zip(('net', 'mfe', 'mae'), parts)} if len(parts) == 3 else {'malformed': True}),
+                    **({'placeholder': True} if placeholder else {})})
             else:
-                normalized.append({k: row[k] for k in ('year', 'net', 'mfe', 'mae', 'malformed') if k in row})
+                normalized.append({k: row[k] for k in ('year', 'net', 'mfe', 'mae', 'malformed', 'placeholder') if k in row})
     else:
         normalized = [{'malformed': True}]
     identity = value.get('instrument') if isinstance(value.get('instrument'), dict) else value
@@ -256,6 +260,8 @@ def build_selection_evidence(card=None, *, cells=None, observations=None, instru
                 completed = False
             if not completed:
                 exclusions.append({'source_id': sid, 'year': y, 'reason': 'window_not_completed_at_decision'}); continue
+            if row.get('placeholder'):
+                issue('AMBIGUOUS_HISTORICAL_ZERO_PLACEHOLDER',source_id=sid,year=y);continue
             if expected is not None and y not in expected:
                 issue('ROW_OUTSIDE_DECLARED_COHORT', source_id=sid, year=y); continue
             if counts[y] > 1:

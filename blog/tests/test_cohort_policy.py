@@ -258,6 +258,15 @@ class PanelQualityTests(unittest.TestCase):
 
 
 class CanonicalRoundingTests(unittest.TestCase):
+    def test_raw_zero_placeholder_is_not_a_completed_flat_return(self):
+        a=panel_case()
+        a['cells']=[{'request':{'market':'2','symbol':'FIXTURE','entry_date':'2026-08-21','days_out':90,'years':20,'pe_cycle':'cons'},
+                     'ChartData4':[{'year':2017,'pct':'0,0,0','price':'0,0'}]}]
+        e=build_selection_evidence(**a)
+        self.assertIn('AMBIGUOUS_HISTORICAL_ZERO_PLACEHOLDER',codes(e))
+        self.assertFalse(e['pilot_eligibility']['annual_lead'])
+        self.assertTrue(validate_selection_evidence(e)['ok'])
+
     def test_half_up_decimal_ties_match_policy_cells_and_integrity(self):
         for symbol, expected in [('WMT', 2.23), ('JNJ', 3.65)]:
             e = build_selection_evidence(**case(symbol)); c = baseline_cell(e)
