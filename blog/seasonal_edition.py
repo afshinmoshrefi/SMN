@@ -37,6 +37,15 @@ checkpoint with the seasonal window by paragraph two. The window itself may
 justify publication. Date old results honestly. Explain the stakes in plain
 English. The title and opening must make clear why this is an SMN story. Start
 with the concrete investor stakes, not a list of dates or window logistics.
+The headline should connect the seasonal insight to the investor's live question.
+The first paragraph introduces that question in everyday language, with at most
+one useful business figure. Keep a natural, developed sentence or two; brevity
+must not turn the lead into a generic bulletin such as 'sales grew; profits await'.
+Save comparison formulas, metric definitions and
+reporting-period explanations for current_context. There, give the actual
+same-period benchmark needed to answer the question; do not replace a supplied
+benchmark with a vague instruction to watch earnings. This sequence applies to
+any asset: first the decision or uncertainty, then the evidence needed to assess it.
 Avoid self-conscious phrases like 'growth check' and 'useful checkpoint' in
 headlines/deks. Earnings do not need seasonal support: history concerns the
 shares' timing, while earnings provide a development to watch within that
@@ -73,8 +82,15 @@ Finish with the next useful checkpoint/question and what the reader can inspect
 in TradeWave. Do not issue buy/sell instructions or invent prices, forecasts,
 earnings dates, analyst opinions, consensus, interviews or causal mechanisms.
 Use one focused paragraph for a comparison when its chart notes already explain
-the samples. Do not recite every available cohort median. Retain the material
-conflict, era sensitivity and overlap, then explain the investor implication.
+the samples. For a secondary election-cycle comparison, usually two or three
+short sentences (roughly 45-65 words) are enough: explain whether the result
+changes the main reading, the small matched sample if relevant, and the reuse
+of annual observations. The renderer provides an expandable sample table with
+counts, exact observed years and overlap notes. Do not recite its full inventory
+in the prose. A commissioned cycle-led story may need more explanation. Never
+hide a material conflict in a collapsed table. Retain era sensitivity and the
+reader implication, not every available cohort median. When recent and earlier
+periods differ, give one clear like-for-like contrast; do not list all lookbacks.
 In the risk section, one actual year with its ending return and adverse move
 can explain the stakes more clearly than a catalogue of technical exclusions.
 Remove facts merely included because they were available: a conference with no
@@ -86,7 +102,9 @@ cycle matters more than another factor when the evidence merely shows a differen
 Use only supplied sources. Every factual paragraph/takeaway/title/dek cites
 source_ids. Clearly label interpretation as kind='analysis'. Respect each
 source's derived-word budget across all passages; for 200-word issuer sources
-aim below 155 words including title/dek/takeaways. Historical facts come from
+reserve the chart headings, captions, alternative text, accessible tables and
+source labels first, then fit title/dek/takeaways and prose into what remains.
+Never shift a fact to the wrong citation to evade a limit. Historical facts come from
 the source-bound seasonal evidence; do not reuse errors from the old article.
 Aim roughly 450-650 useful prose words, but do not pad to a target. No em dashes.
 
@@ -102,12 +120,26 @@ Opening has no heading and 1-2 paragraphs. All other headings are specific.
 
 EXTRA_CHECKS = {'smn_identity', 'angle_delivery', 'michael_editing', 'tradewave_evidence'}
 
+READER_REVIEW_RULES = '''Judge the headline and opening as a reader deciding
+whether to continue: a concrete investor question and a timely seasonal reason
+must emerge within two paragraphs. Comparison definitions belong later, beside
+the actual reporting-period benchmark. A generic earnings watch is insufficient
+when that benchmark was supplied. A secondary cycle passage should give a short
+reader takeaway, small-sample qualification and overlap meaning; detailed counts
+and year lists can be verified in the rendered disclosure. Do not demand they
+all reappear in prose. Material contrary evidence stays beside the favorable
+claim. A cycle-led commission can warrant more narrative depth. Assess the whole
+rendered page, including its statistics table, exact study links, chart text and
+sample disclosure. Shorter prose is acceptable when it keeps the reader payoff.'''
+
 CSS = '''
 .pattern-meta{display:flex;flex-wrap:wrap;gap:8px 18px;border-block:1px solid #dce4e6;padding:12px 0;font:14px/1.5 system-ui;margin:20px 0}
 .key-stats{padding:20px 24px;background:#f4f7fa;border:1px solid #dce4e6;margin:23px 0;font:15px/1.5 system-ui}.key-stats h3{margin:0;font-size:18px}.key-stats td:last-child{text-align:right;white-space:nowrap}.key-stats p{font-size:12px;margin:8px 0}
 .study-link{display:inline-block;background:#145d68;color:white;padding:11px 19px;border-radius:4px;text-decoration:none;font:600 15px/1.5 system-ui}.study-link:hover{background:#104b54}.study-links{margin:22px 0}.study-links p{font:13px/1.5 system-ui;margin:10px 0;color:#526873}
 .native-figure{margin:28px 0 35px;border-top:3px solid #145d68;padding-top:10px}.native-figure img{width:100%;height:auto;display:block}.native-figure .chart-scroll{overflow-x:auto}.native-figure figcaption{text-align:left}.native-figure summary{font:13px/1.5 system-ui;margin:12px 0}.native-figure table{font:13px/1.5 system-ui}.reading-nav{font:14px/1.5 system-ui;margin:0 0 25px}.methodology-note{font:13px/1.6 system-ui;border-top:1px solid #dce4e6;padding-top:18px}.methodology-note h2{font-size:18px;margin:0 0 12px}
+.history-comparison{font:14px/1.55 system-ui;margin:18px 0 28px;padding:15px 18px;background:#f4f7fa;border:1px solid #dce4e6;border-radius:5px}.history-comparison summary{cursor:pointer;color:#145d68;font-weight:600}.history-comparison table{font-size:13px}.history-comparison td{vertical-align:top}.history-comparison th:first-child{min-width:150px}.history-comparison td:nth-child(2){min-width:200px}
 @media(max-width:600px){.key-stats{padding:16px 14px}.pattern-meta{font-size:13px}.key-stats table{font-size:13px}}
+@media(max-width:600px){.history-comparison .table-scroll{overflow:visible}.history-comparison table,.history-comparison tbody{display:block;width:100%}.history-comparison thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.history-comparison tr{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid #dce4e6;padding:12px 0;gap:8px 4px}.history-comparison th:first-child,.history-comparison td:nth-child(2){grid-column:1/-1;min-width:0}.history-comparison th,.history-comparison td{display:block;padding:0;border:0;white-space:normal;overflow-wrap:anywhere}.history-comparison td::before{content:attr(data-label);display:block;font:10px/1.4 system-ui;color:#526873;margin-bottom:3px}.history-comparison td:nth-child(2)::before{content:none}.history-comparison caption{display:block;text-align:left}}
 '''
 
 
@@ -291,6 +323,63 @@ def links_html(data):
     esc=html.escape
     return (f'<div class="study-links"><a class="study-link" href="{esc(data["study_url"],quote=True)}">Open {esc(data["card"]["symbol"])} in TradeWave</a>'
             '<p>Inspect this date range and selected history, then compare other windows or year sets. Account access applies in TradeWave.</p></div>')
+
+
+def comparison_rows(data):
+    """Present source-bound cohort summaries; never choose a favorable sample."""
+    source = data.get('card', {}).get('selection_evidence') or {}
+    baseline = source.get('baseline', {}).get('summary') or {}
+    recent = source.get('recent') or {}
+    recent_key = '10' if '10' in recent else '5' if '5' in recent else None
+    cycle = source.get('cycle') or {}
+    phase = cycle.get('phase')
+    phase_name = {0:'Election-year', 1:'Post-election-year', 2:'Midterm-year',
+                  3:'Pre-election-year'}.get(phase, 'Selected-cycle')
+    groups = [('Annual baseline', baseline)]
+    if recent_key:
+        groups += [('Recent annual observations', recent[recent_key].get('recent') or {}),
+                   ('Earlier annual observations', recent[recent_key].get('preceding') or {})]
+    groups += [(phase_name + ' observations within baseline',
+                cycle.get('within_baseline', {}).get('summary') or {}),
+               ('Other annual observations within baseline',
+                cycle.get('noncycle_within_baseline', {}).get('summary') or {}),
+               (phase_name + ' observations, full supplied history',
+                cycle.get('full', {}).get('summary') or {})]
+    rows = []
+    for label, summary in groups:
+        n = summary.get('n', 0)
+        if not n:
+            continue
+        years = summary.get('years') or []
+        if (len(years) != n or any(type(y) is not int for y in years) or len(set(years)) != n or
+                sum(summary[k] for k in ('up_years','down_years','flat_years')) != n):
+            raise ValueError('Inconsistent source-bound comparison counts')
+        rows.append({'label':label, 'years':years, 'n':n,
+                     **{k:summary[k] for k in ('up_years','down_years','flat_years')}})
+    return rows
+
+
+def comparison_html(data):
+    rows = comparison_rows(data)
+    if len(rows) < 2:
+        return ''
+    esc = html.escape
+    return ('<details class="history-comparison"><summary>See the history behind this comparison</summary>'
+            '<p>Each group uses the same calendar window. Cycle groups contain selected years, '
+            'not consecutive years. Counts describe past price moves, not forecast probabilities.</p>'
+            '<div class="table-scroll"><table><caption>TradeWave historical comparison samples</caption>'
+            '<thead><tr><th scope="col">History</th><th scope="col">Observed years</th>'
+            '<th scope="col">Count</th><th scope="col">Higher</th><th scope="col">Lower</th>'
+            '<th scope="col">Unchanged</th></tr></thead><tbody>' +
+            ''.join('<tr><th scope="row">'+esc(r['label'])+'</th><td data-label="Observed years">'+
+                    ', '.join(str(y) for y in r['years'])+'</td>'+
+                    ''.join('<td data-label="'+label+'">'+str(r[k])+'</td>' for k,label in
+                            (('n','Count'),('up_years','Higher'),('down_years','Lower'),('flat_years','Unchanged')))+'</tr>' for r in rows)+
+            '</tbody></table></div><p>The recent and earlier groups divide the annual baseline. '
+            'The cycle and other-year groups within that baseline also divide it, reusing its observations; '
+            'they are not independent confirmation. The full cycle history can overlap the baseline '
+            'and include older periods. Small samples and era differences limit the comparison. '
+            'Source: TradeWave historical analysis.</p></details>')
 
 
 def methodology_html(data):

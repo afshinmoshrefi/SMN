@@ -37,6 +37,50 @@ The receiver can normalize an exact commissioned angle followed by a colon
 and explanation into the commissioned ID. It retains the raw output and an
 audit of the metadata change; it never silently rewrites reader prose.
 
+## Reader-first editorial follow-up
+
+The September 7 comparison identified a more inviting opening in the expensive
+API draft, a more concrete earnings comparison in the subscription draft, and
+too much election-sample detail in both. The private follow-up preserves these
+lessons in shared `seasonal_edition.RULES` and `READER_REVIEW_RULES`, used by the
+seasonal API finishing stage and the subscription preparation/review harness:
+
+- Lead with the investor's question and current stakes. Explain reporting-period
+  benchmarks later, with the supplied number needed to assess the question.
+- Give the most useful recent-versus-earlier contrast in plain language. Keep
+  material contrary evidence beside the first favorable claim.
+- Explain a secondary cycle result briefly. Exact years, counts, unchanged
+  outcomes and overlap notes remain accessible in an expandable table rendered
+  from the source-bound history. A cycle-led commission can need more prose.
+- Reserve the source's chart/caption/accessibility words before budgeting article
+  copy, and never move a fact to the wrong citation to satisfy that allowance.
+
+`comparison_rows` rejects inconsistent counts and duplicate/non-integer years;
+absent groups do not become zero-valued results. The disclosure adds no model
+or provider call. Native chart bytes, statistics, study URLs and calculations
+are preserved. The local follow-up example and receipts are under
+`smn-review-20260905/subscription-editorial-20260907/`. Its hero uses a targeted
+built-in image-generation edit to remove the previously unwanted wordmark;
+the original comparison artifacts remain intact.
+
+The corrected 424-word preview passed all seven independent Astra editorial
+checks and desktop/mobile inspection. The opening received 4/5; its second
+paragraph remains slightly crowded, a minor style limitation. Source totals
+are 185/190 and 159/190 including chart copy. Two subscription writing passes
+and one final review were needed; the first polish was rejected as too terse.
+An initial sign-in preflight failure did not start a model turn, and a review
+prepared for the rejected version was cancelled before execution. No paid
+OpenAI API fallback occurred. One built-in hero edit was a separate tool call.
+This is a revision using the old prose and frozen evidence, not a new blind
+article or a dedicated-account capacity test.
+
+Twenty-six focused comparison, seasonal-continuity and visual-editorial tests
+passed. Desktop keeps the sample table; mobile stacks each group with all four
+counts visible. Actual rendered cell values were checked against source rows.
+The generator's receiver still creates a held private draft; the pilot's
+separate finalization records review hashes before changing its preview label.
+No queue, publisher, service, live model route or deployment setting changed.
+
 Example entrypoints, from this directory:
 
 ```text
@@ -80,7 +124,8 @@ targeted repair, and final review. The turns consumed 65,801 input and 19,282
 output tokens, including 15,040 reasoning tokens, and 699.906 seconds of worker
 time. The final text passed all seven independent editorial checks; desktop
 and mobile checks passed with both native charts and exact study links intact.
-The inherited hero's unwanted wordmark remains a separate asset review item.
+The initial pilot's hero had an unwanted wordmark; the later editorial
+follow-up above resolves it in a new asset while preserving the original.
 
 No new paid OpenAI API, Tavily or image call occurred. The refreshed API
 dashboard remained at $15.25 and 68 requests after the test. This demonstrates
