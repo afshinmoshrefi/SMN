@@ -74,7 +74,8 @@ class Semantics(unittest.TestCase):
     def test_excursion_spec_variants(self):
         both = ck.record_bars(YEARS, NETS, dict(BARS_META), self._p("a.png"),
                               mfe=MFE, mae=MAE)
-        self.assertIn("worst drawdown to best gain", both["spec"])
+        self.assertIn("lowest to highest change from entry", both["spec"])
+        self.assertIn("not peak-to-trough drawdown", both["spec"])
         mfe_only = ck.record_bars(YEARS, NETS, dict(BARS_META), self._p("c.png"),
                                   mfe=MFE)
         self.assertIn("best gain", mfe_only["spec"])

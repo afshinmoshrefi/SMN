@@ -21,6 +21,12 @@ def inspect_edition(result, bundle, directory, review, *, trusted_reviewers=()):
     article = result.get('article_html', '')
     sha = hashlib.sha256(article.encode()).hexdigest()
     issues = []
+    if b.get('edition_type') == 'seasonal':
+        from seasonal_edition import inspect_native
+        if not result.get('seasonal'):
+            issues.append('seasonal_contract_missing')
+        else:
+            issues.extend(inspect_native(result['seasonal'],root,article,review,b))
     if result.get('text_ready') is not True or not article:
         issues.append('upstream_text_not_ready')
     if (root/'article.html').read_text(encoding='utf-8') != article:

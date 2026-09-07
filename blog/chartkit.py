@@ -390,7 +390,7 @@ def _bars_source(n, y0, y1, direction):
 # Renderer: record_bars
 # --------------------------------------------------------------------------- #
 def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
-                w=W, h=H, show_median=True, palette="light"):
+                w=W, h=H, show_median=True, palette="light", mobile=False):
     """One bar per completed year, net % over the window.
 
     Optional excursion "needles" (thin whisker lines drawn over the bars):
@@ -403,7 +403,10 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
       lookback_label (optional), kicker (optional; else derived).
     """
     pal = _pal(palette)
-    years, nets, mfe, mae = _drop_zeroed(years, nets, mfe, mae)
+    # A reviewed historical panel already excludes the current incomplete year.
+    # Flat completed observations must remain visible and count toward n.
+    if not meta.get('verified_completed'):
+        years, nets, mfe, mae = _drop_zeroed(years, nets, mfe, mae)
     n = len(nets)
     wins = sum(1 for v in nets if v > 0)
     direction = meta.get("direction", "long")
@@ -431,9 +434,9 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     # from the plain bars chart, so it must reach the caption too.
     overlay = ""
     if mfe is not None and mae is not None:
-        spec = ("Bars: net % change over the window. Needles: the full "
-                "intra-window range each year (worst drawdown to best gain)")
-        overlay = "the full intra-window range - worst drawdown to best gain"
+        spec = ("Bars: final return. Lines: lowest to highest change from entry; "
+                "not peak-to-trough drawdown")
+        overlay = "the full intra-window range from entry"
     elif mfe is not None:
         spec = ("Bars: net % change over the window. Needles: the best gain "
                 "reached within the window each year")
@@ -443,12 +446,52 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
                 "drawdown reached within the window each year")
         overlay = "the worst drawdown reached inside the window"
     else:
-        spec = (f"Net % change from the {mmm1} close to the {mmm2} close, "
-                f"each year - one bar per year")
+        spec = (f"Net % change between first and last session closes inside "
+                f"{mmm1} - {mmm2}, each year")
     win_suffix = f" ({win_lbl})" if win_lbl else ""
     caption = (f"{symbol}: net result each year, with {overlay}{win_suffix}"
                if overlay else title)
     source = _bars_source(n, y0, y1, direction)
+
+    if mobile:
+        # Same completed arrays and semantics, arranged vertically for phones.
+        # Keep every year visible rather than shrinking 20 x-axis labels.
+        mobile_title = f'{symbol}: {wins} of {n} years closed higher'
+        if direction == 'short':
+            mobile_title = f'{symbol}: {losses} of {n} years closed lower'
+        mobile_spec = f'{win_lbl} | {y0}-{y1} | changes from entry'
+        fig, ax = new_frame(symbol + ' | Seasonal record', mobile_title,
+            mobile_spec, 'Source: TradeWave', palette=pal, w=780, h=max(1100,n*47+300),
+            ax_rect=(0.15,0.11,0.80,0.66))
+        for t in list(fig.texts[:3]):
+            # Preserve the frame's width fitting when increasing phone text.
+            x_pos, y_pos = t.get_position()
+            text, size, weight, color = t.get_text(), t.get_fontsize(), t.get_fontweight(), t.get_color()
+            t.remove()
+            _fit_text(fig, x_pos, y_pos, text, max_frac=.80,
+                      fontsize=max(size,16), min_fontsize=10.5,
+                      fontweight=weight, color=color)
+        for t in fig.texts[:2]:
+            t.set_fontsize(max(t.get_fontsize(),16))
+        x = list(range(n))
+        ax.barh(x,nets,height=.6,color=[pal['pos'] if v>=0 else pal['neg'] for v in nets],zorder=3)
+        if mfe is not None or mae is not None:
+            for i in range(n):
+                ax.hlines(i,mae[i] if mae is not None else 0,mfe[i] if mfe is not None else 0,
+                          color=pal['whisk'],linewidth=2,zorder=5)
+        ax.axvline(0,color=pal['ink'],linewidth=1.4,zorder=4)
+        if show_median:
+            ax.axvline(med,color=pal['ink'],linestyle='--',linewidth=1.2,alpha=.55)
+        ax.set_yticks(x);ax.set_yticklabels([str(y) for y in years],fontsize=20)
+        ax.invert_yaxis();ax.set_ylim(n-.4,-.8)
+        ax.xaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
+        from matplotlib.ticker import MaxNLocator
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        ax.grid(False,axis='y');ax.grid(True,axis='x',color=pal['grid'],zorder=0)
+        ax.tick_params(axis='x',labelsize=20)
+        ax.set_xlabel('Underlying price return (%)',fontsize=18,labelpad=14,color=pal['muted'])
+        _save(fig,path)
+        return _semantics(variant,title,spec,source,n,direction,d1,d2,caption=caption)
 
     fig, ax = new_frame(kicker, title, spec, source, palette=pal, w=w, h=h)
     x = list(range(n))
