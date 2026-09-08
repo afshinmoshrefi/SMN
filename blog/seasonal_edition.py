@@ -199,7 +199,8 @@ def prepare(source, bundle, directory):
     meta = dict(symbol=card['symbol'], company=contract.get('company', card['symbol']),
                 direction='long', window_start=evidence['window']['start_date'],
                 window_end=evidence['window']['end_date'], days=c['days'],
-                lookback_label=evidence['cohort']['label'], verified_completed=True)
+                lookback_label=evidence['cohort']['label'], verified_completed=True,
+                measurement=card['instrument']['semantics']['measurement'])
     manifest = []
     for variant in ('bars', 'bars_mae_mfe'):
         path = assets/('tradewave-' + variant + '.png')

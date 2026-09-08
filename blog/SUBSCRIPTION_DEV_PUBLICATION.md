@@ -49,6 +49,8 @@ Data-specific safeguards:
   changes only with visible session/roll-method qualifications. It is not a
   validated futures strategy or futures-account return. The held audit is
   retained and cannot be turned into a pass; production release remains blocked.
+  Native GC chart labels and export descriptions retain this reference-series
+  qualification; the mobile axis identifies reference-price changes.
 - The linked viewer receives the same resource, symbol, selected date, day count
   and lookback. This edition's calculation uses closes inside inclusive dates.
   The existing ChartData4 endpoint can advance its end to the next recorded date

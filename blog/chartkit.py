@@ -400,7 +400,7 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
 
     meta keys used: symbol, direction ('long'/'short'), window_start,
       window_end (YYYY-MM-DD), variant (optional; controls spec text),
-      lookback_label (optional), kicker (optional; else derived).
+      lookback_label (optional), kicker (optional; else derived), measurement.
     """
     pal = _pal(palette)
     # A reviewed historical panel already excludes the current incomplete year.
@@ -452,6 +452,11 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     caption = (f"{symbol}: net result each year, with {overlay}{win_suffix}"
                if overlay else title)
     source = _bars_source(n, y0, y1, direction)
+    reference_only = meta.get('measurement') == 'provider_reference_price_change'
+    if reference_only:
+        spec = spec.replace('final return', 'final reference-price change').replace('session closes', 'available recorded closes')
+        source = (f'Source: TradeWave {symbol} reference series | n={n}, {y0}-{y1} | '
+                  'Dev illustration: session/roll validation pending')
 
     if mobile:
         # Same completed arrays and semantics, arranged vertically for phones.
@@ -460,7 +465,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         if direction == 'short':
             mobile_title = f'{symbol}: {losses} of {n} years closed lower'
         mobile_spec = f'{win_lbl} | {y0}-{y1} | changes from entry'
-        fig, ax = new_frame(symbol + ' | Seasonal record', mobile_title,
+        mobile_kicker = symbol + (' | Reference-series illustration' if reference_only else ' | Seasonal record')
+        fig, ax = new_frame(mobile_kicker, mobile_title,
             mobile_spec, 'Source: TradeWave', palette=pal, w=780, h=max(1100,n*47+300),
             ax_rect=(0.15,0.11,0.80,0.66))
         for t in list(fig.texts[:3]):
@@ -473,6 +479,9 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
                       fontweight=weight, color=color)
         for t in fig.texts[:2]:
             t.set_fontsize(max(t.get_fontsize(),16))
+        if reference_only:
+            _fit_text(fig,.15,.803,'Session/roll validation pending',max_frac=.80,
+                      fontsize=16,min_fontsize=10.5,fontweight=400,color=pal['muted'])
         x = list(range(n))
         ax.barh(x,nets,height=.6,color=[pal['pos'] if v>=0 else pal['neg'] for v in nets],zorder=3)
         if mfe is not None or mae is not None:
@@ -489,7 +498,7 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
         ax.grid(False,axis='y');ax.grid(True,axis='x',color=pal['grid'],zorder=0)
         ax.tick_params(axis='x',labelsize=20)
-        ax.set_xlabel('Underlying price return (%)',fontsize=18,labelpad=14,color=pal['muted'])
+        ax.set_xlabel('Reference-price change (%)' if reference_only else 'Underlying price return (%)',fontsize=18,labelpad=14,color=pal['muted'])
         _save(fig,path)
         return _semantics(variant,title,spec,source,n,direction,d1,d2,caption=caption)
 

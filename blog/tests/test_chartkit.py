@@ -65,6 +65,16 @@ class Semantics(unittest.TestCase):
         s = ck.record_bars(YEARS, NETS, BARS_META, self._p("b.png"))
         self.assertEqual(s["alt"], f"{s['title']}. {s['spec']}. {s['source']}")
 
+    def test_reference_series_keeps_qualification_with_exported_chart(self):
+        meta=dict(BARS_META,symbol='GC',measurement='provider_reference_price_change')
+        for mobile in (False,True):
+            s=ck.record_bars(YEARS,NETS,meta,self._p('reference-'+str(mobile)+'.png'),
+                             mfe=MFE,mae=MAE,mobile=mobile)
+            self.assertEqual(s['n'],20)
+            self.assertIn('final reference-price change',s['spec'])
+            self.assertIn('session/roll validation pending',s['source'])
+            self.assertIn('session/roll validation pending',s['alt'])
+
     def test_median_and_source_from_arrays(self):
         s = ck.record_bars(YEARS, NETS, BARS_META, self._p("b.png"))
         # n and year span derived from the drawn arrays
