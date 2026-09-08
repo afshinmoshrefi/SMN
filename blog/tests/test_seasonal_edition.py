@@ -71,6 +71,18 @@ class SeasonalContinuityTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(token).decode(),'2|FIXTURE|2026-08-21|90|3')
         self.assertEqual(self.data['evidence']['window']['end_date'],'2026-11-18')
 
+    def test_inline_study_link_is_rendered_but_cannot_change_destination(self):
+        article=deepcopy(self.article)
+        paragraph=article['sections'][0]['paragraphs'][0]
+        paragraph['text']='Inspect [the TradeWave study]('+self.data['study_url']+').'
+        with patch('visual_charts.figure_html',return_value='chart'):
+            rendered=render_edition(article,self.bundle,{'comparison':{}},seasonal=self.data)
+        self.assertIn('>the TradeWave study</a>',rendered)
+        self.assertNotIn('[the TradeWave study]',rendered)
+        paragraph['text']='Inspect [the study](https://wrong.example/).'
+        with self.assertRaisesRegex(ValueError,'inline link'):
+            render_edition(article,self.bundle,{'comparison':{}},seasonal=self.data)
+
     def test_real_native_renderer_keeps_flat_completed_year(self):
         for im in self.data['images']:
             self.assertEqual(im['renderer'],'chartkit.record_bars')

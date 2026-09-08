@@ -110,6 +110,8 @@ def chart_data(chart, bundle):
 
 
 def format_value(value, unit):
+    if unit == 'weight_percent':
+        return f'{Decimal(str(value)).quantize(Decimal(".01"), rounding=ROUND_HALF_UP):.2f}%'
     if unit == 'percent':
         rounded = Decimal(str(value)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
         if rounded == 0:

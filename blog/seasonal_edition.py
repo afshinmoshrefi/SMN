@@ -295,6 +295,7 @@ def check_article(article, bundle):
 
 def stats_html(data):
     esc = html.escape; e=data['evidence']; c=e['cohort']; r=e['returns']; w=e['window']
+    basis = _measurement_text(data)[0]
     values = [('Completed observations',str(c['n'])),('Higher / lower finishes',f"{r['up_years']} / {r['down_years']}"),
               ('Median window return',f"{r['median_net']:+.2f}%"),('Average window return',f"{r['avg_net']:+.2f}%"),
               ('Worst ending return',f"{r['worst_net']:+.2f}% ({r['worst_year']})")]
@@ -303,7 +304,7 @@ def stats_html(data):
     return (f'<div class="pattern-meta"><span>{esc(data["card"]["symbol"])}</span><span>{esc(w["start_date"])} to {esc(w["end_date"])} · {w["calendar_days"]} calendar days</span><span>{esc(c["label"])}</span></div>'
         '<aside class="key-stats"><h3>TradeWave Key Stats</h3><table><tbody>' +
         ''.join(f'<tr><th scope="row">{esc(k)}</th><td>{esc(v)}</td></tr>' for k,v in values) +
-        '</tbody></table><p>Underlying adjusted-price returns over each complete historical window. These are historical results, not calibrated probabilities or returns remaining from today.</p></aside>')
+        '</tbody></table><p>'+esc(basis)+' over each complete historical window. These are historical results, not calibrated probabilities or returns remaining from today.</p></aside>')
 
 
 def figure_html(data, variant):
@@ -382,11 +383,24 @@ def comparison_html(data):
             'Source: TradeWave historical analysis.</p></details>')
 
 
+def _measurement_text(data):
+    measurement=data['card']['instrument']['semantics']['measurement']
+    if measurement=='price_index_change':
+        return ('Price-index changes excluding dividends', 'index closes', 'This is a price index, not an investable total-return portfolio.')
+    if measurement=='provider_reference_price_change':
+        return ('Changes in the provider’s GC reference-price series', 'available provider-recorded closes',
+                'GC is a reference series. Its historical session coverage and contract-roll method have not been independently reconciled; these changes are not futures-account returns and exclude trading costs.')
+    if measurement!='adjusted_price_return':
+        raise ValueError('Unreviewed seasonal measurement label')
+    return ('Underlying adjusted-price returns', 'trading-session adjusted closes', 'Returns are before trading costs.')
+
+
 def methodology_html(data):
     esc=html.escape; e=data['evidence']
-    return ('<section class="methodology-note"><h2>About This Seasonal Analysis</h2><p>TradeWave measures the recurring calendar window using the first and last trading-session adjusted closes inside its inclusive dates. '
+    _,closes,limitation=_measurement_text(data)
+    return ('<section class="methodology-note"><h2>About This Seasonal Analysis</h2><p>TradeWave measures the recurring calendar window using the first and last '+esc(closes)+' inside its inclusive dates. '
             f'{esc(e["cohort"]["label"])}. Positive bars mean the underlying price rose; negative bars mean it fell. Excursions are measured from entry. '
-            'The selected period is historical context, not an earnings-event study or a forecast.</p>'
+            'The selected period is historical context, not an earnings-event study or a forecast. '+esc(limitation)+'</p>'
             f'<p><a href="{esc(data["methodology_url"],quote=True)}">TradeWave data methodology</a>'+
             (f' · <a href="{esc(data["book_url"],quote=True)}">The 100-Year Pattern</a>' if data.get('book_url') else '')+
             '</p><p>Past performance does not guarantee future results. This article is for informational purposes and is not investment advice.</p></section>')

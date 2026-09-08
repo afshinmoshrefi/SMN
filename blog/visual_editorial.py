@@ -220,6 +220,21 @@ def render_edition(article, bundle, chart_assets, hero=None, *, held=False, seas
     def refs(ids):
         return ''.join(f'<sup><a href="#source-{esc(s)}" aria-label="Source {order.index(s)+1}">[{order.index(s)+1}]</a></sup>' for s in ids)
 
+    def paragraph_text(value):
+        # Structured writers sometimes include a Markdown study link. Preserve
+        # its label and exact source-bound destination, never display raw syntax
+        # or accept a model-invented external link.
+        if not seasonal:
+            return esc(value)
+        pattern=r'\[([^\[\]\n]+)\]\((https://[^\s)]+)\)'
+        parts=[];last=0
+        for match in re.finditer(pattern,value):
+            if not seasonal or match[2]!=seasonal['study_url']:
+                raise ValueError('Article inline link differs from the bound TradeWave study')
+            parts.extend([esc(value[last:match.start()]),f'<a href="{esc(match[2],quote=True)}">{esc(match[1])}</a>'])
+            last=match.end()
+        parts.append(esc(value[last:]));return ''.join(parts)
+
     out = ['<!doctype html><html lang="en"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">',
            f'<title>{esc(article["title"])}</title><style>{CSS + (se.CSS if seasonal else "")}</style></head><body>',
@@ -245,7 +260,7 @@ def render_edition(article, bundle, chart_assets, hero=None, *, held=False, seas
             out.append(f'<h2>{esc(section["heading"])}</h2>')
         for j, p in enumerate(section['paragraphs']):
             css = ' class="lede"' if i == 0 and j == 0 else ''
-            out.append(f'<p{css}>{esc(p["text"])}{refs(p["source_ids"])}</p>')
+            out.append(f'<p{css}>{paragraph_text(p["text"])}{refs(p["source_ids"])}</p>')
         if seasonal and section.get('role') == 'seasonal_record':
             out.append(se.stats_html(seasonal))
         if seasonal and section.get('native_chart_id'):

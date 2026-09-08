@@ -55,7 +55,7 @@ def render_chart(chart, bundle, directory):
                                 xytext=(5 if value >= 0 else -5, 0), textcoords='offset points',
                                 va='center', ha='left' if value >= 0 else 'right', weight='bold', fontsize=11)
                 ax.xaxis.set_major_locator(MaxNLocator(4, integer=chart['unit'] == 'thousand_jobs'))
-                ax.set_xlabel({'percent': 'Percent', 'thousand_jobs': 'Thousands of jobs'}.get(chart['unit'], chart['unit']), fontsize=10)
+                ax.set_xlabel({'percent': 'Percent', 'weight_percent':'Portfolio weight (%)', 'thousand_jobs': 'Thousands of jobs'}.get(chart['unit'], chart['unit']), fontsize=10)
                 ax.grid(axis='x', color='#edf0f2', zorder=0)
                 ax.axvline(0, color='#526b79', lw=.9)
                 ax.spines[['top', 'right', 'left']].set_visible(False)

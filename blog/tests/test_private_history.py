@@ -85,6 +85,20 @@ class PrivateHistoryTests(unittest.TestCase):
         a=self.args();a['ohlc'].pop()
         self.assertEqual(derive_history_panel(**a)['status'],'held')
 
+    def test_initial_partial_window_is_unavailable_not_a_later_history_gap(self):
+        a=self.args();a['ohlc']=[r for r in a['ohlc'] if r['date']>='2006-08-18']
+        r=derive_history_panel(**a)
+        self.assertEqual(r['status'],'passed')
+        self.assertEqual(len(r['observations']),19)
+        self.assertNotIn(2006,[v['year'] for v in r['observations']])
+        self.assertEqual(r['windows'][0]['status'],'initial_window_incomplete')
+        self.assertEqual(r['coverage']['missing_year_reasons']['2006']['reason'],'source_data_unavailable')
+        # A later hole must still hold, even with an unavailable initial year.
+        a['ohlc']=[v for v in a['ohlc'] if v['date']!='2008-08-18']
+        later=derive_history_panel(**a)
+        self.assertEqual(later['status'],'held')
+        self.assertIn('UNEXPLAINED_SESSION_GAPS',[v['code'] for v in later['issues']])
+
     def test_stale_declared_boundary_cannot_hide_known_later_session(self):
         a=self.args();a['ohlc'].pop();a['session_manifest']['expected_latest_date']='2025-08-21'
         self.assertEqual(derive_history_panel(**a)['status'],'held')

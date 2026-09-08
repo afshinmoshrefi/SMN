@@ -113,9 +113,10 @@ def derive_history_panel(ohlc, session_manifest, *, instrument, anchor_date,
         expected=[d for d in sessions if start<=d<=end]
         if not expected:
             issue('WINDOW_HAS_NO_SESSIONS',year=y);continue
-        if end<first_source:
+        if expected[0]<first_source:
             missing[str(y)]={'reason':'source_data_unavailable','evidence_ref':source_ref}
-            windows.append({'year':y,**annual,'status':'before_supplied_history'});continue
+            windows.append({'year':y,**annual,'status':'before_supplied_history' if end<first_source else 'initial_window_incomplete',
+                            'first_supplied_session':str(first_source)});continue
         absent=[d.isoformat() for d in expected if d not in rows]
         if absent:
             issue('WINDOW_SESSION_GAPS',year=y,dates=absent);continue
