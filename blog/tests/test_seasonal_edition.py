@@ -113,6 +113,13 @@ class SeasonalContinuityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'without TradeWave evidence'):
             render_edition(self.article,self.bundle,{},None)
 
+    def test_new_price_path_format_cannot_silently_drop_required_daily_data(self):
+        s,b,a=fixture();b['seasonal_contract']['price_path_required']=True
+        with self.assertRaisesRegex(ValueError,'daily price-path'):
+            prepare(s,b,self.root)
+        with self.assertRaisesRegex(ValueError,'price and seasonal path'):
+            render_edition(a,b,{},None,seasonal=self.data)
+
     def test_integrated_order_keeps_both_visual_types_and_one_summary(self):
         with patch('visual_charts.figure_html',return_value='<figure id="extra-editorial-chart"></figure>'):
             rendered=render_edition(self.article,self.bundle,{'comparison':{}},

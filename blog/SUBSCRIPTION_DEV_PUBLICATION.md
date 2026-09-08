@@ -10,6 +10,51 @@ and TW2 SMN mirror are not the authority for the private editorial generator.
 The live Dev application is preserved; only reviewed static article artifacts
 and the relevant Dev catalog/homepage entries are installed.
 
+## September 8 Price-Path Format Update
+
+The owner subsequently approved adding the original SMN price/seasonal-path
+concept to all six Dev articles, explicitly requiring each article's own
+analysis years. This revision continues published source `d5f1f8b` in
+`codex/smn-price-path-20260908`; it preserves the six accepted article JSON
+files and existing assets. Newly rendered charts use the selected 2006-2025
+annual samples, not the production articles' different election-cycle samples.
+
+`seasonal_price_path.derive` consumes the retained daily CSV and its independent
+history audit. It first reproduces net/MFE/MAE for every selected annual window.
+All years must match; missing years cannot shrink the sample or change the
+lookback. The pointwise median is computed from individual normalized close
+paths at calendar offsets from each historical window's start, using the last
+recorded close on/before each date. The current closing value anchors the
+illustration. No average/median is guessed from a production curve; no annual
+extrema, invented paths, holiday-as-weekday assumption or cycle-drift extension
+supplies daily values. Five exchange histories retain their passed full-session
+audits. GC remains an explicit dev-only reference-series exception with its
+independent calendar hold unchanged.
+
+The plotted horizon is **60 calendar days including the anchor**, separate from
+each article's complete analysis window. The stock/ETF/index snapshots end
+September 4; GC's retained reference series ends September 7. Captions date
+those anchors, label the exact sample, distinguish historical illustration
+from forecast and retain the GC qualification. Expanded methodology explains
+the sampled years, date alignment, last-observation convention and median.
+Only a derived percentage path is exported as CSV, not the raw daily dataset.
+
+Adapters for this format set `seasonal_contract.price_path_required=True` and
+supply `source.price_path_input={csv_bytes, audit, horizon_days, reference_only}`
+to `seasonal_edition.prepare`. Preparing/rendering a required path without data
+fails. The renderer inserts it after the opening while preserving the native
+annual/range charts and editorial visual. Desktop is one connected plot; mobile
+uses two readable panels containing the same data. `subscription_publication`
+requires the independent review's path evidence hash and verifies the displayed
+figure, desktop/mobile asset hashes and percentage export before packaging.
+
+Revision evidence, reviews, tests and local/live screenshots are under
+`smn-review-20260908/subscription-price-path/` in the owner's orchestrator
+workspace. Numeric drawing uses Python; subscription reviews use the existing
+official Codex worker. There is no new paid OpenAI API or image-generation call.
+Only the Dev static edition is updated; the live generator checkout and the
+TradeWave viewer's separately recorded endpoint conventions are unchanged.
+
 `subscription_writer` owns official Codex execution with ChatGPT authentication,
 Astra Extra High, isolated API-key-free child environment, immutable prompt,
 schema, evidence and output hashes, and serialized job receipts. The observed

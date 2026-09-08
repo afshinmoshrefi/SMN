@@ -73,6 +73,11 @@ window and year set fixed. Missing data cannot become a claim of no pattern.
 
 Select one or two ADDITIONAL editorial charts from the supplied catalog, each
 once, alongside the two native TradeWave charts. Explain their distinct uses.
+When the supplied seasonal format includes a daily price/seasonal path, the
+renderer places it after the opening, in addition to those annual charts. Its
+sample is exactly the article's selected years; its displayed horizon may be
+shorter than the full analysis window. Describe it only as a historical
+illustration, never a target or forecast. Do not request, omit or invent its data.
 Use native_chart_id='bars' in seasonal_record and 'bars_mae_mfe' in risk.
 Use chart_id for an editorial graphic, or null. No duplicated selected graphics.
 Every omitted editorial chart needs a reason. Never supply numeric chart data.
@@ -192,6 +197,8 @@ def bind_source(source, bundle):
 def prepare(source, bundle, directory):
     import chartkit
     card, evidence, contract = bind_source(source, bundle)
+    if contract.get('price_path_required') and not source.get('price_path_input'):
+        raise ValueError('This seasonal format requires verified daily price-path inputs')
     c = card['story_cell']; root = Path(directory); assets = root/'assets'
     assets.mkdir(exist_ok=True)
     rows = sorted(c['per_year'], key=lambda r:r['year'])
@@ -229,6 +236,9 @@ def prepare(source, bundle, directory):
             'study_url':study_link(card, contract['viewer_url']), 'history_source_id':contract['history_source_id'],
             'methodology_url':contract['methodology_url'], 'book_url':contract.get('book_url'),
             'csv_sha256':hashlib.sha256(csv_path.read_bytes()).hexdigest()}
+    if source.get('price_path_input'):
+        from seasonal_price_path import attach
+        data = attach(data, source['price_path_input'], root)
     (root/'seasonal-manifest.json').write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
     return data
 
@@ -309,6 +319,9 @@ def stats_html(data):
 
 
 def figure_html(data, variant):
+    if variant == 'price_projection':
+        from seasonal_price_path import figure_html as price_figure
+        return price_figure(data)
     esc=html.escape; im=next(i for i in data['images'] if i['variant']==variant)
     rows=sorted(data['card']['story_cell']['per_year'],key=lambda r:r['year'])
     note = ('Each bar shows the final return; each thin line shows the lowest and highest movement from entry. '
@@ -420,7 +433,8 @@ def inspect_native(data, directory, article, review, bundle):
     if build_cell_evidence(card['story_cell']) != data['evidence']:
         issues.append('native_stats_changed')
     checks=review.get('native_chart_reviews') or []
-    if len(checks)!=2 or {c.get('variant') for c in checks}!={'bars','bars_mae_mfe'}:
+    variants = {'bars','bars_mae_mfe'} | ({'price_projection'} if data.get('price_path') else set())
+    if len(checks)!=len(variants) or {c.get('variant') for c in checks}!=variants:
         issues.append('native_chart_inspection_missing')
     local=[]
     for im in data['images']:
@@ -433,7 +447,7 @@ def inspect_native(data, directory, article, review, bundle):
             issues.append('native_observations_missing:'+im['variant'])
         if figure_html(data,im['variant']) not in article:
             issues.append('native_chart_not_rendered:'+im['variant'])
-    if not validate_chart_evidence(card,local,['bars','bars_mae_mfe'])['ok']:
+    if not validate_chart_evidence(card,[im for im in local if im['variant'] in {'bars','bars_mae_mfe'}],['bars','bars_mae_mfe'])['ok']:
         issues.append('native_chart_evidence_changed')
     csv_path=root/'assets/tradewave-observations.csv'
     if not csv_path.is_file() or hashlib.sha256(csv_path.read_bytes()).hexdigest()!=data['csv_sha256']:

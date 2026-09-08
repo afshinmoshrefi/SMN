@@ -30,6 +30,23 @@ def reviewed(result,review_path):
     binding=read(result/'review-binding.json')
     if binding.get('article_sha256')!=digest(a) or binding.get('review_sha256')!=digest_bytes(Path(review_path).read_bytes()):
         raise ValueError('Independent review is not bound to this exact article')
+    bundle=read(result/'bundle.json')
+    if bundle.get('seasonal_contract',{}).get('price_path_required'):
+        from seasonal_price_path import validate, figure_html
+        native=read(result/'seasonal-manifest.json')
+        path=native.get('price_path') or {}
+        validate(path,native['card'])
+        if binding.get('price_path_sha256')!=path['evidence_sha256']:
+            raise ValueError('Independent review is not bound to the added price path')
+        if binding.get('price_path_figure_sha256')!=digest_bytes(figure_html(native).encode()):
+            raise ValueError('Independent review is not bound to the final price-path wording')
+        if figure_html(native) not in (result/'article.html').read_text(encoding='utf-8'):
+            raise ValueError('Required price-path figure missing or changed')
+        im=next(i for i in native['images'] if i['variant']=='price_projection')
+        for file,sha in ((im['url'],im['sha256']),(im['mobile_url'],im['mobile_sha256']),
+                         ('assets/tradewave-price-path.csv',native['price_path_csv_sha256'])):
+            if digest_bytes((result/file).read_bytes())!=sha:
+                raise ValueError('Price-path asset differs from reviewed evidence')
     qa=read(result/'visual-checks.json')
     if not qa.get('passed') or qa.get('article_html_sha256')!=digest_bytes((result/'article.html').read_bytes()):
         raise ValueError('Rendered-page review missing or stale')

@@ -213,6 +213,8 @@ def render_edition(article, bundle, chart_assets, hero=None, *, held=False, seas
         raise ValueError('Seasonal article cannot render without TradeWave evidence')
     if seasonal:
         import seasonal_edition as se
+        if bundle.get('seasonal_contract',{}).get('price_path_required') and not seasonal.get('price_path'):
+            raise ValueError('Required article-specific price and seasonal path is missing')
     esc = html.escape
     sources = {s['id']: s for s in bundle['sources']}
     order = list(sources)
@@ -261,6 +263,8 @@ def render_edition(article, bundle, chart_assets, hero=None, *, held=False, seas
         for j, p in enumerate(section['paragraphs']):
             css = ' class="lede"' if i == 0 and j == 0 else ''
             out.append(f'<p{css}>{paragraph_text(p["text"])}{refs(p["source_ids"])}</p>')
+        if seasonal and i == 0 and seasonal.get('price_path'):
+            out.append(se.figure_html(seasonal, 'price_projection'))
         if seasonal and section.get('role') == 'seasonal_record':
             out.append(se.stats_html(seasonal))
         if seasonal and section.get('native_chart_id'):

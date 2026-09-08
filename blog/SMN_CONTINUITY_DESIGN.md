@@ -51,7 +51,8 @@ the owner's stated expectation, not evidence of Michael approving a new preview.
 ## Article Design and Angle Responsibilities
 
 Keep a recognizable SMN sequence, with flexibility in the middle: title/dek,
-hero, labeled takeaways, connected opening, seasonal record/key stats/native
+hero, labeled takeaways, connected opening, article-specific price/seasonal path,
+seasonal record/key stats/native
 chart, useful current context plus an editorial visual, consequential risk or
 historical comparison with supporting charts, next checkpoint and TradeWave
 research link, sources/methodology. Readers can jump directly to the record.
@@ -75,8 +76,21 @@ The first implementation reuses the production `chartkit.record_bars` renderer
 for the historical record and the range-from-entry view, from the exact reviewed
 completed observations. Other native chart types require their own verified
 data, and are not synthesized from annual endpoints. Existing production chart
-generation remains unchanged. Native path/price charts are not universally
-mandatory: include them when they answer this angle and have verified data.
+generation remains unchanged. The September 8 owner request adds the native
+price/seasonal-path graphic to the updated six-article format. Its historical
+sample must be the article's actual sample, never the original production
+article's different lookback. The updated contract sets `price_path_required`;
+missing verified daily inputs hold generation/rendering instead of dropping it.
+Legacy bundles remain readable for previous review artifacts.
+
+The price-path chart follows the connected opening. Desktop joins the latest
+12 months of observed prices to a dashed historical illustration. Phone layout
+keeps all the same data in two panels, expanding the 60-calendar-day illustration
+with its own explicitly labelled price scale. The path is a pointwise median
+of individually normalized daily historical closes, anchored to the latest
+recorded close. It is not a price target, a forecast, a calibrated probability
+or the full-window return from the annual bars. The annual bars, ranges, study
+links, existing article prose and additional editorial visuals remain intact.
 
 ## Acceptance
 

@@ -18,6 +18,7 @@ class PublicationBoundaries(unittest.TestCase):
         a={'title':'Reviewed article'};markup=b'<html>reviewed page</html>'
         r={'passed':True,'checks':{k:{'passed':True} for k in CHECKS},'issues':[]}
         write(root/'article.json',a);write(root/'mechanical-checks.json',{'passed':True,'article_sha256':digest(a)})
+        write(root/'bundle.json',{'seasonal_contract':{}})
         write(root/'review.json',r);(root/'article.html').write_bytes(markup)
         write(root/'review-binding.json',{'article_sha256':digest(a),'review_sha256':digest_bytes((root/'review.json').read_bytes())})
         write(root/'visual-checks.json',{'passed':True,'article_html_sha256':digest_bytes(markup)})
@@ -36,6 +37,31 @@ class PublicationBoundaries(unittest.TestCase):
             p=Path(t);a,r=self.fixture(p)
             r['issues']=[{'severity':'major','problem':'Wrong period'}];write(p/'review.json',r)
             with self.assertRaisesRegex(ValueError,'Independent review'):reviewed(p,p/'review.json')
+
+    def test_added_price_path_needs_its_own_review_and_unchanged_assets(self):
+        from test_seasonal_price_path import fixture
+        from seasonal_price_path import derive,labels,figure_html
+        with tempfile.TemporaryDirectory() as t:
+            p=Path(t);a,r=self.fixture(p);card,blob,audit,_=fixture();data=derive(card,blob,audit)
+            (p/'assets').mkdir()
+            for name in ('path.png','mobile.png','tradewave-price-path.csv'):
+                (p/'assets'/name).write_bytes(b'reviewed asset fixture')
+            filehash=digest_bytes(b'reviewed asset fixture')
+            native={'card':card,'price_path':data,'price_path_csv_sha256':filehash,'images':[{
+                'variant':'price_projection','url':'assets/path.png','mobile_url':'assets/mobile.png',
+                'sha256':filehash,'mobile_sha256':filehash,**labels(data),
+                'semantics':{'source_sha256':data['evidence_sha256']}}]}
+            write(p/'seasonal-manifest.json',native)
+            write(p/'bundle.json',{'seasonal_contract':{'price_path_required':True}})
+            with self.assertRaisesRegex(ValueError,'bound to the added price path'):reviewed(p,p/'review.json')
+            binding=json.loads((p/'review-binding.json').read_text());binding['price_path_sha256']=data['evidence_sha256']
+            binding['price_path_figure_sha256']=digest_bytes(figure_html(native).encode())
+            write(p/'review-binding.json',binding)
+            (p/'article.html').write_text(figure_html(native),encoding='utf-8')
+            write(p/'visual-checks.json',{'passed':True,'article_html_sha256':digest_bytes((p/'article.html').read_bytes())})
+            self.assertEqual(reviewed(p,p/'review.json'),a)
+            (p/'assets/mobile.png').write_bytes(b'changed chart')
+            with self.assertRaisesRegex(ValueError,'asset differs'):reviewed(p,p/'review.json')
 
     def test_known_measurements_never_mislabel_fund_weights_or_index_returns(self):
         self.assertEqual(format_value(14.92,'weight_percent'),'14.92%')
