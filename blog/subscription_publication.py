@@ -31,11 +31,18 @@ def reviewed(result,review_path):
     if binding.get('article_sha256')!=digest(a) or binding.get('review_sha256')!=digest_bytes(Path(review_path).read_bytes()):
         raise ValueError('Independent review is not bound to this exact article')
     bundle=read(result/'bundle.json')
+    if m.get('evidence_sha256')!=bundle.get('evidence_sha256'):
+        raise ValueError('Mechanical review uses different evidence')
+    if m.get('copyedit_receipt'):
+        ledger=result/m['copyedit_receipt']
+        if ledger.parent!=result or digest_bytes(ledger.read_bytes())!=m.get('copyedit_receipt_sha256') or read(ledger)['article_sha256']!=digest(a):
+            raise ValueError('Editorial change record differs from final copy')
     if bundle.get('seasonal_contract',{}).get('price_path_required'):
-        from seasonal_price_path import validate, figure_html
+        from engine_seasonal import verify_assets, figure_html as native_figure
         native=read(result/'seasonal-manifest.json')
         path=native.get('price_path') or {}
-        validate(path,native['card'])
+        verify_assets(native,result)
+        figure_html=lambda value:native_figure(value,'price_projection')
         if binding.get('price_path_sha256')!=path['evidence_sha256']:
             raise ValueError('Independent review is not bound to the added price path')
         if binding.get('price_path_figure_sha256')!=digest_bytes(figure_html(native).encode()):
@@ -90,7 +97,7 @@ def package(edition_root,date,source_commit,review_stages):
         url=DEV+'/'+rel.as_posix()+'/article.html'
         entry={k:original.get(k) for k in ('resource_id','symbol','tickers','market_family','pattern_start_date','pattern_days','author_id','direction')}
         entry.update(title=a['title'],dek=a['dek'],slug=sym.lower()+'-subscription-'+date,
-            url=url,path='/var/www/smn/'+rel.as_posix()+'/article.html',lookback_years='20',
+            url=url,path='/var/www/smn/'+rel.as_posix()+'/article.html',lookback_years=original['lookback_years'],
             published_date=original['published_date'],updated_date=asof,tags=['subscription-edition'],
             hero_image=DEV+'/'+rel.as_posix()+'/'+hero['url'],hero_alt=hero['alt'],
             seo_title=a['title'],meta_description=a['dek'][:155],publish_status='true',

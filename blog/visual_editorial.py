@@ -257,13 +257,14 @@ def render_edition(article, bundle, chart_assets, hero=None, *, held=False, seas
         out.append(takeaways())
         out.append('<nav class="reading-nav"><a href="#seasonal-record">Jump to the TradeWave analysis</a></nav>')
     for i, section in enumerate(article['sections']):
-        out.append('<section id="seasonal-record">' if seasonal and section.get('role') == 'seasonal_record' else '<section>')
+        role=esc(section.get('role',''),quote=True)
+        out.append('<section data-role="'+role+'"'+(' id="seasonal-record"' if seasonal and section.get('role')=='seasonal_record' else '')+'>')
         if section.get('heading'):
             out.append(f'<h2>{esc(section["heading"])}</h2>')
         for j, p in enumerate(section['paragraphs']):
             css = ' class="lede"' if i == 0 and j == 0 else ''
             out.append(f'<p{css}>{paragraph_text(p["text"])}{refs(p["source_ids"])}</p>')
-        if seasonal and i == 0 and seasonal.get('price_path'):
+        if seasonal and section.get('role') == 'outlook' and seasonal.get('price_path'):
             out.append(se.figure_html(seasonal, 'price_projection'))
         if seasonal and section.get('role') == 'seasonal_record':
             out.append(se.stats_html(seasonal))

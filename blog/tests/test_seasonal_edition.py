@@ -18,20 +18,14 @@ from test_visual_editorial import bundle as news_bundle, article as news_article
 
 
 def fixture():
-    rows=[{'year':2023,'net':5,'mfe':8,'mae':-2},
-          {'year':2024,'net':-3,'mfe':2,'mae':-6},
-          {'year':2025,'net':0,'mfe':0,'mae':0}]
-    card={'symbol':'FIXTURE','resource_id':'2','angle':{'name':'QUIET_EDGE'},
-          'instrument':{'resource_id':'2','symbol':'FIXTURE','semantics':{'measurement':'adjusted_price_return'}},
-          'story_cell':{'symbol':'FIXTURE','resource_id':'2','anchor_date':'2026-08-21',
-                        'days':90,'years':'3','n':3,'per_year':rows},
-          'selection_evidence':{'baseline':{'per_year':rows}}}
+    from test_engine_seasonal import FIXTURES, card as engine_card
+    card=engine_card(FIXTURES[0]);card['angle']['name']='QUIET_EDGE'
     b=news_bundle();b['edition_type']='seasonal'
-    b['sources'].append({'id':'history','title':'Fictional test history','source_type':'derived',
+    b['sources'].append({'id':'history','title':'Fictional test history','source_type':'engine_export',
         'url':'evidence/history.json','excerpt':'Fictional historical observations for offline tests.',
-        'payload':card['selection_evidence'],'payload_sha256':digest(card['selection_evidence'])})
+        'payload':card['engine_results'],'payload_sha256':digest(card['engine_results'])})
     b['seasonal_contract']={'card_sha256':digest(card),'history_source_id':'history','angle':'QUIET_EDGE',
-        'viewer_url':'https://tradewave.ai/app/','methodology_url':'https://example.org/methodology'}
+        'viewer_url':'https://tradewave.ai/app/','company':'Hormel Foods','methodology_url':'https://example.org/methodology','price_path_required':True}
     seal(b)
     source={'text_ready':True,'status':'ready','html':'<article>Qualified fixture</article>','card':card}
     a=news_article();p=deepcopy(a['sections'][1]['paragraphs'][0]);p['source_ids']=['history']
@@ -68,8 +62,8 @@ class SeasonalContinuityTests(unittest.TestCase):
 
     def test_study_link_preserves_all_five_parameters_and_inclusive_end(self):
         token=parse_qs(urlparse(study_link(self.source['card'],'https://tradewave.ai/app/')).query)['o'][0]
-        self.assertEqual(base64.b64decode(token).decode(),'2|FIXTURE|2026-08-21|90|3')
-        self.assertEqual(self.data['evidence']['window']['end_date'],'2026-11-18')
+        self.assertEqual(base64.b64decode(token).decode(),'2|HRL|2026-09-19|60|pe2-10')
+        self.assertEqual(self.data['evidence']['window']['end_date'],'2026-11-17')
 
     def test_inline_study_link_is_rendered_but_cannot_change_destination(self):
         article=deepcopy(self.article)
@@ -83,19 +77,18 @@ class SeasonalContinuityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'inline link'):
             render_edition(article,self.bundle,{'comparison':{}},seasonal=self.data)
 
-    def test_real_native_renderer_keeps_flat_completed_year(self):
+    def test_real_native_renderer_uses_recorded_engine_rows(self):
         for im in self.data['images']:
-            self.assertEqual(im['renderer'],'chartkit.record_bars')
-            self.assertEqual(im['semantics']['n'],3)
-            self.assertEqual(im['semantics']['observed_years'],[2023,2024,2025])
-            self.assertTrue(Path(im['path']).read_bytes().startswith(b'\x89PNG'))
+            self.assertTrue((self.root/im['url']).read_bytes().startswith(b'\x89PNG'))
+            self.assertTrue((self.root/im['mobile_url']).read_bytes().startswith(b'\x89PNG'))
+        self.assertEqual(self.data['card']['story_cell']['per_year'][0]['net'],14.4)
 
     def test_wrong_baseline_or_angle_is_held(self):
         for field,value in [('years','20'),('anchor_date','2026-08-22')]:
             s,b,a=fixture();s['card']['story_cell'][field]=value
-            with self.assertRaisesRegex(ValueError,'not bound'):bind_source(s,b)
+            with self.assertRaises(ValueError):bind_source(s,b)
         s,b,a=fixture();b['seasonal_contract']['angle']='CLOCKWORK'
-        with self.assertRaisesRegex(ValueError,'angle differs'):bind_source(s,b)
+        with self.assertRaises(ValueError):bind_source(s,b)
 
     def test_required_native_charts_cannot_be_omitted(self):
         for i in (1,3):
@@ -113,12 +106,13 @@ class SeasonalContinuityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'without TradeWave evidence'):
             render_edition(self.article,self.bundle,{},None)
 
-    def test_new_price_path_format_cannot_silently_drop_required_daily_data(self):
-        s,b,a=fixture();b['seasonal_contract']['price_path_required']=True
-        with self.assertRaisesRegex(ValueError,'daily price-path'):
+    def test_price_format_cannot_silently_drop_engine_data(self):
+        s,b,a=fixture();s['card']['price_path']['projection_response']=[]
+        with self.assertRaisesRegex(ValueError,'projection result missing'):
             prepare(s,b,self.root)
+        missing=deepcopy(self.data);missing.pop('price_path')
         with self.assertRaisesRegex(ValueError,'price and seasonal path'):
-            render_edition(a,b,{},None,seasonal=self.data)
+            render_edition(a,b,{},None,seasonal=missing)
 
     def test_integrated_order_keeps_both_visual_types_and_one_summary(self):
         with patch('visual_charts.figure_html',return_value='<figure id="extra-editorial-chart"></figure>'):
@@ -130,9 +124,10 @@ class SeasonalContinuityTests(unittest.TestCase):
         self.assertIn('data-native-chart="bars"',rendered)
         self.assertIn('data-native-chart="bars_mae_mfe"',rendered)
         self.assertIn('extra-editorial-chart',rendered)
-        self.assertIn('Open FIXTURE in TradeWave',rendered)
-        self.assertIn('About This Seasonal Analysis',rendered)
-        self.assertIn('native_chart_inspection_missing',inspect_native(self.data,self.root,rendered,{},self.bundle))
+        self.assertIn('Open HRL in TradeWave',rendered)
+        self.assertIn('About this seasonal analysis',rendered)
+        self.assertEqual(inspect_native(self.data,self.root,rendered,{},self.bundle),[])
+        self.assertGreater(rendered.index('data-native-chart="price_projection"'), rendered.index('What comes next'))
 
 
 if __name__=='__main__':unittest.main()

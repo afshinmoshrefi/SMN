@@ -26,6 +26,10 @@ blog/templates/*
 !blog/templates/*.html
 !blog/templates/*.css
 !blog/templates/*.js
+!blog/schemas/
+blog/schemas/*
+!blog/schemas/subscription_article.schema.json
+!blog/schemas/subscription_review.schema.json
 
 # 4) Belt-and-suspenders — NEVER track these, anywhere (secrets / junk).
 config.py

@@ -14,8 +14,6 @@ import json
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
-from article_chart_evidence import chart_source_sha256, validate_chart_evidence
-from article_evidence import build_cell_evidence, clean_observations
 from visual_evidence import digest
 
 
@@ -53,9 +51,10 @@ period. Connect them without making one validate the other. A readable
 business-led opening is welcome when its seasonal purpose is clear by paragraph two.
 
 Use 4-6 short sections with roles: opening, seasonal_record, current_context,
-risk, comparison, outlook. Opening comes first, seasonal_record second, outlook
-last. Current_context follows seasonal_record so readers do not pass through
-several history comparisons before reaching the business stakes. Other middle
+risk, comparison, outlook. Opening comes first and outlook last. Current_context is the second or third
+section, and its business graphic sits beside that business discussion. Choose
+its position relative to seasonal_record to serve the investor question. Do not
+interrupt the seasonal-record/risk sequence with an unrelated business graphic. Other middle
 sections may vary with the angle; each adds distinct reader value.
 The seasonal_record starts with a natural TradeWave attribution/bridge and
 interprets its evidence. Python inserts the window, compact stats and record
@@ -74,7 +73,7 @@ window and year set fixed. Missing data cannot become a claim of no pattern.
 Select one or two ADDITIONAL editorial charts from the supplied catalog, each
 once, alongside the two native TradeWave charts. Explain their distinct uses.
 When the supplied seasonal format includes a daily price/seasonal path, the
-renderer places it after the opening, in addition to those annual charts. Its
+renderer places it AFTER the outlook explanation, in addition to those annual charts. Its
 sample is exactly the article's selected years; its displayed horizon may be
 shorter than the full analysis window. Describe it only as a historical
 illustration, never a target or forecast. Do not request, omit or invent its data.
@@ -110,7 +109,7 @@ source's derived-word budget across all passages; for 200-word issuer sources
 reserve the chart headings, captions, alternative text, accessible tables and
 source labels first, then fit title/dek/takeaways and prose into what remains.
 Never shift a fact to the wrong citation to evade a limit. Historical facts come from
-the source-bound seasonal evidence; do not reuse errors from the old article.
+the unchanged TradeWave engine evidence; do not reuse errors from the old article.
 Aim roughly 450-650 useful prose words, but do not pad to a target. No em dashes.
 
 Return JSON only with title,title_source_ids,dek,dek_source_ids;
@@ -121,6 +120,39 @@ takeaways:[{text,source_ids}] (2-3 items);
 visual_decisions:[{chart_id,reader_value}] for selected editorial charts;
 omitted_chart_reasons:{unused_catalog_id:reason}.
 Opening has no heading and 1-2 paragraphs. All other headings are specific.
+'''
+
+RULES += '''
+September 9 Michael review, required editorial changes:
+Explain why this exact calendar window matters now and whether its selected
+record is favorable, unfavorable or mixed. Say seasonal record, not annual
+record, and identify midterm years explicitly when applicable. Takeaways must
+state the useful finding and its investor implication; avoid generic cautions.
+The risk section must distinguish the ending result from the move endured
+inside the window. If using an example year, say WHY that year is useful and
+name its complete nominal calendar period, including the following year when
+applicable. A recent adverse example is not necessarily the worst year. Never
+call an entry-relative low maximum drawdown. Never infer the order of extremes.
+Explain why other supplied lookbacks were checked, what they change for the
+reader, and their overlap. Do not invent an earlier-decade calculation or turn
+a selected election-phase sample into consecutive years. For every statistic
+use the engine's exact definition and precision: Avg Profit is winners only;
+Avg Profit - All is its rounded all-window average. Short-side profits and
+underlying negative price changes are different presentations, not a conflict.
+The outlook must INTRODUCE the price chart before it appears: explain that it
+uses this article's selected years and an average seasonal path over the next
+60 weekday steps, a separate horizon from the full seasonal window. It is
+an illustration of historical shape, not a prediction of next earnings or a
+price target. Avoid unnecessary methodological detail in the opening.
+TradeWave is the only calculation authority. Do not calculate any metric,
+return, probability, cohort aggregate, date snap or projection yourself.
+Reader vocabulary: call it the "yearly range chart" and explain that each year
+shows the same seasonal period, not the whole calendar year. Write "below the
+starting price" rather than "entry-relative low", "highs and lows" rather than
+"extrema", and "next 60 weekdays" rather than "60 weekday steps". Avoid
+"nominal" in reader copy; state the scheduled calendar period and let the
+methodology explain TradeWave's trading-day convention. Do not let a strong
+technical review excuse language the intended reader cannot easily understand.
 '''
 
 EXTRA_CHECKS = {'smn_identity', 'angle_delivery', 'michael_editing', 'tradewave_evidence'}
@@ -136,6 +168,16 @@ all reappear in prose. Material contrary evidence stays beside the favorable
 claim. A cycle-led commission can warrant more narrative depth. Assess the whole
 rendered page, including its statistics table, exact study links, chart text and
 sample disclosure. Shorter prose is acceptable when it keeps the reader payoff.'''
+
+READER_REVIEW_RULES += '''
+Check Michael items 2-9 explicitly: window purpose, concrete takeaways, price
+chart introduced in outlook, context graphic beside its discussion, clear
+range chart, explained example choice and full dates, journey versus finish,
+and meaningful labeled comparison. Read the engine metric definitions: never
+convert a short-side gain into a rising price or use winners-only average as
+the overall average. Compare claims with supplied engine values; do not build
+your own calculator. Do not treat a weekday-step chart horizon as calendar days.
+'''
 
 CSS = '''
 .pattern-meta{display:flex;flex-wrap:wrap;gap:8px 18px;border-block:1px solid #dce4e6;padding:12px 0;font:14px/1.5 system-ui;margin:20px 0}
@@ -162,85 +204,13 @@ def study_link(card, viewer_url):
 
 
 def bind_source(source, bundle):
-    card = deepcopy(source.get('card'))
-    if not card or not card.get('selection_evidence'):
-        raise ValueError('Seasonal edition requires a qualified source card')
-    c = card['story_cell']
-    rows, quality = clean_observations(c['per_year'])
-    if quality['rejected_rows'] or quality['duplicate_years'] or not rows:
-        raise ValueError('Invalid completed observations')
-    if any(r['mfe'] is None or r['mae'] is None or r['mae'] > min(0, r['net'])
-           or r['mfe'] < max(0, r['net']) for r in rows):
-        raise ValueError('Native range chart needs valid matched extrema')
-    if any(c[k] != card[k] for k in ('symbol', 'resource_id')):
-        raise ValueError('Card instrument mismatch')
-    e = build_cell_evidence(c)
-    if len(rows) != c['n'] or max(r['year'] for r in rows) >= int(c['anchor_date'][:4]):
-        raise ValueError('Use completed historical observations only')
-    contract = bundle.get('seasonal_contract') or {}
-    if contract.get('card_sha256') != digest(card):
-        raise ValueError('Seasonal card is not bound to the visual evidence')
-    if contract.get('angle') != card.get('angle', {}).get('name'):
-        raise ValueError('Seasonal angle differs from its commissioned card')
-    for key in ('methodology_url','book_url'):
-        if contract.get(key) and urlparse(contract[key]).scheme != 'https':
-            raise ValueError('Research links must be HTTPS')
-    source_id = contract.get('history_source_id')
-    history = next((s for s in bundle['sources'] if s['id'] == source_id), {})
-    if digest(history.get('payload')) != digest(card['selection_evidence']):
-        raise ValueError('Seasonal evidence source mismatch')
-    if rows != clean_observations(card['selection_evidence']['baseline']['per_year'])[0]:
-        raise ValueError('Story rows differ from the reviewed baseline')
-    return card, e, contract
+    from engine_seasonal import bind_source as authoritative
+    return authoritative(source, bundle)
 
 
 def prepare(source, bundle, directory):
-    import chartkit
-    card, evidence, contract = bind_source(source, bundle)
-    if contract.get('price_path_required') and not source.get('price_path_input'):
-        raise ValueError('This seasonal format requires verified daily price-path inputs')
-    c = card['story_cell']; root = Path(directory); assets = root/'assets'
-    assets.mkdir(exist_ok=True)
-    rows = sorted(c['per_year'], key=lambda r:r['year'])
-    years = [r['year'] for r in rows]
-    meta = dict(symbol=card['symbol'], company=contract.get('company', card['symbol']),
-                direction='long', window_start=evidence['window']['start_date'],
-                window_end=evidence['window']['end_date'], days=c['days'],
-                lookback_label=evidence['cohort']['label'], verified_completed=True,
-                measurement=card['instrument']['semantics']['measurement'])
-    manifest = []
-    for variant in ('bars', 'bars_mae_mfe'):
-        path = assets/('tradewave-' + variant + '.png')
-        kwargs = {'mfe':[r['mfe'] for r in rows], 'mae':[r['mae'] for r in rows]} if variant == 'bars_mae_mfe' else {}
-        sem = chartkit.record_bars(years, [r['net'] for r in rows], {**meta, 'variant':variant},
-                                  str(path), w=1600, h=900, **kwargs)
-        mobile_path=assets/('tradewave-'+variant+'-mobile.png')
-        chartkit.record_bars(years,[r['net'] for r in rows],{**meta,'variant':variant},
-                            str(mobile_path),mobile=True,**kwargs)
-        sem.update(resource_id=card['resource_id'], symbol=card['symbol'], years=c['years'],
-                   observed_years=years, measurement=card['instrument']['semantics']['measurement'],
-                   source_sha256=chart_source_sha256(card))
-        manifest.append({'variant':variant, 'path':str(path.resolve()), 'url':'assets/'+path.name,
-                         'sha256':hashlib.sha256(path.read_bytes()).hexdigest(), 'semantics':sem,
-                         'mobile_url':'assets/'+mobile_path.name,
-                         'mobile_sha256':hashlib.sha256(mobile_path.read_bytes()).hexdigest(),
-                         'renderer':'chartkit.record_bars', 'caption':sem['caption'], 'alt':sem['alt']})
-    check = validate_chart_evidence(card, manifest, ['bars','bars_mae_mfe'])
-    if not check['ok']:
-        raise ValueError('TradeWave chart verification failed: ' + str(check['errors']))
-    csv_path = assets/'tradewave-observations.csv'
-    with csv_path.open('w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['year','net','mfe','mae'])
-        writer.writeheader(); writer.writerows({k:r[k] for k in writer.fieldnames} for r in rows)
-    data = {'card':card, 'evidence':evidence, 'images':manifest,
-            'study_url':study_link(card, contract['viewer_url']), 'history_source_id':contract['history_source_id'],
-            'methodology_url':contract['methodology_url'], 'book_url':contract.get('book_url'),
-            'csv_sha256':hashlib.sha256(csv_path.read_bytes()).hexdigest()}
-    if source.get('price_path_input'):
-        from seasonal_price_path import attach
-        data = attach(data, source['price_path_input'], root)
-    (root/'seasonal-manifest.json').write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
-    return data
+    from engine_seasonal import prepare as authoritative
+    return authoritative(source, bundle, directory)
 
 
 def check_article(article, bundle):
@@ -248,7 +218,7 @@ def check_article(article, bundle):
     catalog = {c['id'] for c in bundle['charts']}
     sections = article.get('sections') or []
     roles = [s.get('role') for s in sections]
-    if (not 4 <= len(sections) <= 6 or roles[:3] != ['opening','seasonal_record','current_context']
+    if (not 4 <= len(sections) <= 6 or roles[0] != 'opening' or 'seasonal_record' not in roles or 'current_context' not in roles or roles.index('current_context') > 2
             or roles[-1] != 'outlook' or len(roles) != len(set(roles))
             or set(roles) - {'opening','seasonal_record','current_context','risk','comparison','outlook'}
             or not {'current_context','risk'} <= set(roles)):
@@ -261,11 +231,15 @@ def check_article(article, bundle):
     if any(len(delivery.get(k, '').strip()) < 25 for k in ('seasonal_question','seasonal_contribution','current_connection')):
         raise ValueError('Angle must deliver a seasonal reader benefit')
     native = [s.get('native_chart_id') for s in sections if s.get('native_chart_id')]
-    if sorted(native) != ['bars','bars_mae_mfe'] or sections[1].get('native_chart_id') != 'bars':
+    if sorted(native) != ['bars','bars_mae_mfe'] or next(s for s in sections if s['role']=='seasonal_record').get('native_chart_id') != 'bars':
         raise ValueError('TradeWave record and range evidence are required')
     if next(s for s in sections if s['role']=='risk').get('native_chart_id') != 'bars_mae_mfe':
         raise ValueError('Risk interpretation must accompany the native range chart')
     chosen = [s['chart_id'] for s in sections if s.get('chart_id')]
+    default_role='current_context' if any(s.get('source_type')=='engine_export' for s in bundle['sources']) else None
+    placements={c['id']:c.get('placement_role',default_role) for c in bundle['charts'] if c.get('placement_role',default_role)}
+    if any(s.get('chart_id') in placements and placements[s['chart_id']]!=s['role'] for s in sections):
+        raise ValueError('Context chart must accompany the relevant business discussion')
     if not 1 <= len(chosen) <= 2 or len(chosen) != len(set(chosen)) or set(chosen)-catalog:
         raise ValueError('Select one or two additional editorial graphics')
     if set(bundle.get('required_chart_ids', [bundle['primary_chart_id']])) - set(chosen):
@@ -305,33 +279,13 @@ def check_article(article, bundle):
 
 
 def stats_html(data):
-    esc = html.escape; e=data['evidence']; c=e['cohort']; r=e['returns']; w=e['window']
-    basis = _measurement_text(data)[0]
-    values = [('Completed observations',str(c['n'])),('Higher / lower finishes',f"{r['up_years']} / {r['down_years']}"),
-              ('Median window return',f"{r['median_net']:+.2f}%"),('Average window return',f"{r['avg_net']:+.2f}%"),
-              ('Worst ending return',f"{r['worst_net']:+.2f}% ({r['worst_year']})")]
-    if r.get('flat_years'):
-        values.insert(2,('Unchanged finishes',str(r['flat_years'])))
-    return (f'<div class="pattern-meta"><span>{esc(data["card"]["symbol"])}</span><span>{esc(w["start_date"])} to {esc(w["end_date"])} · {w["calendar_days"]} calendar days</span><span>{esc(c["label"])}</span></div>'
-        '<aside class="key-stats"><h3>TradeWave Key Stats</h3><table><tbody>' +
-        ''.join(f'<tr><th scope="row">{esc(k)}</th><td>{esc(v)}</td></tr>' for k,v in values) +
-        '</tbody></table><p>'+esc(basis)+' over each complete historical window. These are historical results, not calibrated probabilities or returns remaining from today.</p></aside>')
+    from engine_seasonal import stats_html as authoritative
+    return authoritative(data)
 
 
 def figure_html(data, variant):
-    if variant == 'price_projection':
-        from seasonal_price_path import figure_html as price_figure
-        return price_figure(data)
-    esc=html.escape; im=next(i for i in data['images'] if i['variant']==variant)
-    rows=sorted(data['card']['story_cell']['per_year'],key=lambda r:r['year'])
-    note = ('Each bar shows the final return; each thin line shows the lowest and highest movement from entry. '
-            'The lines do not show when those extremes occurred or peak-to-trough drawdown.' if variant=='bars_mae_mfe'
-            else 'One bar for each completed historical observation, including losing and unchanged years. The dashed line marks the median.')
-    return (f'<figure class="native-figure" data-native-chart="{variant}"><picture><source media="(max-width:600px)" srcset="{esc(im["mobile_url"],quote=True)}"><img src="{esc(im["url"],quote=True)}" alt="{esc(im["alt"],quote=True)}"></picture>'
-            f'<figcaption>{esc(note)} Source: TradeWave historical analysis.</figcaption>'
-            '<details><summary>View year-by-year data and download CSV</summary><div class="table-scroll"><table><thead><tr><th>Year</th><th>Final return</th><th>Highest from entry</th><th>Lowest from entry</th></tr></thead><tbody>'+
-            ''.join(f'<tr><th scope="row">{r["year"]}</th><td>{r["net"]:+.2f}%</td><td>{r["mfe"]:+.2f}%</td><td>{r["mae"]:+.2f}%</td></tr>' for r in rows)+
-            '</tbody></table></div><a href="assets/tradewave-observations.csv" download>Download TradeWave observations</a></details></figure>')
+    from engine_seasonal import figure_html as authoritative
+    return authoritative(data, variant)
 
 
 def links_html(data):
@@ -341,60 +295,13 @@ def links_html(data):
 
 
 def comparison_rows(data):
-    """Present source-bound cohort summaries; never choose a favorable sample."""
-    source = data.get('card', {}).get('selection_evidence') or {}
-    baseline = source.get('baseline', {}).get('summary') or {}
-    recent = source.get('recent') or {}
-    recent_key = '10' if '10' in recent else '5' if '5' in recent else None
-    cycle = source.get('cycle') or {}
-    phase = cycle.get('phase')
-    phase_name = {0:'Election-year', 1:'Post-election-year', 2:'Midterm-year',
-                  3:'Pre-election-year'}.get(phase, 'Selected-cycle')
-    groups = [('Annual baseline', baseline)]
-    if recent_key:
-        groups += [('Recent annual observations', recent[recent_key].get('recent') or {}),
-                   ('Earlier annual observations', recent[recent_key].get('preceding') or {})]
-    groups += [(phase_name + ' observations within baseline',
-                cycle.get('within_baseline', {}).get('summary') or {}),
-               ('Other annual observations within baseline',
-                cycle.get('noncycle_within_baseline', {}).get('summary') or {}),
-               (phase_name + ' observations, full supplied history',
-                cycle.get('full', {}).get('summary') or {})]
-    rows = []
-    for label, summary in groups:
-        n = summary.get('n', 0)
-        if not n:
-            continue
-        years = summary.get('years') or []
-        if (len(years) != n or any(type(y) is not int for y in years) or len(set(years)) != n or
-                sum(summary[k] for k in ('up_years','down_years','flat_years')) != n):
-            raise ValueError('Inconsistent source-bound comparison counts')
-        rows.append({'label':label, 'years':years, 'n':n,
-                     **{k:summary[k] for k in ('up_years','down_years','flat_years')}})
-    return rows
+    from engine_seasonal import comparison_rows as authoritative
+    return authoritative(data)
 
 
 def comparison_html(data):
-    rows = comparison_rows(data)
-    if len(rows) < 2:
-        return ''
-    esc = html.escape
-    return ('<details class="history-comparison"><summary>See the history behind this comparison</summary>'
-            '<p>Each group uses the same calendar window. Cycle groups contain selected years, '
-            'not consecutive years. Counts describe past price moves, not forecast probabilities.</p>'
-            '<div class="table-scroll"><table><caption>TradeWave historical comparison samples</caption>'
-            '<thead><tr><th scope="col">History</th><th scope="col">Observed years</th>'
-            '<th scope="col">Count</th><th scope="col">Higher</th><th scope="col">Lower</th>'
-            '<th scope="col">Unchanged</th></tr></thead><tbody>' +
-            ''.join('<tr><th scope="row">'+esc(r['label'])+'</th><td data-label="Observed years">'+
-                    ', '.join(str(y) for y in r['years'])+'</td>'+
-                    ''.join('<td data-label="'+label+'">'+str(r[k])+'</td>' for k,label in
-                            (('n','Count'),('up_years','Higher'),('down_years','Lower'),('flat_years','Unchanged')))+'</tr>' for r in rows)+
-            '</tbody></table></div><p>The recent and earlier groups divide the annual baseline. '
-            'The cycle and other-year groups within that baseline also divide it, reusing its observations; '
-            'they are not independent confirmation. The full cycle history can overlap the baseline '
-            'and include older periods. Small samples and era differences limit the comparison. '
-            'Source: TradeWave historical analysis.</p></details>')
+    from engine_seasonal import comparison_html as authoritative
+    return authoritative(data)
 
 
 def _measurement_text(data):
@@ -410,46 +317,10 @@ def _measurement_text(data):
 
 
 def methodology_html(data):
-    esc=html.escape; e=data['evidence']
-    _,closes,limitation=_measurement_text(data)
-    return ('<section class="methodology-note"><h2>About This Seasonal Analysis</h2><p>TradeWave measures the recurring calendar window using the first and last '+esc(closes)+' inside its inclusive dates. '
-            f'{esc(e["cohort"]["label"])}. Positive bars mean the underlying price rose; negative bars mean it fell. Excursions are measured from entry. '
-            'The selected period is historical context, not an earnings-event study or a forecast. '+esc(limitation)+'</p>'
-            f'<p><a href="{esc(data["methodology_url"],quote=True)}">TradeWave data methodology</a>'+
-            (f' · <a href="{esc(data["book_url"],quote=True)}">The 100-Year Pattern</a>' if data.get('book_url') else '')+
-            '</p><p>Past performance does not guarantee future results. This article is for informational purposes and is not investment advice.</p></section>')
+    from engine_seasonal import methodology_html as authoritative
+    return authoritative(data)
 
 
 def inspect_native(data, directory, article, review, bundle):
-    """Check observations recorded AFTER actual browser/pixel inspection."""
-    root=Path(directory); issues=[]; card=data['card']
-    if digest(card) != bundle['seasonal_contract']['card_sha256']:
-        issues.append('native_card_changed')
-    expected_url=study_link(card,bundle['seasonal_contract']['viewer_url'])
-    if data['study_url'] != expected_url or html.escape(expected_url,quote=True) not in article:
-        issues.append('native_study_link_changed')
-    if stats_html(data) not in article or methodology_html(data) not in article:
-        issues.append('native_structure_missing')
-    if build_cell_evidence(card['story_cell']) != data['evidence']:
-        issues.append('native_stats_changed')
-    checks=review.get('native_chart_reviews') or []
-    variants = {'bars','bars_mae_mfe'} | ({'price_projection'} if data.get('price_path') else set())
-    if len(checks)!=len(variants) or {c.get('variant') for c in checks}!=variants:
-        issues.append('native_chart_inspection_missing')
-    local=[]
-    for im in data['images']:
-        local.append({**im,'path':str(root/im['url'])})
-        mobile_path=root/im['mobile_url']
-        if not mobile_path.is_file() or hashlib.sha256(mobile_path.read_bytes()).hexdigest()!=im['mobile_sha256']:
-            issues.append('native_mobile_changed:'+im['variant'])
-        check=next((c for c in checks if c.get('variant')==im['variant']),{})
-        if check.get('sha256')!=im['sha256'] or check.get('mobile_sha256')!=im['mobile_sha256'] or check.get('verdict')!='pass' or any(len(check.get(k,''))<30 for k in ('numeric_observation','desktop_observation','mobile_observation')):
-            issues.append('native_observations_missing:'+im['variant'])
-        if figure_html(data,im['variant']) not in article:
-            issues.append('native_chart_not_rendered:'+im['variant'])
-    if not validate_chart_evidence(card,[im for im in local if im['variant'] in {'bars','bars_mae_mfe'}],['bars','bars_mae_mfe'])['ok']:
-        issues.append('native_chart_evidence_changed')
-    csv_path=root/'assets/tradewave-observations.csv'
-    if not csv_path.is_file() or hashlib.sha256(csv_path.read_bytes()).hexdigest()!=data['csv_sha256']:
-        issues.append('native_export_changed')
-    return issues
+    from engine_seasonal import inspect_native as authoritative
+    return authoritative(data, directory, article, review, bundle)

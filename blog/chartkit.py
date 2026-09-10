@@ -6,8 +6,10 @@ Port of the approved prototype (chart_proto_samples.py) into a clean, reusable
 module. Every renderer is a pure, deterministic function of its inputs: no
 network calls, no external fonts/CDN, headless (Agg). Each renderer draws its
 figure AND returns a semantics dict describing exactly what the chart says,
-with every number computed from the same arrays being drawn - the renderer is
-the single source of truth for the chart's claim.
+The engine_presentation route consumes supplied TradeWave statistics and labels
+unchanged. It never recomputes counts, medians or another financial metric.
+Legacy routes remain for the old publisher; new seasonal editions require the
+engine adapter and cannot fall back to those routes.
 
 Palettes: "light" (the prototype's PAL, default) and "dark" (the visual system
 mapped onto article_images' existing dark theme). Palette is a parameter; the
@@ -405,12 +407,15 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     pal = _pal(palette)
     # A reviewed historical panel already excludes the current incomplete year.
     # Flat completed observations must remain visible and count toward n.
-    if not meta.get('verified_completed'):
+    engine = meta.get('engine_presentation')
+    if not engine and not meta.get('verified_completed'):
         years, nets, mfe, mae = _drop_zeroed(years, nets, mfe, mae)
     n = len(nets)
-    wins = sum(1 for v in nets if v > 0)
+    wins = None if engine else sum(1 for v in nets if v > 0)
     direction = meta.get("direction", "long")
-    med = _median(nets)
+    med = engine.get('price_median') if engine else _median(nets)
+    if engine:
+        show_median = med is not None
     y0 = years[0] if years else ""
     y1 = years[-1] if years else ""
     d1 = meta.get("window_start", "")
@@ -426,8 +431,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         f"{symbol}"
         + (f" · {company}" if company else "")
         + (f" · {days}-day seasonal window" if days else " · seasonal window"))
-    losses = sum(1 for v in nets if v < 0)
-    title = _bars_title(symbol, direction, wins, n, win_lbl, losses)
+    losses = None if engine else sum(1 for v in nets if v < 0)
+    title = engine['title'] if engine else _bars_title(symbol, direction, wins, n, win_lbl, losses)
 
     mmm1, mmm2 = (_fmt_mmm_d(d1) if d1 else ""), (_fmt_mmm_d(d2) if d2 else "")
     # `overlay` names what the needles add; it is what separates this chart
@@ -452,6 +457,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     caption = (f"{symbol}: net result each year, with {overlay}{win_suffix}"
                if overlay else title)
     source = _bars_source(n, y0, y1, direction)
+    if engine:
+        spec, source, caption = engine['spec'], engine['source'], engine['caption']
     reference_only = meta.get('measurement') == 'provider_reference_price_change'
     if reference_only:
         spec = spec.replace('final return', 'final reference-price change').replace('session closes', 'available recorded closes')
@@ -464,11 +471,15 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         mobile_title = f'{symbol}: {wins} of {n} years closed higher'
         if direction == 'short':
             mobile_title = f'{symbol}: {losses} of {n} years closed lower'
+        if engine:
+            mobile_title = engine['mobile_title']
         mobile_spec = f'{win_lbl} | {y0}-{y1} | changes from entry'
+        if engine and engine.get('mobile_spec'):
+            mobile_spec = engine['mobile_spec']
         mobile_kicker = symbol + (' | Reference-series illustration' if reference_only else ' | Seasonal record')
         fig, ax = new_frame(mobile_kicker, mobile_title,
             mobile_spec, 'Source: TradeWave', palette=pal, w=780, h=max(1100,n*47+300),
-            ax_rect=(0.15,0.11,0.80,0.66))
+            ax_rect=(0.15,0.17,0.80,0.60))
         for t in list(fig.texts[:3]):
             # Preserve the frame's width fitting when increasing phone text.
             x_pos, y_pos = t.get_position()
@@ -488,9 +499,14 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
             for i in range(n):
                 ax.hlines(i,mae[i] if mae is not None else 0,mfe[i] if mfe is not None else 0,
                           color=pal['whisk'],linewidth=2,zorder=5)
+                if meta.get('range_caps') and mfe is not None and mae is not None:
+                    ax.vlines([mae[i],mfe[i]],i-.12,i+.12,color=pal['whisk'],linewidth=1.6,zorder=5)
         ax.axvline(0,color=pal['ink'],linewidth=1.4,zorder=4)
         if show_median:
             ax.axvline(med,color=pal['ink'],linestyle='--',linewidth=1.2,alpha=.55)
+            if engine:
+                _fit_text(fig,.15,.79,f'Dashed line: median {med:+.2f}%',max_frac=.80,
+                          fontsize=16,min_fontsize=10.5,fontweight=400,color=pal['muted'])
         ax.set_yticks(x);ax.set_yticklabels([str(y) for y in years],fontsize=20)
         ax.invert_yaxis();ax.set_ylim(n-.4,-.8)
         ax.xaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
@@ -521,6 +537,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
             lo_extra.append(bot); hi_extra.append(top)
             ax.vlines(x[i], min(bot, top), max(bot, top), color=pal["whisk"],
                       linewidth=1.4, alpha=0.65, zorder=5)
+            if meta.get('range_caps'):
+                ax.hlines([bot,top],x[i]-.15,x[i]+.15,color=pal['whisk'],linewidth=1.4,alpha=.8,zorder=5)
 
     lo = min([min(nets)] + lo_extra + [0.0]) if nets else -1.0
     hi = max([max(nets)] + hi_extra + [0.0]) if nets else 1.0
@@ -530,7 +548,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     if show_median and n:
         ax.axhline(med, color=pal["ink"], linewidth=1.1, alpha=0.55,
                    linestyle=(0, (4, 3)), zorder=4)
-        ax.annotate(f"median {med:+.1f}%", xy=(x[-1] + 0.55, med),
+        median_label=f"median {med:+.2f}%" if engine else f"median {med:+.1f}%"
+        ax.annotate(median_label, xy=(x[-1] + 0.55, med),
                     fontsize=11, fontweight=600, color=pal["ink"],
                     alpha=0.75, va="bottom", ha="right",
                     xytext=(x[-1] + 0.55, med + (hi - lo) * 0.015))

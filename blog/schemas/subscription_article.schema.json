@@ -1,0 +1,226 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "title_source_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "s1",
+          "s3",
+          "cost-history"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 3
+    },
+    "dek": {
+      "type": "string"
+    },
+    "dek_source_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "s1",
+          "s3",
+          "cost-history"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 3
+    },
+    "angle_delivery": {
+      "type": "object",
+      "properties": {
+        "angle": {
+          "type": "string"
+        },
+        "seasonal_question": {
+          "type": "string"
+        },
+        "seasonal_contribution": {
+          "type": "string"
+        },
+        "current_connection": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "angle",
+        "seasonal_question",
+        "seasonal_contribution",
+        "current_connection"
+      ],
+      "additionalProperties": false
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "opening",
+              "seasonal_record",
+              "current_context",
+              "risk",
+              "comparison",
+              "outlook"
+            ]
+          },
+          "heading": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "source_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "s1",
+                      "s3",
+                      "cost-history"
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 3
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "fact",
+                    "analysis"
+                  ]
+                }
+              },
+              "required": [
+                "text",
+                "source_ids",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "chart_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "sales-growth",
+              null
+            ]
+          },
+          "native_chart_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "bars",
+              "bars_mae_mfe",
+              null
+            ]
+          }
+        },
+        "required": [
+          "role",
+          "heading",
+          "paragraphs",
+          "chart_id",
+          "native_chart_id"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 4,
+      "maxItems": 6
+    },
+    "takeaways": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "s1",
+                "s3",
+                "cost-history"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "text",
+          "source_ids"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 2,
+      "maxItems": 3
+    },
+    "visual_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "chart_id": {
+            "type": "string"
+          },
+          "reader_value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chart_id",
+          "reader_value"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 2
+    },
+    "omitted_chart_reasons": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "title",
+    "title_source_ids",
+    "dek",
+    "dek_source_ids",
+    "angle_delivery",
+    "sections",
+    "takeaways",
+    "visual_decisions",
+    "omitted_chart_reasons"
+  ],
+  "additionalProperties": false
+}

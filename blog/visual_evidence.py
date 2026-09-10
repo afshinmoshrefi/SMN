@@ -46,7 +46,7 @@ def validate_bundle(bundle):
     sources = {s['id']: s for s in b['sources']}
     for s in sources.values():
         url = s.get('url', '')
-        derived = (s.get('source_type') == 'derived' and url == 'evidence/' + s['id'] + '.json'
+        derived = (s.get('source_type') in {'derived','engine_export'} and url == 'evidence/' + s['id'] + '.json'
                    and isinstance(s.get('payload'), dict) and s.get('payload_sha256') == digest(s['payload']))
         if (urlparse(url).scheme != 'https' and not derived) or not s.get('excerpt') or not s.get('title'):
             raise ValueError('Source needs HTTPS attribution or bound local derivation and inspected evidence')

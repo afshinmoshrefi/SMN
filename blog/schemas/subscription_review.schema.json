@@ -1,0 +1,190 @@
+{
+  "type": "object",
+  "properties": {
+    "passed": {
+      "type": "boolean"
+    },
+    "checks": {
+      "type": "object",
+      "properties": {
+        "facts_and_sources": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "why_now_and_opening": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "reader_value": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "history_and_numeric_meaning": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "smn_identity_and_visuals": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "source_allowances": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "michael_brevity_and_clarity": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "passed",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "facts_and_sources",
+        "why_now_and_opening",
+        "reader_value",
+        "history_and_numeric_meaning",
+        "smn_identity_and_visuals",
+        "source_allowances",
+        "michael_brevity_and_clarity"
+      ],
+      "additionalProperties": false
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocker",
+              "major",
+              "minor"
+            ]
+          },
+          "location": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "suggested_change": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "location",
+          "problem",
+          "suggested_change"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0,
+      "maxItems": 12
+    },
+    "opening_score": {
+      "type": "integer",
+      "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "quality_verdict": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "passed",
+    "checks",
+    "issues",
+    "opening_score",
+    "quality_verdict"
+  ],
+  "additionalProperties": false
+}
