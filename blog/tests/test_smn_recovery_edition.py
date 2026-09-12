@@ -45,5 +45,35 @@ class RecoveryGuards(unittest.TestCase):
             (root/'manifest.json').write_text(json.dumps(m))
             with self.assertRaisesRegex(ValueError,'unsafe'):deploy.validate_package(root)
 
+    @unittest.skipIf(sys.platform=='win32','Recovery activation uses Linux symlinks')
+    def test_mixed_nginx_line_endings_activate_and_rollback_unchanged(self):
+        from contextlib import ExitStack
+        with tempfile.TemporaryDirectory() as d, ExitStack() as stack:
+            root=Path(d);base=root/'web';old=base/'previous';old.mkdir(parents=True)
+            current=base/'current';current.symlink_to(old)
+            nginx=root/'nginx';original=(
+                b'server {\r\nserver_name smn-dev.trxstat.com;\n'
+                b'root /var/www/smn-dev-recovery/current;\r\n'
+                b'location = / { return 302 /editions/2026-09-08/; }\n}\r\n')
+            nginx.write_bytes(original);state=root/'state';code=root/'code'
+            for name,value in {'BASE':base,'CURRENT':current,'NGINX':nginx,'STATE':state,
+                               'LOCK':state/'dev-activation.lock','CODE':code}.items():
+                stack.enter_context(patch.object(deploy,name,value))
+            stack.enter_context(patch.object(deploy.subprocess,'check_output',return_value='192.168.1.176'))
+            commands=stack.enter_context(patch.object(deploy.subprocess,'run'))
+            package=root/'package';package.mkdir();self.package(package)
+            source=root/'source';source.mkdir()
+            (source/'source-provenance.json').write_text(json.dumps({'source_commit':'a'*40,'files':{}}))
+            record=Path(deploy.prepare(package,source))
+            self.assertEqual((record/'nginx-before').read_bytes(),original)
+            active=deploy.activate(record)
+            self.assertEqual(str(current.resolve()),active['candidate_web'])
+            self.assertIn(b'/editions/2026-09-10/',nginx.read_bytes())
+            deploy.rollback(record)
+            self.assertEqual(current.resolve(),old)
+            self.assertEqual(nginx.read_bytes(),original)
+            self.assertFalse(deploy.LOCK.exists())
+            self.assertEqual(commands.call_count,4)
+
 
 if __name__=='__main__':unittest.main()

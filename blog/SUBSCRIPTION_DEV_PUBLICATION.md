@@ -147,3 +147,8 @@ nginx file. After activation, prove rendered behavior and pushed main parity,
 then finalize the receipt and release the lock. Roll back if a live check or
 concurrency-safe main update fails. No DNS, staging, production, email, SEO or
 scheduled queue changes belong to this authorization.
+
+The recovery installer preserves nginx configuration bytes, including mixed
+CRLF/LF line endings, for its drift comparison and rollback. The September 12
+Linux activation/rollback regression verifies that the previous pointer and
+configuration are restored exactly.

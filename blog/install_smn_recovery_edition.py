@@ -60,7 +60,9 @@ def guard():
     ips=subprocess.check_output(['hostname','-I'],text=True).split()
     if '192.168.1.176' not in ips or not CURRENT.is_symlink() or CURRENT.resolve().parent!=BASE:
         raise ValueError('Exact temporary SMN Dev recovery host/root required')
-    conf=NGINX.read_text()
+    # Preserve the original bytes for the activation comparison and rollback.
+    # read_text() normalizes mixed CRLF/LF and creates a false drift failure.
+    conf=NGINX.read_bytes().decode('utf-8')
     if 'server_name smn-dev.trxstat.com;' not in conf or 'root /var/www/smn-dev-recovery/current;' not in conf:
         raise ValueError('SMN recovery is not the active nginx target')
     if NGINX.is_symlink():raise ValueError('Recovery nginx ownership changed; inspect before activation')
@@ -93,7 +95,8 @@ def prepare(package,source):
     newconf,n=re.subn(r'(location = /\s*\{\s*return 302 )/editions/\d{4}-\d{2}-\d{2}/(;\s*\})',
                      lambda x:x[1]+'/editions/'+m['edition_date']+'/'+x[2],conf)
     if n!=1:raise ValueError('Recovery home redirect changed')
-    (record/'nginx-before').write_text(conf);(record/'nginx-after').write_text(newconf)
+    (record/'nginx-before').write_bytes(conf.encode('utf-8'))
+    (record/'nginx-after').write_bytes(newconf.encode('utf-8'))
     previous_code=str((CODE/'current').resolve()) if (CODE/'current').is_symlink() else None
     receipt={'id':ident,'source_commit':commit,'edition_date':m['edition_date'],'previous_web':str(old),
         'candidate_web':str(web),'previous_code':previous_code,'candidate_code':str(code),
