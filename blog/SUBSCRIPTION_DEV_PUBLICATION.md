@@ -1,5 +1,42 @@
 # Subscription Edition: Engine-backed Dev Publication
 
+## Publication Hold - September 12, 2026
+
+The six September 10 articles are written and independently reviewed, but this
+edition is **not approved for publication**. The existing TradeWave helper used
+for all six price projections converts differences in a normalized 0-100 seasonal
+curve into percentage price changes. Read-only inspection confirmed that mismatch
+in production source. The Wave Viewer source contains the same conversion.
+
+The raw primary seasonal rows/statistics remain on their separately verified,
+production-matched path. Do not recalculate them, alter the selected years,
+silently drop the required price chart, or correct the projection in SMN.
+The owner must agree to the proposed TradeWave-engine methodology change first.
+Existing editorial, source-fidelity and layout passes do not clear this hold.
+This is an operational publication hold; it is not a newly implemented runtime
+gate and must not be represented as one.
+
+Canonical incident, source references and unimplemented correction proposal:
+TradeWave `docs/TRADEWAVE_ECOSYSTEM.md`, section 7.1, on branch
+`codex/smn-projection-incident-20260912`. Source receipts and the exact six
+affected exports are retained locally under
+`smn-review-20260910/engine-editorial/projection-incident-20260912/`.
+
+Application source remains `354c7d254e723c9930bb9052b78527aeace59ed9`;
+the later documentation-only commit does not change its runtime. All six final
+reviews and 48 focused tests passed before the projection hold. September 12
+JNJ/TRV desktop/mobile layout assertions passed; final pixel approval and
+affected chart re-review remain pending. No September 10 package, Dev activation,
+main integration or live publication receipt exists. The private `.176` source
+copy/smoke test is not deployment. The prior Claude handoff omitted this blocker
+and is superseded by this notice. Afshin confirms Claude made no updates.
+
+After an agreed engine repair, refresh the projection evidence for the original
+six studies, regenerate/review affected output, and complete Dev-only publication
+with live comparison checks. The edition stays dated September 10; do not present
+the frozen sources as a new current-news edition. Production and schedulers stay
+outside this authorization.
+
 ## Current contract — September 10, 2026
 
 The owner authorized Michael review items 2–9 and six new SMN Dev articles for
