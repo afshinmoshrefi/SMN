@@ -1,41 +1,43 @@
 # Subscription Edition: Engine-backed Dev Publication
 
-## Publication Hold - September 12, 2026
+## Owner-approved projection design — September 12, 2026
 
-The six September 10 articles are written and independently reviewed, but this
-edition is **not approved for publication**. The existing TradeWave helper used
-for all six price projections converts differences in a normalized 0-100 seasonal
-curve into percentage price changes. Read-only inspection confirmed that mismatch
-in production source. The Wave Viewer source contains the same conversion.
+Afshin clarified that production is correct: the projection is a normalized
+section of the TradeWave trend chart superimposed on the actual price chart.
+Preserve that behavior. It is not a newly calculated mean/median return study.
+The earlier agent diagnosis of a "projection units defect" and resulting
+actual-return replacement were based on a mistaken interpretation of the
+product. They are retracted, not pending fixes or an approved roadmap.
 
-The raw primary seasonal rows/statistics remain on their separately verified,
-production-matched path. Do not recalculate them, alter the selected years,
-silently drop the required price chart, or correct the projection in SMN.
-The owner must agree to the proposed TradeWave-engine methodology change first.
-Existing editorial, source-fidelity and layout passes do not clear this hold.
-This is an operational publication hold; it is not a newly implemented runtime
-gate and must not be represented as one.
+TradeWave Dev and main were restored at
+`fe0c271b4f6184c5f6069d585a49879498697230`. Its application sources match the
+pre-experiment `ffb5137cd4111fe0063e833c782e96e5de634c50` exactly; the original
+frontend artifact was reused only after proving its React source tree matches.
+A live browser verified that the anchor plus 60 overlay points equal the
+existing TradeWave helper output. Production was never modified.
 
-Canonical incident, source references and unimplemented correction proposal:
-TradeWave `docs/TRADEWAVE_ECOSYSTEM.md`, section 7.1, on branch
-`codex/smn-projection-incident-20260912`. Source receipts and the exact six
-affected exports are retained locally under
-`smn-review-20260910/engine-editorial/projection-incident-20260912/`.
+The six original September 10 articles' authoritative exports, study identity,
+statistics, and price-path values are restored. Rejected actual-return outputs
+are archived locally and must not enter this edition. SMN consumes the existing
+TradeWave helper's points unchanged. The remaining editorial change describes
+the illustration accurately as a normalized trend overlay. Explicit copyedit
+receipts preserve the subscription-written articles, original figures/data,
+and exact before/after wording. A fresh independent review binds the final
+caption and article; primary-observation and price-path CSV hashes must remain
+identical to the pre-experiment edition.
 
-Application source remains `354c7d254e723c9930bb9052b78527aeace59ed9`;
-the later documentation-only commit does not change its runtime. All six final
-reviews and 48 focused tests passed before the projection hold. September 12
-JNJ/TRV desktop/mobile layout assertions passed; final pixel approval and
-affected chart re-review remain pending. No September 10 package, Dev activation,
-main integration or live publication receipt exists. The private `.176` source
-copy/smoke test is not deployment. The prior Claude handoff omitted this blocker
-and is superseded by this notice. Afshin confirms Claude made no updates.
+Original production SMN also has a normalized-overlay implementation in
+`blog/article_images.py::_build_projection`. This is not evidence that its
+seasonal statistics are wrong. Do not replace the TradeWave methodology or
+start a production migration while completing this Dev comparison edition.
+The new subscription workflow calls the existing TradeWave owner instead of
+building another SMN projection calculator.
 
-After an agreed engine repair, refresh the projection evidence for the original
-six studies, regenerate/review affected output, and complete Dev-only publication
-with live comparison checks. The edition stays dated September 10; do not present
-the frozen sources as a new current-news edition. Production and schedulers stay
-outside this authorization.
+Dev publication still requires all six final reviews, desktop/mobile pixel
+checks, the committed source package and live verification. A private source
+copy is not deployment. The existing `.176` recovery host is the Dev target;
+the September 10 edition remains dated September 10. No production, scheduler,
+email, distribution or paid OpenAI API fallback is authorized.
 
 ## Current contract — September 10, 2026
 
@@ -102,8 +104,8 @@ second opening paragraph. The business graphic stays beside current context.
 The seasonal record and range charts explain the main study, followed by a
 meaningful comparison and outlook. The outlook introduces the price chart
 before it appears. Its existing TradeWave 60-weekday-step horizon has explicit
-displayed dates and is distinct from the full study window. It uses the average
-seasonal curve, not an independently computed median or a price target.
+displayed dates and is distinct from the full study window. It superimposes a normalized section of the selected TradeWave trend chart
+on the actual price chart; no new mean/median return path is calculated.
 
 A risk example identifies its selection reason and full nominal historical
 window. Its ending result is separate from its range from entry. Do not call an

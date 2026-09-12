@@ -16,7 +16,8 @@ import sys
 
 
 def export(request):
-    owner = Path('/home/flask/site/lib/svg_wave_chart.py')
+    root = Path('/home/flask/.tw2-app-current') if Path('/home/flask/.tw2-app-current').is_dir() else Path('/home/flask')
+    owner = root/'site/lib/svg_wave_chart.py'
     if not owner.is_file():
         raise RuntimeError('TradeWave projection owner unavailable; no local fallback')
     sys.path.insert(0, str(owner.parent))
@@ -29,7 +30,7 @@ def export(request):
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     result = {'schema_version': 1, 'captured_at': now,
               'owner': {'path': str(owner), 'sha256': hashlib.sha256(owner.read_bytes()).hexdigest(),
-                        'commit': subprocess.check_output(['sudo','-u','flask','git','-C','/home/flask','rev-parse','HEAD'],text=True).strip()},
+                        'commit': subprocess.check_output(['sudo','-u','flask','git','-C',str(root),'rev-parse','HEAD'],text=True).strip()},
               'studies': []}
     for study in request['studies']:
         rid, sym = str(study['resource_id']), study['symbol']
@@ -60,7 +61,7 @@ def export(request):
                                'chart_start_date':chart_start,'period_days':60},
                     'ohlc_response':ohlc,'consolidated_response':seasonal,'projection_response':points,
                     'last_price_date':ohlc[-1][0], 'last_price':ohlc[-1][4],
-                    'convention':'TradeWave existing 60 weekday-step projection from its average seasonal curve; not a median or a forecast.'}})
+                    'convention':'TradeWave normalized seasonal trend section superimposed on the actual price chart. Preserve the existing owner-produced 60 weekday-step overlay and dated anchor unchanged; not a new mean/median return calculation or a forecast.'}})
     return result
 
 

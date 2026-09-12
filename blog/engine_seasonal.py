@@ -230,9 +230,10 @@ def render_price(card,assets):
         writer=csv.writer(f);writer.writerow(['series','date','price'])
         writer.writerows(['TradeWave recorded close',r[0],r[4]] for r in past)
         writer.writerows(['TradeWave projection result',r[0],r[1]] for r in future)
-    caption=(f"Blue: recorded prices through {p['last_price_date']}. Amber: TradeWave's seasonal illustration for the next 60 weekdays, "
+    caption=(f"Blue: recorded prices through {p['last_price_date']}. Amber: a normalized section of TradeWave's seasonal trend superimposed on the price chart, "
         f"using {card['engine_results']['cohort']['label']}. Its displayed dates are {future[0][0]} to {future[-1][0]}; "
-        'this horizon is separate from the selected seasonal window. It reflects an average historical curve, not a median, price target or forecast.')
+        'the supplied overlay contains 60 future weekday steps. This displayed horizon is separate from the selected seasonal window. '
+        'The overlay shows the normalized seasonal shape, not a price target or forecast.')
     return {'variant':'price_projection','url':'assets/tradewave-price_projection.png','mobile_url':'assets/tradewave-price_projection-mobile.png',
         'sha256':sha(assets/'tradewave-price_projection.png'),'mobile_sha256':sha(assets/'tradewave-price_projection-mobile.png'),
         'caption':caption,'alt':card['symbol']+' recorded prices and TradeWave seasonal illustration. '+caption,
