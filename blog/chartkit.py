@@ -511,7 +511,7 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         ax.invert_yaxis();ax.set_ylim(n-.4,-.8)
         ax.xaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
         from matplotlib.ticker import MaxNLocator
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
         ax.grid(False,axis='y');ax.grid(True,axis='x',color=pal['grid'],zorder=0)
         ax.tick_params(axis='x',labelsize=20)
         ax.set_xlabel('Reference-price change (%)' if reference_only else 'Underlying price return (%)',fontsize=18,labelpad=14,color=pal['muted'])
