@@ -515,6 +515,16 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         ax.grid(False,axis='y');ax.grid(True,axis='x',color=pal['grid'],zorder=0)
         ax.tick_params(axis='x',labelsize=20)
         ax.set_xlabel('Reference-price change (%)' if reference_only else 'Underlying price return (%)',fontsize=18,labelpad=14,color=pal['muted'])
+        # Keep wide edge labels inside the phone image. Only label alignment
+        # changes; tick locations, limits and financial series remain untouched.
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        for label in ax.get_xticklabels():
+            bounds = label.get_window_extent(renderer)
+            if bounds.x1 > fig.bbox.x1 - 8:
+                label.set_ha('right')
+            elif bounds.x0 < fig.bbox.x0 + 8:
+                label.set_ha('left')
         _save(fig,path)
         return _semantics(variant,title,spec,source,n,direction,d1,d2,caption=caption)
 
