@@ -160,8 +160,8 @@ def prepare(source,bundle,directory):
     for variant in ('bars','bars_mae_mfe'):
         is_range=variant=='bars_mae_mfe'
         caption=('Each year shows the same seasonal period. Bars show the price change at its end. Thin lines show the highest and lowest changes from the starting price during that period. '
-                 'They do not describe the order of moves or peak-to-trough drawdown.' if is_range else
-                 'Each bar is the underlying share-price change over the complete seasonal window. Green means higher; red means lower.')
+                 'The lines do not tell us which move came first or measure a fall from a peak. They are not suggested stop-loss levels.' if is_range else
+                 'Each bar shows the price change from the start to the end of the same seasonal period. Green means higher; red means lower.')
         if c['direction']=='long':caption+=' The dashed line marks TradeWave’s median full-window result of '+stats['Median Profit']+'.'
         title=f"{c['symbol']}: "+('yearly seasonal range' if is_range else 'the selected seasonal record')
         meta={'symbol':c['symbol'],'company':contract['company'],'days':c['days'],'direction':c['direction'],
@@ -169,7 +169,7 @@ def prepare(source,bundle,directory):
             'variant':variant,'range_caps':caps if is_range else False,
             'engine_presentation':{'title':title,'mobile_title':c['symbol']+(': yearly seasonal range' if is_range else ': seasonal record'),
               'mobile_spec':str(c['n'])+(' midterm-year windows' if c['years'].startswith('pe2-') else ' consecutive windows')+' | '+e['window']['start_date'][5:]+' to '+e['window']['end_date'][5:],
-              'spec':('Bars: ending price change. Lines: low to high from entry.' if is_range else e['cohort']['label'])+f" · {e['window']['start_date']} to {e['window']['end_date']}",
+              'spec':('Bars: ending change. Lines: lowest to highest change from the starting price.' if is_range else e['cohort']['label'])+f" · {e['window']['start_date']} to {e['window']['end_date']}",
               'caption':caption,'source':'TradeWave engine · '+e['cohort']['label'],
               'price_median':float(stats['Median Profit'].rstrip('%')) if c['direction']=='long' else None}}
         kwargs={'mfe':[r['mfe'] for r in rows],'mae':[r['mae'] for r in rows]} if is_range else {}
@@ -220,7 +220,7 @@ def render_price(card,assets):
             ax.axvline(dates[-1],color='#8d9ba5',linewidth=.8,linestyle=':')
             ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4,maxticks=5 if mobile else 8))
             ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-            ax.set_ylabel('Share price (USD)');ax.grid(axis='y',color='#e7ecee')
+            ax.set_ylabel('Index level' if str(card['resource_id'])=='5' else 'Share price (USD)');ax.grid(axis='y',color='#e7ecee')
             ax.spines[['right','top']].set_visible(False)
             ax.legend(loc='upper left',fontsize=8 if mobile else 9,frameon=False)
             fig.tight_layout(pad=1.2)
@@ -230,10 +230,10 @@ def render_price(card,assets):
         writer=csv.writer(f);writer.writerow(['series','date','price'])
         writer.writerows(['TradeWave recorded close',r[0],r[4]] for r in past)
         writer.writerows(['TradeWave projection result',r[0],r[1]] for r in future)
-    caption=(f"Blue: recorded prices through {p['last_price_date']}. Amber: a normalized section of TradeWave's seasonal trend superimposed on the price chart, "
+    caption=(f"Blue shows recorded prices through {p['last_price_date']}. The amber line overlays a section of TradeWave's seasonal trend, scaled to the last recorded price, "
         f"using {card['engine_results']['cohort']['label']}. Its displayed dates are {future[0][0]} to {future[-1][0]}; "
-        'the supplied overlay contains 60 future weekday steps. This displayed horizon is separate from the selected seasonal window. '
-        'The overlay shows the normalized seasonal shape, not a price target or forecast.')
+        'covering the next 60 weekdays. That is a different horizon from the full seasonal window above. '
+        'It illustrates the historical seasonal shape, not a price target or forecast.')
     return {'variant':'price_projection','url':'assets/tradewave-price_projection.png','mobile_url':'assets/tradewave-price_projection-mobile.png',
         'sha256':sha(assets/'tradewave-price_projection.png'),'mobile_sha256':sha(assets/'tradewave-price_projection-mobile.png'),
         'caption':caption,'alt':card['symbol']+' recorded prices and TradeWave seasonal illustration. '+caption,
@@ -248,9 +248,9 @@ def stats_html(data):
         ('Average full-window '+side+' result',s['Avg Profit - All'])]
     return (f'<div class="pattern-meta"><span>{esc(data["card"]["symbol"])}</span><span>{w["start_date"]} to {w["end_date"]} · {w["calendar_days"]} calendar days</span><span>{esc(c["label"])}</span></div>'
         '<aside class="key-stats"><h3>TradeWave Key Stats</h3><table><tbody>'+''.join(f'<tr><th scope="row">{esc(k)}</th><td>{esc(v)}</td></tr>' for k,v in values)+
-        '</tbody></table><p>Exact TradeWave outputs, including its display precision. '+
-        ('Short-side historical profits describe falling prices; the chart bars retain the actual price-change signs. ' if side=='short' else '')+
-        'Full-window historical results, before trading costs. These are not forecast probabilities or returns remaining from today.</p></aside>')
+        '</tbody></table><p>Figures are supplied by TradeWave. '+
+        ('A positive short result means a bet on falling prices worked. The bars show the actual price changes. ' if side=='short' else '')+
+        'These historical results cover each complete window before trading costs. They are not forecasts or expected returns from today.</p></aside>')
 
 
 def figure_html(data,variant):
@@ -265,14 +265,14 @@ def figure_html(data,variant):
 
 def comparison_rows(data):
     e=data['evidence']
-    return [{'label':'Production-selected study: '+e['cohort']['label'],'stats':e['stats'],'years':e['cohort']['years']}]+[
+    return [{'label':'Article study: '+e['cohort']['label'],'stats':e['stats'],'years':e['cohort']['years']}]+[
         {'label':r['label'],'stats':r['stats'],'years':[x['year'] for x in r['per_year']]} for r in e['comparisons']]
 
 
 def comparison_html(data):
     esc=html.escape
     rows=comparison_rows(data)
-    return '<details class="history-comparison"><summary>See the history behind this comparison</summary><p>The production-selected study stays primary. The same calendar window is also requested from TradeWave with other year selections to test whether the result depends on that choice.</p><div class="table-scroll"><table><thead><tr><th>History</th><th>Observed start years</th><th>Direction</th><th>Success rate</th><th>Median result</th></tr></thead><tbody>'+''.join('<tr><th>'+esc(r['label'])+'</th><td data-label="Years">'+', '.join(map(str,r['years']))+'</td><td data-label="Direction">'+esc(r['stats']['Trade Dir'])+'</td><td data-label="Success">'+esc(r['stats']['Percent Profitable'])+'</td><td data-label="Median">'+esc(r['stats']['Median Profit'])+'</td></tr>' for r in rows)+'</tbody></table></div><p>These groups overlap; agreement is not independent confirmation. The ten-year sample is part of the twenty-year sample, not a separate earlier-decade comparison. Cycle groups select election phases, not consecutive years. Each result uses the direction shown; a short-side gain is not a rising share price. Small samples and different market eras limit what the comparison can establish.</p></details>'
+    return '<details class="history-comparison"><summary>See the history behind this comparison</summary><p>TradeWave checks the same seasonal dates across different sets of years. This helps show whether the pattern holds up when you look at another stretch of history.</p><div class="table-scroll"><table><thead><tr><th>History</th><th>Observed start years</th><th>Direction</th><th>Success rate</th><th>Median result</th></tr></thead><tbody>'+''.join('<tr><th>'+esc(r['label'])+'</th><td data-label="Years">'+', '.join(map(str,r['years']))+'</td><td data-label="Direction">'+esc(r['stats']['Trade Dir'])+'</td><td data-label="Success">'+esc(r['stats']['Percent Profitable'])+'</td><td data-label="Median">'+esc(r['stats']['Median Profit'])+'</td></tr>' for r in rows)+'</tbody></table></div><p>Some years appear in more than one group, so agreement is not a second independent test. The ten-year sample is included in the twenty-year sample. Election-cycle groups use matching phases, not consecutive years. Results follow the direction shown: a positive short result means prices fell. Small samples and different market periods make the comparison less conclusive.</p></details>'
 
 
 def methodology_html(data):

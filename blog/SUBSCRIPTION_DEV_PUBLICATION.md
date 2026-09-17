@@ -93,6 +93,23 @@ item, not authorization to change either calculation here.
 
 ## Writing and presentation
 
+Michael's September 17 `Recommended Edits` review is applied to the whole
+reader experience, not just a single KDP draft. The writer/reviewer rules in
+`seasonal_edition.py` require natural explanations, concrete takeaways, explicit
+completed years, and the current investor question connected to the seasonal
+window. The shared renderer uses the same plain language for statistics, range
+charts, comparisons, the unchanged normalized trend overlay, and the specific
+invitation to explore the exact study in TradeWave. Index charts label the
+vertical axis as an index level. These are presentation changes only.
+
+A supporting graphic that cites multiple sources reserves its displayed text
+against every source's word allowance. The September 17 edition recreates the
+production-selected MO, COO, LEN, OMC, JNJ and DJI studies; its updated business
+and macroeconomic commissions use dated primary releases, not the old article
+copy. Shared implementation/status record: `TW-TASK-0004` in the TradeWave
+repository's `docs/tasks/` register. No production or automatic queue change is
+part of that task.
+
 `engine_edition_workflow.py` consumes the captured production records, source
 exports and inspected editorial commissions. `subscription_writer` runs the
 official Codex CLI with saved ChatGPT authentication, Astra Extra High, API-key

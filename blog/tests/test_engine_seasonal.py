@@ -67,7 +67,7 @@ class EngineAuthorityTests(unittest.TestCase):
             with (Path(directory)/'assets/tradewave-observations.csv').open() as file:
                 exported=list(csv.DictReader(file))
             self.assertEqual(exported[6]['mfe'],'-0.26')
-            self.assertIn('Short-side historical profits',e.stats_html(data))
+            self.assertIn('A positive short result means a bet on falling prices worked',e.stats_html(data))
             self.assertIn('Median full-window short result',e.stats_html(data))
             self.assertEqual(data['images'][0]['values_sha256'],digest(c['story_cell']['per_year']))
             (Path(directory)/data['images'][0]['url']).write_bytes(b'changed')
@@ -80,7 +80,7 @@ class EngineAuthorityTests(unittest.TestCase):
         self.assertEqual(rows[0]['stats']['Trade Dir'],'short')
         self.assertEqual(rows[1]['stats']['Trade Dir'],'long')
         self.assertEqual(rows[1]['stats']['Median Profit'],'0.64%')
-        self.assertIn('not a separate earlier-decade comparison',e.comparison_html(d))
+        self.assertIn('The ten-year sample is included in the twenty-year sample',e.comparison_html(d))
 
 
 if __name__=='__main__':unittest.main()

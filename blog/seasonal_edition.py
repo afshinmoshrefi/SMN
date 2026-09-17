@@ -157,6 +157,28 @@ technical review excuse language the intended reader cannot easily understand.
 
 EXTRA_CHECKS = {'smn_identity', 'angle_delivery', 'michael_editing', 'tradewave_evidence'}
 
+RULES += '''
+Michael's September 17 tracked edits refine the existing SMN voice across the
+whole page. Write as a finance journalist explaining the evidence to an interested
+reader, not as an analyst documenting a test. Prefer "less convincing when you
+look further back" to "sample sensitivity" and "harder to read" to "complicating
+any reading". Explain the implication, not just the technical qualification.
+Takeaways should carry three distinct benefits when supported: the seasonal
+finding with any material contrary history, a concrete risk inside that period,
+and the current business or economic question. Avoid stacking several sample
+sizes and unexplained percentages into a single bullet. Use explicit completed
+year spans; "every year since 2016" must not imply an unfinished current year.
+For a short study, explain once that a positive short result means a bet on
+falling prices worked; the chart still shows the actual price movement. Describe
+an adverse rise as above the starting price, not as a profit for the short.
+The outlook should invite a specific next investigation in TradeWave, such as
+comparing this same window across histories or inspecting the range of outcomes.
+Do not promise features or measurements absent from the evidence. Entry-based
+highs/lows are not peak-to-trough drawdown. Keep normalized trend-overlay meaning
+unchanged, while explaining it in everyday words. Match terminology to the
+instrument: an index has a level and constituents, not its own earnings or shares.
+'''
+
 READER_REVIEW_RULES = '''Judge the headline and opening as a reader deciding
 whether to continue: a concrete investor question and a timely seasonal reason
 must emerge within two paragraphs. Comparison definitions belong later, beside
@@ -177,6 +199,12 @@ and meaningful labeled comparison. Read the engine metric definitions: never
 convert a short-side gain into a rising price or use winners-only average as
 the overall average. Compare claims with supplied engine values; do not build
 your own calculator. Do not treat a weekday-step chart horizon as calendar days.
+Also judge Michael's natural-language edits across the whole rendered page:
+clear takeaways, explicit completed years, plain explanations of short results
+and above/below-starting-price risk, readable comparison and chart notes, and a
+specific useful invitation to explore TradeWave. Technical accuracy alone does
+not pass a page that reads like a specialist report. Keep this an improvement
+of the existing SMN article, not a replacement with generic financial news.
 '''
 
 CSS = '''
@@ -291,7 +319,7 @@ def figure_html(data, variant):
 def links_html(data):
     esc=html.escape
     return (f'<div class="study-links"><a class="study-link" href="{esc(data["study_url"],quote=True)}">Open {esc(data["card"]["symbol"])} in TradeWave</a>'
-            '<p>Inspect this date range and selected history, then compare other windows or year sets. Account access applies in TradeWave.</p></div>')
+            '<p>Explore this exact seasonal window in TradeWave. Compare its win rate and average result across different histories, and inspect how far prices moved above or below their starting point. Account access applies in TradeWave.</p></div>')
 
 
 def comparison_rows(data):

@@ -115,7 +115,9 @@ class Edition:
         rendered=figure_html(assets[chart['id']],b);parser=Text();parser.feed(rendered)
         nwords=sum(len(t.split()) for t in parser.parts+parser.alts)
         nwords+=sum(len(r['label'].split())+1 for r in chart['rows'])+len(chart['unit'].split())
-        words={records[0]['source_id']:nwords};save_json(out/'chart-words.json',words)
+        # A comparison graphic may draw on more than one release. Reserve its
+        # whole displayed text for each cited source rather than omitting a cap.
+        words={r['source_id']:nwords for r in records};save_json(out/'chart-words.json',words)
         schema=load_json(Path(__file__).parent/'schemas/subscription_article.schema.json')
         def adapt(v):
             if isinstance(v,dict):
