@@ -39,6 +39,13 @@ copy is not deployment. The existing `.176` recovery host is the Dev target;
 the September 10 edition remains dated September 10. No production, scheduler,
 email, distribution or paid OpenAI API fallback is authorized.
 
+## September 19 daily Dev authorization
+
+The owner subsequently authorized the subscription daily workflow on Dev.
+The earlier scheduler exclusions below describe the manually requested editions;
+the Dev-only schedule is now governed by [SUBSCRIPTION_DAILY_RUNBOOK.md](SUBSCRIPTION_DAILY_RUNBOOK.md).
+Production generation, selection, distribution and services remain unchanged.
+
 ## Current contract — September 10, 2026
 
 The owner authorized Michael review items 2–9 and six new SMN Dev articles for

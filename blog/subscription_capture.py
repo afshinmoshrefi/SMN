@@ -10,6 +10,10 @@ SYMBOL = re.compile(r"^[A-Z][A-Z0-9.=-]{0,15}$")
 class Held(RuntimeError):
     pass
 
+class Waiting(RuntimeError):
+    """Production has not published a complete daily batch yet."""
+    pass
+
 def _write_once(path: Path, data: bytes) -> None:
     if path.is_symlink(): raise Held('unsafe capture path')
     if path.exists():
@@ -57,7 +61,8 @@ from urllib.parse import urlparse
 from html.parser import HTMLParser
 date=sys.argv[1]; root=Path('/var/www/smn'); posts=json.loads((root/'posts.json').read_text())
 items=[x for x in posts if str(x.get('published_date','')).startswith(date)]
-if len(items)!=6: raise RuntimeError('published-date record count is not six')
+if len(items)<6: sys.exit(75)
+if len(items)!=6: raise RuntimeError('published-date record count exceeds six')
 class I(HTMLParser):
  def __init__(s): super().__init__(); s.u=[]
  def handle_starttag(s,t,a):
@@ -91,6 +96,7 @@ with tarfile.open(fileobj=sys.stdout.buffer,mode='w|gz') as tar:
 '''
     cmd=["ssh","-o","BatchMode=yes","-o","ConnectTimeout=10",*PRODUCTION_HOST,"python3 -",edition]
     p=subprocess.run(cmd,input=code.encode(),capture_output=True,timeout=900)
+    if p.returncode==75: raise Waiting('production batch not complete')
     if p.returncode: raise Held("production capture held; remote read failed")
     return p.stdout
 
@@ -104,7 +110,10 @@ def production(root: Path, edition: str) -> dict:
         posts=_posts(root,edition)
         return {'status':'captured','symbols':[p['symbol'] for p in posts],'production_writes':False,'idempotent':True}
     if out.exists() or tarpath.exists() or hashpath.exists(): raise Held('partial capture retained; use a new attempt')
-    blob=_remote_capture(edition); _write_once(tarpath,blob); _safe_extract(blob,out)
+    try: blob=_remote_capture(edition)
+    except Waiting:
+        return {'status':'waiting_for_production','date':edition,'production_writes':False}
+    _write_once(tarpath,blob); _safe_extract(blob,out)
     posts=_posts(root,edition)
     for prompt in out.glob('*/audit/prompt.txt'):
         for line in prompt.read_text(errors='replace').splitlines():
