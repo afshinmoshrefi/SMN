@@ -88,8 +88,19 @@ def prepare(package,source):
             dest=web/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(package/rel,dest)
     write(web/'editions'/m['edition_date']/'provenance.json',{'source_commit':commit,'engine_authority':'TradeWave','publication_target':'SMN Dev recovery','symbols':[e['symbol'] for e in entries]})
     code=CODE/'releases'/commit;code.parent.mkdir(parents=True,exist_ok=True)
-    if code.exists():raise ValueError('Source candidate exists; inspect rather than overwrite')
-    shutil.copytree(source,code)
+    # A committed generator release may safely serve several dated editions.
+    # Never overwrite it: reuse only after proving every declared byte matches.
+    if code.exists():
+        existing=read(code/'source-provenance.json')
+        incoming=read(source/'source-provenance.json')
+        if existing != incoming:
+            raise ValueError('Existing code release provenance differs; inspect rather than overwrite')
+        for rel,expected in incoming['files'].items():
+            p=code/rel
+            if p.is_symlink() or code not in p.resolve().parents or not p.is_file() or sha(p)!=expected:
+                raise ValueError('Existing code release differs; inspect rather than overwrite')
+    else:
+        shutil.copytree(source,code)
     for p in web.rglob('*'):
         os.chmod(p,0o755 if p.is_dir() else 0o644)
     newconf,n=re.subn(r'(location = /\s*\{\s*return 302 )/editions/\d{4}-\d{2}-\d{2}/(;\s*\})',
