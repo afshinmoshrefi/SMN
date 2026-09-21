@@ -22,6 +22,26 @@ def card(f):
 
 
 class EngineAuthorityTests(unittest.TestCase):
+    def test_started_unfinished_window_uses_engine_completion_flag(self):
+        f=json.loads((Path(__file__).parent/'fixtures/aph-completion-20260921.json').read_text())
+        response=f['response'];before=deepcopy(response)
+        rows=e.decode_rows(response,f['anchor'])
+        self.assertEqual([r['year'] for r in rows],f['published_years'])
+        self.assertEqual(len(rows),8)
+        for row,raw in zip(rows,response['ChartData4'][:-1]):
+            self.assertEqual([row[k] for k in ('net','mfe','mae')],[float(v) for v in raw['pct'].split(',')])
+            self.assertEqual([row[k] for k in ('entry_price','exit_price')],[float(v) for v in raw['price'].split(',')])
+        self.assertEqual(response,before)
+
+    def test_completed_flat_rows_and_legacy_placeholder_contract(self):
+        flat={'year':2022,'price':'77.55,77.55','pct':'0.0,0.0,0.0','completed':True}
+        legacy={'year':2026,'price':'0,0','pct':'0,0,0'}
+        self.assertEqual(e.decode_rows({'ChartData4':[flat,legacy]},'2026-09-18')[0]['net'],0)
+        self.assertEqual(len(e.decode_rows({'ChartData4':[flat,legacy]},'2026-09-18')),1)
+        bad={**flat,'completed':'false'}
+        with self.assertRaisesRegex(ValueError,'completion flag'):
+            e.decode_rows({'ChartData4':[bad]},'2026-09-18')
+
     def test_all_six_keep_exact_selected_study_and_original_metrics(self):
         for f in FIXTURES:
             with self.subTest(symbol=f['original']['symbol']):

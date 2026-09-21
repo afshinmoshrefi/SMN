@@ -25,9 +25,13 @@ def decode_rows(response, anchor):
     """Parse the existing ChartData4 transport; preserve each returned value."""
     rows = []
     for raw in response['ChartData4']:
-        # The API marks a future, non-observation with both zero price fields.
-        # Never drop a real historical flat result.
-        if str(raw.get('price')) == '0,0' and raw['year'] >= int(anchor[:4]):
+        # The engine owns completion, including started but unfinished windows.
+        if 'completed' in raw and type(raw['completed']) is not bool:
+            raise ValueError('Ambiguous TradeWave completion flag')
+        if raw.get('completed') is False:
+            continue
+        # Retain compatibility with older exports lacking the completion flag.
+        if 'completed' not in raw and str(raw.get('price')) == '0,0' and raw['year'] >= int(anchor[:4]):
             continue
         pct = [float(v) for v in raw['pct'].split(',')]
         price = [float(v) for v in raw['price'].split(',')]
