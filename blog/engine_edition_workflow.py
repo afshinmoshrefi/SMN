@@ -263,9 +263,9 @@ class Edition:
         original=load_json(out/'commission.json')['production_article']['url']
         if urlparse(original).hostname not in {'seasonalmarketnews.com','www.seasonalmarketnews.com'}:
             raise ValueError('Unexpected production comparison destination')
-        nav='<nav class="reading-nav" style="max-width:1064px;margin:18px auto;padding:0 28px"><a href="/editions/'+self.date+'/">All six articles</a> · <a href="'+html.escape(original,quote=True)+'" target="_blank" rel="noopener">Compare with the production original</a></nav>'
+        nav='<nav class="reading-nav" style="max-width:1064px;margin:18px auto;padding:0 28px"><a href="/editions/'+self.date+'/">Market analysis</a> <details style="display:inline"><summary style="display:inline">Article details</summary><a href="'+html.escape(original,quote=True)+'" target="_blank" rel="noopener">Original publication</a></details></nav>'
         rendered=rendered.replace('<article><header',nav+'<article><header',1)
-        rendered=rendered.replace('Development preview · Not published ·','Development edition · SMN Dev only ·')
+        rendered=rendered.replace('Development preview · Not published ·','© '+str(datetime.now().year)+' Tara Data Research LLC ·')
         (out/'article.html').write_text(rendered,encoding='utf-8')
         save_json(out/'review-binding.json',{'article_sha256':digest(a),'review_sha256':sha256(review_path.read_bytes()),
             'price_path_sha256':n['price_path']['evidence_sha256'],
