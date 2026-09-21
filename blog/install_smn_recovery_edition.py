@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+from urllib.parse import urlparse
 
 BASE=Path('/var/www/smn-dev-recovery')
 CURRENT=BASE/'current'
@@ -31,6 +32,62 @@ def atomic(p,data):
     tmp=p.with_name(p.name+'.smn-new');tmp.write_bytes(data);os.chmod(tmp,0o644);os.replace(tmp,p)
 def pointer(path,target):
     tmp=path.with_name(path.name+'.smn-new');tmp.symlink_to(target);os.replace(tmp,path)
+
+
+def public_path(web,url):
+    u=urlparse(url)
+    if u.scheme!='https' or u.netloc!='smn-dev.trxstat.com' or u.query or u.fragment:
+        raise ValueError('Archive URL must stay on SMN Dev')
+    p=web/u.path.lstrip('/')
+    if p.is_symlink() or web.resolve() not in p.resolve().parents or not p.is_file():
+        raise ValueError('Archive references a missing or unsafe public file')
+    return p
+
+
+def build_home(web,entries,date,commit,seed=None):
+    """Merge the retained catalog, then render the production news template."""
+    from subscription_home import render_home,render_search
+    catalog=web/'posts.json'
+    previous=read(catalog) if catalog.exists() else []
+    if seed is not None:
+        if previous:raise ValueError('Archive bootstrap is only for a missing catalog')
+        previous=seed['entries']
+        for url,expected in seed['article_hashes'].items():
+            if sha(public_path(web,url))!=expected:raise ValueError('Retained archive changed since capture')
+        if set(seed['article_hashes'])!={p['url'] for p in previous}:
+            raise ValueError('Every recovered article requires its retained hash')
+    elif not catalog.exists():
+        incoming={e['url'] for e in entries}
+        retained={ORIGIN+'/'+p.relative_to(web).as_posix() for p in (web/'editions').glob('*/*/article.html')}
+        if retained-incoming:raise ValueError('Retained articles require an explicit archive bootstrap')
+    fields=('title','dek','url','symbol','market_family','published_date','hero_image','hero_alt',
+            'pattern_start_date','pattern_days','direction','edition_id','source_commit',
+            'production_original','tickers','tags')
+    merged={p['url']:{k:p[k] for k in fields if k in p} for p in previous}
+    for p in entries:merged[p['url']]={k:p[k] for k in fields if k in p}
+    posts=sorted(merged.values(),key=lambda p:(p['published_date'],p['url']),reverse=True)
+    articles={}
+    for p in posts:
+        if not p.get('title') or not re.match(r'^\d{4}-\d{2}-\d{2}',p.get('published_date','')):
+            raise ValueError('Archive title and publication date required')
+        path=public_path(web,p['url']);articles[path.relative_to(web).as_posix()]=sha(path)
+        if p.get('hero_image'):public_path(web,p['hero_image'])
+    write(catalog,posts)
+    (web/'index.html').write_text(render_home(posts,date),encoding='utf-8')
+    (web/'search.html').write_text(render_search(),encoding='utf-8')
+    write(web/'editions'/date/'entries.json',entries)
+    files={n:sha(web/n) for n in ('index.html','search.html','posts.json','editions/'+date+'/entries.json')}
+    proof={'source_commit':commit,'edition_date':date,'article_count':len(posts),
+           'files':files,'articles':articles,'previous_article_urls':[p['url'] for p in previous]}
+    write(web/'home-manifest.json',proof)
+    return proof
+
+
+def home_config(conf):
+    pattern=r'location = /\s*\{\s*(?:return 302 /editions/\d{4}-\d{2}-\d{2}/;|try_files /index\.html =404;)\s*\}'
+    updated,n=re.subn(pattern,'location = / { try_files /index.html =404; }',conf)
+    if n!=1:raise ValueError('Recovery home route changed')
+    return updated
 
 
 def validate_package(package):
@@ -51,7 +108,7 @@ def validate_package(package):
         p=package/rel
         if p.is_symlink() or package not in p.resolve().parents or not p.is_file() or sha(p)!=expected:
             raise ValueError('Changed or unsafe package')
-        if not (rel.startswith(prefix) or rel in {'entries.json','home-section.html'}):
+        if not (rel.startswith(prefix) or rel in {'entries.json','home-section.html','archive-seed.json'}):
             raise ValueError('Unexpected public path')
     return m,entries
 
@@ -83,10 +140,13 @@ def prepare(package,source):
     web=BASE/ident
     if web.exists():raise ValueError('Preserve prior candidate; use a new committed package')
     old=CURRENT.resolve();shutil.copytree(old,web)
+    old_catalog_sha=sha(old/'posts.json') if (old/'posts.json').exists() else None
     for rel in m['files']:
         if rel.startswith('editions/'):
             dest=web/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(package/rel,dest)
     write(web/'editions'/m['edition_date']/'provenance.json',{'source_commit':commit,'engine_authority':'TradeWave','publication_target':'SMN Dev recovery','symbols':[e['symbol'] for e in entries]})
+    seed=read(package/'archive-seed.json') if 'archive-seed.json' in m['files'] else None
+    home=build_home(web,entries,m['edition_date'],commit,seed)
     code=CODE/'releases'/commit;code.parent.mkdir(parents=True,exist_ok=True)
     # A committed generator release may safely serve several dated editions.
     # Never overwrite it: reuse only after proving every declared byte matches.
@@ -103,15 +163,15 @@ def prepare(package,source):
         shutil.copytree(source,code)
     for p in web.rglob('*'):
         os.chmod(p,0o755 if p.is_dir() else 0o644)
-    newconf,n=re.subn(r'(location = /\s*\{\s*return 302 )/editions/\d{4}-\d{2}-\d{2}/(;\s*\})',
-                     lambda x:x[1]+'/editions/'+m['edition_date']+'/'+x[2],conf)
-    if n!=1:raise ValueError('Recovery home redirect changed')
+    newconf=home_config(conf)
     (record/'nginx-before').write_bytes(conf.encode('utf-8'))
     (record/'nginx-after').write_bytes(newconf.encode('utf-8'))
     previous_code=str((CODE/'current').resolve()) if (CODE/'current').is_symlink() else None
     receipt={'id':ident,'source_commit':commit,'edition_date':m['edition_date'],'previous_web':str(old),
         'candidate_web':str(web),'previous_code':previous_code,'candidate_code':str(code),
         'package':str(package),'urls':[e['url'] for e in entries],
+        'previous_catalog_sha256':old_catalog_sha,'home_manifest_sha256':sha(web/'home-manifest.json'),
+        'archive_article_count':home['article_count'],
         'status':'prepared','production_written':False,'primary_smn_dev_restored':False}
     write(record/'receipt.json',receipt);return str(record)
 
@@ -121,9 +181,13 @@ def activate(record):
     if r['status']!='prepared':raise ValueError('Candidate state changed')
     if str(CURRENT.resolve())!=r['previous_web'] or NGINX.read_bytes()!=(record/'nginx-before').read_bytes():
         raise ValueError('Active recovery changed during build; re-integrate')
+    catalog=CURRENT/'posts.json'
+    if (sha(catalog) if catalog.exists() else None)!=r.get('previous_catalog_sha256'):
+        raise ValueError('Archive changed during build; re-integrate')
     LOCK.mkdir();write(LOCK/'owner.json',{'task':r['id'],'pid':os.getpid(),'source_commit':r['source_commit'],'utc':datetime.now(timezone.utc).isoformat()})
     try:
-        if str(CURRENT.resolve())!=r['previous_web'] or NGINX.read_bytes()!=(record/'nginx-before').read_bytes():
+        if (str(CURRENT.resolve())!=r['previous_web'] or NGINX.read_bytes()!=(record/'nginx-before').read_bytes()
+            or (sha(catalog) if catalog.exists() else None)!=r.get('previous_catalog_sha256')):
             unlock(r)
             raise ValueError('Recovery changed before lock acquisition')
         pointer(CURRENT,r['candidate_web']);pointer(CODE/'current',r['candidate_code'])

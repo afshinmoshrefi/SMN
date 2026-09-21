@@ -16,7 +16,9 @@ class RecoveryGuards(unittest.TestCase):
         for sym in ['HRL','TRV','IBM','KDP','KMB','JNJ']:
             rel=f'editions/{date}/{sym}/article.html';path=root/rel;path.parent.mkdir(parents=True);path.write_text(sym)
             files[rel]=hashlib.sha256(path.read_bytes()).hexdigest()
-            entries.append({'symbol':sym,'url':deploy.ORIGIN+'/'+rel,'source_commit':commit})
+            entries.append({'symbol':sym,'url':deploy.ORIGIN+'/'+rel,'source_commit':commit,
+                            'title':'Study '+sym,'dek':'Existing seasonal article','hero_image':'',
+                            'published_date':date+'T07:00:00Z','market_family':'US','pattern_days':30})
         (root/'entries.json').write_text(json.dumps(entries))
         files['entries.json']=deploy.sha(root/'entries.json')
         m={'edition_date':date,'source_commit':commit,'target_origin':deploy.ORIGIN,'production_allowed':False,'files':files}
@@ -68,12 +70,51 @@ class RecoveryGuards(unittest.TestCase):
             self.assertEqual((record/'nginx-before').read_bytes(),original)
             active=deploy.activate(record)
             self.assertEqual(str(current.resolve()),active['candidate_web'])
-            self.assertIn(b'/editions/2026-09-10/',nginx.read_bytes())
+            self.assertIn(b'try_files /index.html =404;',nginx.read_bytes())
+            self.assertEqual(len(deploy.read(current/'posts.json')),6)
             deploy.rollback(record)
             self.assertEqual(current.resolve(),old)
             self.assertEqual(nginx.read_bytes(),original)
             self.assertFalse(deploy.LOCK.exists())
             self.assertEqual(commands.call_count,4)
+
+    def test_cumulative_catalog_keeps_old_articles_and_repeat_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            web=Path(d)
+            def entry(day,symbol):
+                p=web/'editions'/day/symbol/'article.html';p.parent.mkdir(parents=True);p.write_text('Approved '+symbol)
+                return {'url':deploy.ORIGIN+'/'+p.relative_to(web).as_posix(),'symbol':symbol,
+                        'title':'Study '+symbol,'dek':'Reader context','hero_image':'','published_date':day+'T07:00:00Z',
+                        'market_family':'US','pattern_days':30,'direction':'long'}
+            first=entry('2026-09-17','OLD');old=web/'editions/2026-09-17/OLD/article.html';expected=deploy.sha(old)
+            deploy.build_home(web,[first],'2026-09-17','a'*40)
+            second=entry('2026-09-21','NEW')
+            proof=deploy.build_home(web,[second],'2026-09-21','b'*40)
+            self.assertEqual([p['symbol'] for p in deploy.read(web/'posts.json')],['NEW','OLD'])
+            self.assertEqual(deploy.sha(old),expected)
+            self.assertIn(first['url'],proof['previous_article_urls'])
+            self.assertIn('wire-lead',(web/'index.html').read_text())
+            self.assertIn('search.html',(web/'index.html').read_text())
+            deploy.build_home(web,[second],'2026-09-21','b'*40)
+            self.assertEqual(len(deploy.read(web/'posts.json')),2)
+
+    def test_missing_catalog_cannot_silently_discard_retained_articles(self):
+        with tempfile.TemporaryDirectory() as d:
+            web=Path(d);p=web/'editions/2026-09-17/OLD/article.html';p.parent.mkdir(parents=True);p.write_text('Approved')
+            old={'url':deploy.ORIGIN+'/'+p.relative_to(web).as_posix(),'symbol':'OLD','title':'Earlier article',
+                 'published_date':'2026-09-17T07:00:00Z','hero_image':''}
+            with self.assertRaisesRegex(ValueError,'explicit archive bootstrap'):
+                deploy.build_home(web,[],'2026-09-21','b'*40)
+            seed={'entries':[old],'article_hashes':{old['url']:deploy.sha(p)}}
+            (web/'editions/2026-09-21').mkdir(parents=True)
+            deploy.build_home(web,[],'2026-09-21','b'*40,seed)
+            self.assertEqual(len(deploy.read(web/'posts.json')),1)
+
+    def test_home_route_is_repeatable_and_rejects_unknown_configuration(self):
+        before='location = / { return 302 /editions/2026-09-17/; }'
+        after=deploy.home_config(before)
+        self.assertEqual(deploy.home_config(after),after)
+        with self.assertRaises(ValueError):deploy.home_config('location = / { proxy_pass http://other; }')
 
 
 if __name__=='__main__':unittest.main()

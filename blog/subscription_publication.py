@@ -110,6 +110,8 @@ def package(edition_root,date,source_commit,review_stages):
     landing='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Seasonal Market News</title><style>'+CSS+'</style></head><body><header><div class="header-content"><a href="/" class="logo"><span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span></a><nav><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></nav></div></header>'+section+'<footer><div class="footer-content"><div class="footer-left">© '+str(datetime.now().year)+' <a href="https://taradataresearch.com" target="_blank" rel="noopener">Tara Data Research LLC</a>. All rights reserved.</div><div class="footer-links"><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></div></div></footer></body></html>'
     (target/'editions'/date/'index.html').write_text(landing,encoding='utf-8')
     write(target/'entries.json',entries)
+    if (root/'archive-seed.json').exists():
+        shutil.copy2(root/'archive-seed.json',target/'archive-seed.json')
     (target/'home-section.html').write_text('<style>'+CSS+'</style>'+section,encoding='utf-8')
     manifest={'schema_version':1,'target_origin':DEV,'target_root':'/var/www/smn','edition_date':date,
       'edition_id':'subscription-'+date,'source_commit':source_commit,'production_allowed':False,

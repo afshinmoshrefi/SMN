@@ -110,3 +110,19 @@ python .\subscription_dev_publish.py rollback --root $Root --repo $Repo
 ```
 
 No command in this runbook changes TradeWave mathematics or production.
+
+## Cumulative homepage
+
+The recovery site now serves its production wire-style homepage at `/`, rather
+than redirecting to the latest six-article edition. Publication merges the new
+entries into the retained `posts.json` catalog by article URL. It preserves all
+earlier edition files and keeps older coverage accessible through `search.html`.
+The home uses production's 14-day/50-article display limits; those limits never
+delete catalog entries or articles. Both the homepage and archive are noindex.
+
+`home-manifest.json` binds the generated catalog/home/search files and retained
+article hashes to the source release. Live verification must exercise older
+article discovery as well as the current six. A missing catalog with retained
+articles requires an explicit hash-bound `archive-seed.json` migration; never
+silently start an empty archive. The September21 migration is a presentation
+replay of already approved articles, with no new model calls or study changes.

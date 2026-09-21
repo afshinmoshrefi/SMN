@@ -8,6 +8,7 @@ REMOTE_BASE='/var/tmp'
 STATE='/var/lib/tradewave/release-state'
 PYTHON='/home/flask/venv/bin/python'
 SOURCE_FILES=(
+ 'blog/subscription_home.py','blog/rebuild_news_home.py',
  'blog/tradewave_engine_export.py','blog/install_smn_recovery_edition.py','blog/chartkit.py',
  'blog/visual_evidence.py','blog/visual_editorial.py','blog/visual_charts.py','blog/seasonal_price_path.py',
  'blog/seasonal_edition.py','blog/subscription_writer.py','blog/subscription_publication.py',
@@ -191,6 +192,7 @@ import install_smn_recovery_edition as i
 r=i.read(record/'receipt.json'); p=i.read(Path(r['candidate_code'])/'source-provenance.json'); proof=i.read(record/'live-verification.json')
 assert r['source_commit']==p['source_commit']==proof['source_commit']==proof['origin_main']
 assert str(i.CURRENT.resolve())==r['candidate_web'] and str((i.CODE/'current').resolve())==r['candidate_code']
+assert i.sha(Path(r['candidate_web'])/'home-manifest.json')==r['home_manifest_sha256']==proof['home_manifest_sha256']
 for rel,expected in p['files'].items(): assert i.sha(Path(r['candidate_code'])/rel)==expected,rel
 for item in proof['public_files']: assert item['passed'] and i.sha(Path(r['candidate_web'])/item['rel'])==item['sha256'],item['rel']
 print(json.dumps({'source_files':len(p['files']),'public_files':len(proof['public_files'])}))
