@@ -9,7 +9,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  const home=await page.goto(base+'/',{waitUntil:'domcontentloaded',timeout:60000});assert(home.status()===200,'Dev home HTTP');
  assert(new URL(page.url()).pathname==='/editions/'+date+'/','Dev home edition redirect');
  assert(await page.locator('.edition-card').count()===6,'Six edition cards');
- assert(await page.locator('.logo').innerText()==='SeasonalMarketNews','SMN site brand');
+ assert((await page.locator('.logo').innerText()).replace(/\s+/g,'')==='SeasonalMarketNews','SMN site brand');
  assert(await page.locator('header nav a').innerText()==='TradeWave','SMN site navigation');
  assert((await page.locator('footer').innerText()).includes('Tara Data Research LLC'),'SMN site footer');
  const originals=await page.locator('.edition-proof a').evaluateAll(a=>a.map(x=>x.href));
