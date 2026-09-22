@@ -11,6 +11,11 @@
 !/.gitignore
 !/config.example.py
 !/blog/
+!/AGENTS.md
+!/CLAUDE.md
+!/docs/
+/docs/*
+!/docs/AGENT_COORDINATION.md
 
 # 3) Inside blog/: ignore everything, re-allow code + templates only.
 blog/*
