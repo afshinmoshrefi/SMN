@@ -15,7 +15,8 @@ SOURCE_FILES=(
  'blog/subscription_edition.py','blog/engine_seasonal.py','blog/engine_edition_workflow.py',
  'blog/schemas/subscription_article.schema.json','blog/schemas/subscription_review.schema.json',
  'blog/SUBSCRIPTION_DEV_PUBLICATION.md','blog/SUBSCRIPTION_DAILY_RUNBOOK.md','blog/subscription_daily.py','blog/subscription_capture.py',
- 'blog/subscription_dev_publish.py','blog/subscription_layout.cjs','blog/subscription_live.cjs')
+ 'blog/subscription_dev_publish.py','blog/subscription_layout.cjs','blog/subscription_live.cjs',
+ 'blog/layout_defects.cjs','blog/lean_research.py','blog/lean_daily.py','blog/LEAN_DAILY_RUNBOOK.md')
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def read(path): return json.loads(Path(path).read_text(encoding='utf-8'))
@@ -179,7 +180,8 @@ def finish(root,repo):
     pixel_path=root/'live-landing-visual-checks.json'
     if not pixel_path.is_file(): raise ValueError('Fresh inspected landing receipt required')
     pixels=read(pixel_path)
-    inspected=pixels.get('inspected_images',{})
+    # A person's inspected_images, or the live script's automated checks with screenshot hashes.
+    inspected=pixels.get('inspected_images') or (pixels.get('screenshots',{}) if pixels.get('method')=='automated_live_checks' else {})
     from subscription_publication import sha256_equal
     if (not proof.get('passed') or proof.get('source_commit') != main or not proof.get('public_hash_proof')
         or not pixels.get('passed') or not inspected or any(not sha256_equal(sha(root/name),digest) for name,digest in inspected.items())):

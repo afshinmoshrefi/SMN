@@ -7,6 +7,7 @@ from engine_edition_workflow import Edition
 from subscription_writer import load_json, save_json
 
 STAGES=('prepare','write','receive','review','finalize')
+REPAIRABLE={'Independent editorial review has not passed','Code checks have not passed'}
 RESULT_FILES=('article.json','article.html','mechanical-checks.json','bundle.json','review-binding.json')
 def now(): return datetime.now(timezone.utc).isoformat()
 def digest(path):
@@ -71,7 +72,7 @@ class DailyController:
                 if state.get('date')!=self.date or state.get('source_commit')!=commit or state.get('input_hashes')!=hashes or state.get('symbols')!=symbols:raise ValueError('prepared input or source changed; use a new edition attempt directory')
             else:
                 state={'version':2,'date':self.date,'source_commit':commit,'symbols':symbols,'input_hashes':hashes,'stages':{},'status':'ready','publish':False};save_json(self.state_path,state)
-            edition=Edition(self.root,self.date,self.codex);created=0
+            edition=Edition(self.root,self.date,self.codex);self.created=0
             for sym in symbols:
                 checks=state['stages'].setdefault(sym,{})
                 try:self._verify_outputs(checks)
@@ -86,23 +87,43 @@ class DailyController:
                                 if out.exists() and any(out.iterdir()):raise ValueError('partial prepare exists without immutable job')
                                 edition.prepare(sym,'write')
                         elif stage=='write':
-                            if not self._receipt_ok(edition.job(sym,'write')):
-                                if created>=self.max_new:
-                                    state['status']='budget_exhausted';save_json(self.state_path,state);return self.summary(state)
-                                edition.run(sym,'write');created+=1
+                            if not self._run_once(edition,sym,'write'):
+                                state['status']='budget_exhausted';save_json(self.state_path,state);return self.summary(state)
                         elif stage=='receive':edition.receive(sym)
                         elif stage=='review':
                             job=edition.job(sym,'review')
                             if not job.exists():edition.review(sym)
-                            if not self._receipt_ok(job):
-                                if created>=self.max_new:
+                            if not self._run_once(edition,sym,'review'):
+                                state['status']='budget_exhausted';save_json(self.state_path,state);return self.summary(state)
+                        else:
+                            try:edition.finalize(sym)
+                            except ValueError as exc:
+                                if str(exc) not in REPAIRABLE:raise
+                                if self._repair(edition,sym)=='budget':
                                     state['status']='budget_exhausted';save_json(self.state_path,state);return self.summary(state)
-                                edition.run(sym,'review');created+=1
-                        else:edition.finalize(sym)
                         checks[stage]={'status':'done'};checks['outputs']=self._outputs(sym);save_json(self.state_path,state)
                     except Exception as exc:return self._hold(state,checks,stage,exc)
             state['status']='awaiting_visual_review';save_json(self.state_path,state);return self.summary(state)
         finally:self._release()
+    def _run_once(self,edition,sym,stage):
+        """Run a prepared job unless its receipt exists. False when the daily budget is spent."""
+        if self._receipt_ok(edition.job(sym,stage)):return True
+        if self.created>=self.max_new:return False
+        edition.run(sym,stage);self.created+=1;return True
+    def _repair(self,edition,sym):
+        """One Astra repair of a failed review, then a fresh Terra review. A second failure holds."""
+        issues=self.root/'results'/sym/'repair-issues.json'
+        if not issues.exists():
+            review=load_json(edition.job(sym,'review')/'output.json')
+            save_json(issues,{'failed_checks':{k:v['reason'] for k,v in review['checks'].items() if not v['passed']},
+                'issues':[i for i in review['issues'] if i['severity'] in ('major','blocker')],
+                'code_checks':edition.code_checks(sym)})
+        if not edition.job(sym,'repair').exists():edition.repair(sym,issues,'repair')
+        if not self._run_once(edition,sym,'repair'):return 'budget'
+        edition.receive(sym,'repair')
+        if not edition.job(sym,'review2').exists():edition.review(sym,'review2')
+        if not self._run_once(edition,sym,'review2'):return 'budget'
+        edition.finalize(sym,'review2')
     def summary(self,state):return {'date':self.date,'status':state['status'],'symbols':state['symbols'],'completed':{s:[x for x in STAGES if c.get(x,{}).get('status')=='done'] for s,c in state['stages'].items()}}
 
 if __name__=='__main__':

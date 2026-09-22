@@ -2,9 +2,10 @@ const {chromium}=require(process.env.SMN_PLAYWRIGHT || 'playwright');
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const R=path.resolve(process.argv[2]),read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
 const sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+const defects=require('./layout_defects.cjs');
 const symbols=process.argv.slice(3);let browser;
 (async()=>{
- browser=await chromium.launch({channel:'chrome',headless:true});
+ browser=await chromium.launch({channel:process.env.SMN_BROWSER_CHANNEL??'chrome',headless:true});
  const page=await browser.newPage();
  for(const sym of symbols){
   const dir=path.join(R,'results',sym),a=read(path.join(dir,'article.json'));
@@ -25,6 +26,8 @@ const symbols=process.argv.slice(3);let browser;
     evidenceRows:document.querySelector('[data-native-chart="bars"] tbody').rows.length,
     noindex:document.querySelector('meta[name="robots"]').content}));
    if(state.pageWidth>width||state.title!==a.title||state.priceRole!=='outlook'||!state.priceHasIntroduction||state.businessRole!=='current_context'||state.studyLinks.length!==2||state.studyLinks.some(x=>x!==native.study_url)||state.evidenceRows!==native.card.story_cell.n||state.noindex!=='noindex,nofollow')throw Error(sym+' '+kind+' layout/contract failure '+JSON.stringify(state));
+   const found=await page.evaluate(defects);
+   if(found.length)throw Error(sym+' '+kind+' visible defects '+JSON.stringify(found));
    if(kind==='mobile'&&!state.imageSources.filter(x=>x.includes('tradewave-')).every(x=>x.includes('-mobile.png')))throw Error('Responsive native source not selected');
    await page.screenshot({path:path.join(dir,'qa-'+kind+'-top.png')});
    await page.screenshot({path:path.join(dir,'qa-'+kind+'-full.png'),fullPage:true});
@@ -32,9 +35,13 @@ const symbols=process.argv.slice(3);let browser;
    await page.locator('.data-figure').screenshot({path:path.join(dir,'qa-'+kind+'-business.png')});
    layouts.push({kind,...state});
   }
-  // Pixel judgment is recorded separately only after the captured images are inspected.
-  fs.writeFileSync(path.join(dir,'layout-checks.json'),JSON.stringify({passed:true,article_html_sha256:sha(path.join(dir,'article.html')),layouts,pixel_inspection_pending:true},null,2));
-  console.log(JSON.stringify({symbol:sym,layout_passed:true,pixel_inspection_pending:true}));
+  // Code checks replace the model's pixel pass: contract, overflow, clipping,
+  // stretched images and overlapping figures at desktop and mobile widths.
+  // They cannot see text clipped inside a chart PNG; screenshots stay for people.
+  const html=sha(path.join(dir,'article.html'));
+  fs.writeFileSync(path.join(dir,'layout-checks.json'),JSON.stringify({passed:true,article_html_sha256:html,layouts},null,2));
+  fs.writeFileSync(path.join(dir,'visual-checks.json'),JSON.stringify({passed:true,article_html_sha256:html,method:'automated_layout_checks',layout_checks_sha256:sha(path.join(dir,'layout-checks.json'))},null,2));
+  console.log(JSON.stringify({symbol:sym,layout_passed:true,visual_checks:'automated'}));
  }
  await browser.close();
 })().catch(async e=>{console.error(e.message);if(browser)await browser.close();process.exitCode=1;});

@@ -1,5 +1,7 @@
 # Subscription daily worker - September 19, 2026 override
 
+> Superseded by [`LEAN_DAILY_RUNBOOK.md`](LEAN_DAILY_RUNBOOK.md) once a lean day passes side-by-side review.
+
 This is the short operational override to
 [`SUBSCRIPTION_DEV_PUBLICATION.md`](SUBSCRIPTION_DEV_PUBLICATION.md).
 Only the local Dev scheduler is authorized. Production remains unchanged: no

@@ -11,8 +11,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 import argparse
 import html
+from decimal import Decimal, ROUND_HALF_UP
 import json
 import logging
+import re
 import shutil
 import sys
 
@@ -25,6 +27,40 @@ from visual_editorial import install_hero, render_edition
 from visual_evidence import digest, validate_bundle
 
 logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+
+# (model, effort) per job. Astra writes and repairs; Terra reviews.
+WRITER=('gpt-6-astra','high')
+REVIEWER=('gpt-5.6-terra','medium')
+REPAIR=('gpt-6-astra','high')
+NUMBER=re.compile(r'(?<![A-Za-z0-9])\d[\d,]*(?:\.\d+)?')
+
+
+def _numbers(value):
+    return {Decimal(n.replace(',','')) for n in NUMBER.findall(value)}
+
+
+def reader_texts(article):
+    yield article['title'];yield article['dek']
+    for s in article['sections']:
+        if s.get('heading'):yield s['heading']
+        for p in s['paragraphs']:yield p['text']
+    for t in article['takeaways']:yield t['text']
+
+
+def unsupported_numbers(article,evidence):
+    """Numbers in reader copy that appear nowhere in the evidence.
+
+    A number may be rounded, and a source's millions may be written as
+    billions (or the reverse). Anything else was calculated or invented.
+    """
+    pool=_numbers(json.dumps(evidence,ensure_ascii=False))
+    scaled=pool|{n/1000 for n in pool}|{n*1000 for n in pool}
+    missing=[]
+    for text in reader_texts(article):
+        for token in NUMBER.findall(text):
+            v=Decimal(token.replace(',',''));q=Decimal(1).scaleb(v.as_tuple().exponent)
+            if not any(n.quantize(q,rounding=ROUND_HALF_UP)==v for n in scaled):missing.append(token)
+    return sorted(set(missing))
 
 
 class Text(HTMLParser):
@@ -163,9 +199,9 @@ class Edition:
             '\nPREPARED EVIDENCE:\n'+json.dumps(evidence,ensure_ascii=False,separators=(',',':')))
         if previous is not None:
             prompt+='\nEVIDENCE REVISION: Preserve this already reviewed draft wherever possible. Correct only the defect below or another demonstrable evidence error. Return the full article JSON bound to the corrected evidence; do not rewrite for novelty.\nDEFECT:\n'+Path(issues).read_text(encoding='utf-8')+'\nPREVIOUS DRAFT:\n'+json.dumps(previous,ensure_ascii=False)
-        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage)
+        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,model=WRITER[0],effort=WRITER[1])
         save_json(out/'commission.json',{'production_article':p,'angle':spec['angle'],'question':spec['question'],
-            'account_writer':'ChatGPT subscription; Astra xhigh','production_window_preserved':True,
+            'account_writer':'ChatGPT subscription; '+WRITER[0]+' '+WRITER[1],'production_window_preserved':True,
             'original_year_selection_preserved':True,'old_copy_supplied_to_writer':False,
             'history_status':'verified_same_production_engine','target':'smn-dev.trxstat.com'})
         hero=source/'assets'/Path(urlparse(p['hero_image']).path).name
@@ -185,21 +221,29 @@ class Edition:
 
     def review(self,sym,stage='review'):
         out=self.result(sym);b=load_json(out/'bundle.json');a=load_json(out/'article.json');n=load_json(out/'seasonal-manifest.json')
-        schema=load_json(Path(__file__).parent/'schemas/subscription_review.schema.json')
+        schema=load_json(Path(__file__).parent/'schemas/subscription_review.schema.json');evidence=load_json(out/'writer-evidence.json')
         prompt=('Independently review this SMN article as a demanding financial reader. No tools, commands, APIs, browsing, delegation or rewriting. '
             'Return the complete seven-check JSON schema. Use only supplied evidence; do not build a second calculator. '
             'Passing requires all checks true and no major/blocker issues.\n'+se.READER_REVIEW_RULES+
-            '\nReview the actual whole page, including protected chart text and stats. Do not demand the prose repeat every table fact. '
+            '\nThe rendered stats, year table, comparison table and methodology are in EVIDENCE.displayed_history. Do not demand the prose repeat every table fact. '
             'The primary study is the production-selected engine result, not a newly selected baseline. Article uses the same exact original '
             'years, dates and direction. Extra comparisons are separately requested engine responses; short-side stats must stay labeled. '
             'Check why-now, seasonal value, useful takeaways, natural opening, properly explained risk example and completed dates, '
             'context graphic placement, comparison meaning, and the price chart introduced in outlook. '
             'Old quarter results must be dated background, not breaking news. All source caps include title/dek/takeaways, headings and chart text. '
-            'Pixel inspection is a separate later gate; do not claim it or fail because it is pending. Rate opening1-5.\nARTICLE:\n'+
-            json.dumps(a,ensure_ascii=False)+'\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False,separators=(',',':'))+
-            '\nMECHANICAL:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+
-            '\nACTUAL DISPLAYED TEXT:\n'+text((out/'article.html').read_text(encoding='utf-8')))
-        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage)
+            'CODE CHECKS already verify source word caps, section structure, chart placement, exact study links and page layout; '
+            'pass source_allowances and smn_identity_and_visuals when CODE CHECKS pass unless you see a concrete defect. '
+            'Every entry in unsupported_numbers is a blocker: a reader-facing number found nowhere in the evidence. '
+            'Spend your effort on facts matching their cited sources, the opening, reader value, history meaning and brevity. Rate opening1-5.\nARTICLE:\n'+
+            json.dumps(a,ensure_ascii=False,separators=(',',':'))+'\nEVIDENCE:\n'+json.dumps(evidence,ensure_ascii=False,separators=(',',':'))+
+            '\nCODE CHECKS:\n'+json.dumps(self.code_checks(sym),separators=(',',':')))
+        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,model=REVIEWER[0],effort=REVIEWER[1])
+
+    def code_checks(self,sym):
+        out=self.result(sym);m=load_json(out/'mechanical-checks.json')
+        numbers=unsupported_numbers(load_json(out/'article.json'),load_json(out/'writer-evidence.json'))
+        return {'passed':m.get('passed') is True and not numbers,'structure':m.get('structure'),
+                'source_words':m.get('source_words'),'unsupported_numbers':numbers}
 
     def repair(self,sym,issuefile,stage):
         out=self.result(sym);b=load_json(out/'bundle.json')
@@ -208,9 +252,9 @@ class Edition:
             'Observe each source word cap. Do not calculate TradeWave metrics.\n'+se.RULES+
             '\nDEFECTS:\n'+Path(issuefile).read_text(encoding='utf-8')+
             '\nARTICLE:\n'+json.dumps(load_json(out/'article.json'),ensure_ascii=False)+
-            '\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False)+
-            '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json')))
-        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage)
+            '\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False,separators=(',',':'))+
+            '\nCODE CHECKS:\n'+json.dumps(self.code_checks(sym),separators=(',',':')))
+        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,model=REPAIR[0],effort=REPAIR[1])
 
     def copyedit(self,sym,editfile):
         out=self.result(sym);b=load_json(out/'bundle.json');prior=load_json(out/'article.json')
@@ -258,6 +302,7 @@ class Edition:
             raise ValueError('Independent editorial review has not passed')
         m=load_json(out/'mechanical-checks.json')
         if m.get('passed') is not True or m['article_sha256']!=digest(a) or m['evidence_sha256']!=b['evidence_sha256']:raise ValueError('Mechanical review missing or stale')
+        if not self.code_checks(sym)['passed']:raise ValueError('Code checks have not passed')
         n=load_json(out/'seasonal-manifest.json');verify_assets(n,out)
         rendered=render_edition(a,b,load_json(out/'chart-manifest.json'),load_json(out/'hero-asset.json'),held=False,seasonal=n)
         original=load_json(out/'commission.json')['production_article']['url']
