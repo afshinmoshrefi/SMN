@@ -16,10 +16,10 @@ below; it does not perform unattended research or vision judgment.
 
 Use a fresh immutable directory per requested edition date, for example
 `$Root = C:\...\smn-daily-worker-YYYYMMDD\editions\YYYY-MM-DD`.
-Never reuse a partial attempt. `daily-state.json` and `.daily-lock` are the
-checkpoint and concurrency boundary. A failure is held as
-`failed_needs_review`; inspect and start an explicit new attempt rather than
-retrying automatically.
+Preserve partial attempts and immutable receipts. `daily-state.json` and `.daily-lock`
+are the checkpoint and concurrency boundary. A held status requires diagnosis,
+not routine owner intervention. The owner authorizes bounded autonomous recovery
+under the rules below; never restart writer jobs blindly.
 
 ## Capture and source preparation
 
@@ -126,3 +126,41 @@ article discovery as well as the current six. A missing catalog with retained
 articles requires an explicit hash-bound `archive-seed.json` migration; never
 silently start an empty archive. The September21 migration is a presentation
 replay of already approved articles, with no new model calls or study changes.
+
+## Autonomous recovery - September 22 owner instruction
+
+Publication continuity is the goal. Inspect the failure, repair recoverable
+operational problems, and continue within this Dev-only authorization. Do not
+ask the owner to approve routine recovery or regenerate good articles.
+
+- SHA256 hexadecimal is case-insensitive. Accept valid 64-character upper,
+  lower or mixed-case fingerprints only when the actual file bytes match.
+  Write new proof records in lowercase; never approve a changed file by simply
+  replacing its expected hash. Reinspect changed visual output.
+- Validate all six reviews before creating the publication package. An empty
+  package left before staging can be reused only without any stage, activation
+  or completion record. Preserve nonempty/committed packages. For other partial
+  publications create a fresh publication-only recovery directory referencing
+  the original reviewed results and successful immutable job receipts.
+- Retry read-only network/copy checks up to three times with short backoff.
+  Before retrying a write whose outcome is uncertain, inspect remote receipts,
+  locks and active pointers. Finish an already successful step rather than
+  duplicating it. Never steal a live lock or change production.
+- Reuse successful model receipts. Do not repeat writing/review for formatting,
+  transport or packaging errors. Preserve the 12-new-job daily cap and no paid
+  API fallback. Actual article revisions need newly bound checks/review.
+- For source drift, integrate current main under the deployment policy, rerun
+  affected checks and replay publication. Preserve failed evidence and record
+  the new source and recovery relation. Roll back failed live activation before
+  repair; verify restoration. Never publish failed evidence or bypass TradeWave
+  calculation authority, exact study identity, actual image inspection or Dev
+  host guards just to complete the day.
+- Escalate only after bounded recovery cannot resolve the problem or a genuine
+  authority/access/product decision is needed. Keep the last verified edition
+  available and report the exact blocker. A missing six-subject production
+  batch still waits quietly; never substitute a previous date.
+
+After recovery, write a recovery resolution beside the original hold, and a
+live_verified completion receipt in the canonical date directory referencing
+the verified recovery artifact. Keep original hold/failed attempt evidence.
+The next heartbeat checks completion first and must not regenerate that date.

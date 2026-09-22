@@ -63,4 +63,16 @@ class PublishTests(unittest.TestCase):
   with patch.object(publish,'remote_state') as state:
    with self.assertRaisesRegex(ValueError,'archive hash'): publish.remote_prepare(root,receipt)
   state.assert_not_called()
+ def test_finish_accepts_uppercase_landing_hash_and_rejects_malformed_hash(self):
+  root=self.root(); image=root/'landing.png';image.write_bytes(b'pixels')
+  (root/'dev-activation.json').write_text(json.dumps({'record':'/state/x','source_commit':'a'*40}))
+  (root/'live-verification.json').write_text(json.dumps({'passed':True,'source_commit':'a'*40,'public_hash_proof':True,'public_files':[{'passed':True}]}))
+  receipt={'passed':True,'inspected_images':{'landing.png':publish.sha(image).upper()}}
+  (root/'live-landing-visual-checks.json').write_text(json.dumps(receipt))
+  with patch.object(publish,'clean_main',return_value=(root,'a'*40)),patch.object(publish,'run'),patch.object(publish,'remote_call',return_value='{}'),patch.object(publish,'installer',return_value='{}'):
+   self.assertEqual(publish.finish(root,root),{})
+  receipt['inspected_images']['landing.png']='not-a-sha'
+  (root/'live-landing-visual-checks.json').write_text(json.dumps(receipt))
+  with patch.object(publish,'clean_main',return_value=(root,'a'*40)):
+   with self.assertRaisesRegex(ValueError,'hash proof'): publish.finish(root,root)
 if __name__=='__main__': unittest.main()

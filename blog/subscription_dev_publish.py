@@ -180,8 +180,9 @@ def finish(root,repo):
     if not pixel_path.is_file(): raise ValueError('Fresh inspected landing receipt required')
     pixels=read(pixel_path)
     inspected=pixels.get('inspected_images',{})
+    from subscription_publication import sha256_equal
     if (not proof.get('passed') or proof.get('source_commit') != main or not proof.get('public_hash_proof')
-        or not pixels.get('passed') or not inspected or any(sha(root/name)!=digest for name,digest in inspected.items())):
+        or not pixels.get('passed') or not inspected or any(not sha256_equal(sha(root/name),digest) for name,digest in inspected.items())):
         raise ValueError('Fresh landing receipts and public hash proof required')
     receipt=read(root/'dev-stage.json'); remote=receipt['remote']; write(root/'live-verification.json',{**proof,'origin_main':main})
     run(['scp',str(root/'live-verification.json'),HOST+':'+active['record']+'/live-verification.json'])

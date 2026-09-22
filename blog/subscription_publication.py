@@ -9,6 +9,11 @@ CHECKS={'facts_and_sources','why_now_and_opening','reader_value','history_and_nu
         'smn_identity_and_visuals','source_allowances','michael_brevity_and_clarity'}
 
 def digest_bytes(data):return hashlib.sha256(data).hexdigest()
+def sha256_equal(actual,expected):
+    return (isinstance(actual,str) and isinstance(expected,str) and
+            re.fullmatch(r'[0-9a-fA-F]{64}',actual) is not None and
+            re.fullmatch(r'[0-9a-fA-F]{64}',expected) is not None and
+            actual.casefold()==expected.casefold())
 def read(path):return json.loads(Path(path).read_text(encoding='utf-8-sig'))
 def write(path,value):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
@@ -22,20 +27,22 @@ def require_dev(url):
 def reviewed(result,review_path):
     from visual_evidence import digest
     a=read(result/'article.json');m=read(result/'mechanical-checks.json');r=read(review_path)
-    if not m.get('passed') or m['article_sha256']!=digest(a):raise ValueError('Changed or mechanically held article')
+    if not m.get('passed') or not sha256_equal(digest(a),m.get('article_sha256')):raise ValueError('Changed or mechanically held article')
     if (r.get('passed') is not True or set(r.get('checks',{}))!=CHECKS or
         any(v.get('passed') is not True for v in r['checks'].values()) or
         any(v.get('severity') in {'major','blocker'} for v in r.get('issues',[]))):
         raise ValueError('Independent review has not passed')
     binding=read(result/'review-binding.json')
-    if binding.get('article_sha256')!=digest(a) or binding.get('review_sha256')!=digest_bytes(Path(review_path).read_bytes()):
+    if (not sha256_equal(digest(a),binding.get('article_sha256')) or
+        not sha256_equal(digest_bytes(Path(review_path).read_bytes()),binding.get('review_sha256'))):
         raise ValueError('Independent review is not bound to this exact article')
     bundle=read(result/'bundle.json')
     if m.get('evidence_sha256')!=bundle.get('evidence_sha256'):
         raise ValueError('Mechanical review uses different evidence')
     if m.get('copyedit_receipt'):
         ledger=result/m['copyedit_receipt']
-        if ledger.parent!=result or digest_bytes(ledger.read_bytes())!=m.get('copyedit_receipt_sha256') or read(ledger)['article_sha256']!=digest(a):
+        if (ledger.parent!=result or not sha256_equal(digest_bytes(ledger.read_bytes()),m.get('copyedit_receipt_sha256')) or
+            not sha256_equal(read(ledger).get('article_sha256'),digest(a))):
             raise ValueError('Editorial change record differs from final copy')
     if bundle.get('seasonal_contract',{}).get('price_path_required'):
         from engine_seasonal import verify_assets, figure_html as native_figure
@@ -43,20 +50,26 @@ def reviewed(result,review_path):
         path=native.get('price_path') or {}
         verify_assets(native,result)
         figure_html=lambda value:native_figure(value,'price_projection')
-        if binding.get('price_path_sha256')!=path['evidence_sha256']:
+        if not sha256_equal(binding.get('price_path_sha256'),path.get('evidence_sha256')):
             raise ValueError('Independent review is not bound to the added price path')
-        if binding.get('price_path_figure_sha256')!=digest_bytes(figure_html(native).encode()):
+        if not sha256_equal(binding.get('price_path_figure_sha256'),digest_bytes(figure_html(native).encode())):
             raise ValueError('Independent review is not bound to the final price-path wording')
         if figure_html(native) not in (result/'article.html').read_text(encoding='utf-8'):
             raise ValueError('Required price-path figure missing or changed')
         im=next(i for i in native['images'] if i['variant']=='price_projection')
         for file,sha in ((im['url'],im['sha256']),(im['mobile_url'],im['mobile_sha256']),
                          ('assets/tradewave-price-path.csv',native['price_path_csv_sha256'])):
-            if digest_bytes((result/file).read_bytes())!=sha:
+            if not sha256_equal(digest_bytes((result/file).read_bytes()),sha):
                 raise ValueError('Price-path asset differs from reviewed evidence')
     qa=read(result/'visual-checks.json')
-    if not qa.get('passed') or qa.get('article_html_sha256')!=digest_bytes((result/'article.html').read_bytes()):
+    if not qa.get('passed') or not sha256_equal(qa.get('article_html_sha256'),digest_bytes((result/'article.html').read_bytes())):
         raise ValueError('Rendered-page review missing or stale')
+    screenshots=qa.get('inspected_images')
+    if screenshots is not None and (not isinstance(screenshots,dict) or any(
+        not isinstance(name,str) or Path(name).name!=name or not (result/name).is_file() or
+        not sha256_equal(digest_bytes((result/name).read_bytes()),expected)
+        for name,expected in screenshots.items())):
+        raise ValueError('Rendered-page screenshots missing or stale')
     return a
 
 CSS='''
@@ -75,25 +88,28 @@ def package(edition_root,date,source_commit,review_stages):
     root=Path(edition_root).resolve()
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch(r'[0-9a-f]{40}',source_commit):raise ValueError('Dated, committed edition required')
     target=root/'publication-package'
-    if target.exists():raise ValueError('Preserve prior publication package; use a new reviewed package')
-    target.mkdir();entries=[];asof=datetime.now(timezone.utc).isoformat()
+    if any((root/name).exists() for name in ('dev-stage.json','dev-activation.json','dev-publication-receipt.json')):
+        raise ValueError('Preserve prior publication package; use a new reviewed package')
+    if (target.exists() or target.is_symlink()) and (not target.is_dir() or target.is_symlink() or any(target.iterdir())):
+        raise ValueError('Preserve prior publication package; use a new reviewed package')
+    entries=[];prepared=[];asof=datetime.now(timezone.utc).isoformat()
     for sym,stage in review_stages.items():
         if not re.fullmatch('[A-Z0-9]{1,12}',sym):raise ValueError('Invalid symbol')
         result=root/'results'/sym
         review=root/'jobs'/(sym+'-'+date.replace('-','')+'-'+stage)/'output.json'
         a=reviewed(result,review);commission=read(result/'commission.json');original=commission['production_article']
-        rel=Path('editions')/date/sym;dest=target/rel;dest.mkdir(parents=True)
+        rel=Path('editions')/date/sym
         b=read(result/'bundle.json');hero=read(result/'hero-asset.json')
         htmltext=(result/'article.html').read_text(encoding='utf-8')
         if 'Private draft · Editorial review has not passed.' in htmltext:raise ValueError('Unfinalized page')
         if 'Development preview · Not published' in htmltext:raise ValueError('Unfinalized footer')
         if 'name="robots" content="noindex,nofollow"' not in htmltext:raise ValueError('Dev search-engine exclusion missing')
-        (dest/'article.html').write_text(htmltext,encoding='utf-8')
+        assets=[]
         # Copy ONLY public article assets. Never audit, jobs, credentials or source prompts.
         for folder,extensions in [('assets',{'.png','.jpg','.jpeg','.webp','.svg','.csv'}),('evidence',{'.json'})]:
             for f in (result/folder).iterdir():
                 if not f.is_file() or f.is_symlink() or f.suffix.lower() not in extensions:continue
-                d=dest/folder/f.name;d.parent.mkdir(exist_ok=True);shutil.copy2(f,d)
+                assets.append((f,Path(folder)/f.name))
         url=DEV+'/'+rel.as_posix()+'/article.html'
         entry={k:original.get(k) for k in ('resource_id','symbol','tickers','market_family','pattern_start_date','pattern_days','author_id','direction')}
         entry.update(title=a['title'],dek=a['dek'],slug=sym.lower()+'-subscription-'+date,
@@ -104,7 +120,14 @@ def package(edition_root,date,source_commit,review_stages):
             production_original=original['url'],edition_id='subscription-'+date,source_commit=source_commit,
             production_release_allowed=False,history_validation=commission['history_status'])
         entries.append(entry)
+        prepared.append((rel,htmltext,assets))
     if len(entries)!=6:raise ValueError('This requested daily edition must contain all six reviewed subjects')
+    if not target.exists(): target.mkdir()
+    for rel,htmltext,assets in prepared:
+        dest=target/rel;dest.mkdir(parents=True)
+        (dest/'article.html').write_text(htmltext,encoding='utf-8')
+        for source,relative in assets:
+            d=dest/relative;d.parent.mkdir(exist_ok=True);shutil.copy2(source,d)
     entries.sort(key=lambda p:p['published_date'],reverse=True)
     section=edition_section(entries,date)
     landing='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Seasonal Market News</title><style>'+CSS+'</style></head><body><header><div class="header-content"><a href="/" class="logo"><span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span></a><nav><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></nav></div></header>'+section+'<footer><div class="footer-content"><div class="footer-left">© '+str(datetime.now().year)+' <a href="https://taradataresearch.com" target="_blank" rel="noopener">Tara Data Research LLC</a>. All rights reserved.</div><div class="footer-links"><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></div></div></footer></body></html>'
