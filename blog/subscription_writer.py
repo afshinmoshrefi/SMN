@@ -19,6 +19,8 @@ import threading
 import time
 import uuid
 
+SUPPORTED_MODELS = {'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'}
+
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
@@ -112,15 +114,18 @@ def account_snapshot(codex, cwd, timeout=45):
             raise RuntimeError('A saved ChatGPT login is required; no API fallback')
         limits = request('account/rateLimits/read', 3)
         models = request('model/list', 4, {'includeHidden': False})
-        astra = [{k: m.get(k) for k in ('id','model','supportedReasoningEfforts',
+        catalog = [{k: m.get(k) for k in ('id','model','supportedReasoningEfforts',
                   'defaultReasoningEffort','defaultServiceTier')}
-                 for m in models.get('data', []) if m.get('model') == 'gpt-6-astra'
+                 for m in models.get('data', []) if m.get('model') in SUPPORTED_MODELS
+                 or m.get('id') in SUPPORTED_MODELS]
+        astra = [m for m in catalog if m.get('model') == 'gpt-6-astra'
                  or m.get('id') == 'gpt-6-astra']
         # Keep usage evidence without account IDs, email, or earned-reset IDs.
         limits = {k: limits[k] for k in ('rateLimits','rateLimitsByLimitId') if k in limits}
         return {'utc': utc_now(), 'auth_type': account.get('type'),
                 'plan_type': account.get('planType'), 'rate_limits': limits,
-                'astra_catalog': astra, 'probe_generated_model_turns': 0}
+                'model_catalog': catalog, 'astra_catalog': astra,
+                'probe_generated_model_turns': 0}
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -132,18 +137,20 @@ def account_snapshot(codex, cwd, timeout=45):
 
 
 def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
-                evidence_sha256, stage='write', effort='xhigh'):
+                evidence_sha256, stage='write', effort='xhigh', model='gpt-6-astra'):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,100}', job_id):
         raise ValueError('Invalid job ID')
     if effort not in {'low', 'medium', 'high', 'xhigh', 'max'}:
         raise ValueError('Unsupported explicit effort')
+    if model not in SUPPORTED_MODELS:
+        raise ValueError('Unsupported explicit model')
     job = Path(root).resolve() / job_id
     job.mkdir(parents=True, exist_ok=False)
     (job / 'prompt.txt').write_text(prompt, encoding='utf-8')
     save_json(job / 'schema.json', schema)
     manifest = {'version': 1, 'job_id': job_id, 'stage': stage,
                 'created_utc': utc_now(), 'as_of': as_of,
-                'valid_until': valid_until, 'model': 'gpt-6-astra',
+                'valid_until': valid_until, 'model': model,
                 'effort': effort, 'evidence_sha256': evidence_sha256,
                 'publish': False,
                 'input_hashes': {name: sha256((job/name).read_bytes())
@@ -156,8 +163,8 @@ def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
 def verify_job(job):
     job = Path(job).resolve()
     manifest = load_json(job / 'job.json')
-    if manifest.get('publish') is not False or manifest.get('model') != 'gpt-6-astra':
-        raise ValueError('Only the private Astra handoff is enabled')
+    if manifest.get('publish') is not False or manifest.get('model') not in SUPPORTED_MODELS:
+        raise ValueError('Only supported private model handoffs are enabled')
     if set(manifest.get('input_hashes', {})) != {'prompt.txt', 'schema.json'}:
         raise ValueError('Unexpected job inputs')
     for name, expected in manifest['input_hashes'].items():
@@ -229,12 +236,17 @@ def run_job(job, codex, *, timeout=900):
         running = True
         before = account_snapshot(codex, job)
         save_json(job / 'usage-before.json', before)
-        if not before['astra_catalog']:
-            raise RuntimeError('Astra is not listed for this account; no model substitution')
-        efforts = {e['reasoningEffort'] for m in before['astra_catalog']
+        catalog = before.get('model_catalog')
+        if catalog is None:  # Older account snapshots remain readable.
+            catalog = before.get('astra_catalog', [])
+        matching = [m for m in catalog if m.get('model') == manifest['model']
+                    or m.get('id') == manifest['model']]
+        if not matching:
+            raise RuntimeError('Requested model is unavailable; no model substitution')
+        efforts = {e['reasoningEffort'] for m in matching
                    for e in m.get('supportedReasoningEfforts', [])}
         if manifest['effort'] not in efforts:
-            raise RuntimeError('Requested Astra effort is unavailable; no effort substitution')
+            raise RuntimeError('Requested model effort is unavailable; no effort substitution')
         cmd = [str(codex), 'exec', *codex_defaults(), '--ephemeral',
                '--skip-git-repo-check', '--sandbox', 'read-only',
                '-c', 'model_reasoning_effort="' + manifest['effort'] + '"',

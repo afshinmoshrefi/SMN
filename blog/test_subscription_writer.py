@@ -42,6 +42,22 @@ class SubscriptionHandoffTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.job()
 
+    def test_model_parameter_allows_supported_models_and_defaults_to_astra(self):
+        from subscription_writer import load_json
+        self.assertEqual(load_json(self.job()/'job.json')['model'], 'gpt-6-astra')
+        job = prepare_job(self.root, 'sol', 'Prepared evidence.', self.schema,
+            as_of=datetime.now(timezone.utc).isoformat(),
+            valid_until=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),
+            evidence_sha256='a'*64, model='gpt-6-sol')
+        self.assertEqual(load_json(job/'job.json')['model'], 'gpt-6-sol')
+
+    def test_unknown_model_is_rejected_at_preparation(self):
+        with self.assertRaisesRegex(ValueError, 'Unsupported explicit model'):
+            prepare_job(self.root, 'unknown', 'Prepared evidence.', self.schema,
+                as_of=datetime.now(timezone.utc).isoformat(),
+                valid_until=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),
+                evidence_sha256='a'*64, model='unknown-model')
+
     def test_path_escape_rejected(self):
         with self.assertRaises(ValueError):
             self.job('../outside')
