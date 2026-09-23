@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import argparse
 import shutil
+import time
 import traceback
 
 import engine_edition_workflow as ew
@@ -56,6 +57,14 @@ def cohort(root, model, codex, date):
         stage = 'write'
         row = {'symbol': sym, 'model': model}
         try:
+            # Another bounded prefetch may own this exact immutable writer.
+            # Wait for its receipt rather than report a content failure or rerun it.
+            writer = edition.job(sym, 'write')
+            deadline = time.monotonic() + 920
+            while not (writer/'receipt.json').exists() and sw.load_json(writer/'state.json')['status'] == 'running':
+                if time.monotonic() > deadline:
+                    raise TimeoutError('Existing writer still running; preserve its job')
+                time.sleep(5)
             receipt = sw.run_job(edition.job(sym, 'write'), codex)
             row['writer_usage'] = receipt['usage']
             checks = edition.receive(sym)
