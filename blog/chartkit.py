@@ -30,6 +30,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt          # noqa: E402
 import matplotlib.dates as mdates        # noqa: E402
 import matplotlib.font_manager as fm     # noqa: E402
+from matplotlib.lines import Line2D    # noqa: E402
+from matplotlib.transforms import blended_transform_factory  # noqa: E402
 from matplotlib.ticker import FuncFormatter  # noqa: E402
 
 # --------------------------------------------------------------------------- #
@@ -555,19 +557,51 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     pad = (hi - lo) * 0.12 if hi > lo else 1.0
     ax.set_ylim(lo - pad, hi + pad)
 
+    median_label = None
     if show_median and n:
         ax.axhline(med, color=pal["ink"], linewidth=1.1, alpha=0.55,
                    linestyle=(0, (4, 3)), zorder=4)
-        median_label=f"median {med:+.2f}%" if engine else f"median {med:+.1f}%"
-        ax.annotate(median_label, xy=(x[-1] + 0.55, med),
-                    fontsize=11, fontweight=600, color=pal["ink"],
-                    alpha=0.75, va="bottom", ha="right",
-                    xytext=(x[-1] + 0.55, med + (hi - lo) * 0.015))
+        median_label = f"median {med:+.2f}%" if engine else f"median {med:+.1f}%"
 
     step = 1 if n <= 20 else 2
     ax.set_xticks(x[::step])
     ax.set_xticklabels([str(y) for y in years][::step], fontsize=10)
-    ax.set_xlim(-0.7, n - 0.3 + 0.6)
+    ax.set_xlim(-0.7, n + 0.3)
+    if median_label:
+        # Measure the actual font at this canvas size. A short label gets its
+        # own right gutter; a wider one becomes a key below the subtitle so
+        # the last observation never sits underneath the text.
+        probe = fig.text(0, 0, median_label, fontsize=11, fontweight=600)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        label_px = probe.get_window_extent(renderer=renderer).width
+        plot_px = ax.get_window_extent(renderer=renderer).width
+        probe.remove()
+        gutter_px = label_px + 20
+        bar_span = n + 0.01  # -0.7 through the last bar's right edge
+        in_gutter = gutter_px <= plot_px * 0.24 and bar_span / (1 - gutter_px / plot_px) <= n + 2
+        if in_gutter:
+            gutter_frac = gutter_px / plot_px
+            ax.set_xlim(-0.7, -0.7 + bar_span / (1 - gutter_frac))
+            label = ax.text(1 - gutter_frac + 10 / plot_px, med, median_label,
+                            transform=blended_transform_factory(ax.transAxes, ax.transData),
+                            fontsize=11, fontweight=600, color=pal["ink"], alpha=0.75,
+                            va="bottom", ha="left")
+            fig.canvas.draw()
+            bounds = label.get_window_extent(renderer=fig.canvas.get_renderer())
+            plot = ax.get_window_extent(renderer=fig.canvas.get_renderer())
+            last_bar_px = ax.transData.transform((x[-1] + .31, med))[0]
+            in_gutter = bounds.x0 >= last_bar_px + 8 and bounds.x1 <= plot.x1 - 6
+            if not in_gutter:
+                label.remove()
+                ax.set_xlim(-0.7, n + 0.3)
+        if not in_gutter:
+            line_y = 0.785
+            fig.add_artist(Line2D([0.065, 0.087], [line_y, line_y],
+                                  transform=fig.transFigure, color=pal["ink"],
+                                  linewidth=1.1, alpha=0.55, linestyle=(0, (4, 3))))
+            fig.text(0.095, line_y, median_label, fontsize=11, fontweight=600,
+                     color=pal["ink"], alpha=0.75, va="center", ha="left")
     ax.yaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
     _save(fig, path)
     return _semantics(variant, title, spec, source, n, direction, d1, d2,
