@@ -59,7 +59,7 @@ class WriterModels(unittest.TestCase):
 
     def test_unknown_model_and_changed_image_rejected(self):
         with self.assertRaises(ValueError):
-            self.job('bad', model='gpt-5.6-luna')
+            self.job('bad', model='gpt-4.1-nano')
         image = self.root / 'hero.png'; image.write_bytes(b'png')
         job = self.job('img', images=[image])
         (job / 'image-0.png').write_bytes(b'changed')

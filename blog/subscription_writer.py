@@ -62,8 +62,9 @@ def _startup():
     return {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
 
 
-# Astra writes and repairs. Terra does the bounded review and research jobs.
-MODELS = {'gpt-6-astra', 'gpt-5.6-terra'}
+# Astra writes and repairs. A cheaper model does the bounded review and research
+# jobs. A model missing from the account catalog stops the job before any turn.
+MODELS = {'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-terra'}
 
 
 def codex_defaults(web_search=False):
