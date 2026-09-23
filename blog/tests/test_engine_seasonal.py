@@ -100,7 +100,22 @@ class EngineAuthorityTests(unittest.TestCase):
         self.assertEqual(rows[0]['stats']['Trade Dir'],'short')
         self.assertEqual(rows[1]['stats']['Trade Dir'],'long')
         self.assertEqual(rows[1]['stats']['Median Profit'],'0.64%')
-        self.assertIn('The ten-year sample is included in the twenty-year sample',e.comparison_html(d))
+        rendered=e.comparison_html(d)
+        self.assertIn('Some years appear in more than one group',rendered)
+        self.assertNotIn('ten-year sample is included in the twenty-year sample',rendered)
+
+    def test_comparison_discloses_actual_years_when_history_is_short(self):
+        years_8=list(range(2018,2026))
+        years_10=list(range(2016,2026))
+        stats={'Trade Dir':'long','Percent Profitable':'50%','Median Profit':'1.00%'}
+        data={'evidence':{'cohort':{'label':'8 selected years','years':years_8},'stats':stats,
+            'comparisons':[{'label':'Requested 20-year history','stats':stats,
+                'per_year':[{'year':year} for year in years_10]}]}}
+        rendered=e.comparison_html(data)
+        self.assertIn(', '.join(map(str,years_8)),rendered)
+        self.assertIn(', '.join(map(str,years_10)),rendered)
+        self.assertIn('requested lookback can extend beyond available history',rendered)
+        self.assertNotIn('ten-year sample is included in the twenty-year sample',rendered)
 
 
 if __name__=='__main__':unittest.main()
