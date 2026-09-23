@@ -8,6 +8,11 @@ Only the local Dev scheduler is authorized. Production remains unchanged: no
 production writes, queue activation, email, distribution, staging, or paid API
 fallback. Dev `.176` is the recovery target; `.180` remains offline.
 
+Before starting or resuming, follow [shared agent coordination](../docs/AGENT_COORDINATION.md):
+fetch current claims and peer findings, reuse completed evidence, and record the run
+in the canonical shared task. Pending model/effort experiments do not hold daily
+publication on the last verified settings; do not silently adopt disputed settings.
+
 ## Schedule and boundaries
 
 Run a local Windows Codex heartbeat at approximately 07:00 America/New_York.
