@@ -260,7 +260,9 @@ def stats_html(data):
 def figure_html(data,variant):
     esc=html.escape;im=next(i for i in data['images'] if i['variant']==variant)
     title='Price history and the seasonal outlook' if variant=='price_projection' else 'What happened inside each seasonal window' if variant=='bars_mae_mfe' else 'The year-by-year seasonal record'
-    out=f'<figure class="native-figure" data-native-chart="{variant}"><h3>{title}</h3><picture><source media="(max-width:600px)" srcset="{im["mobile_url"]}"><img src="{im["url"]}" alt="{esc(im["alt"],quote=True)}" loading="lazy"></picture><figcaption>{esc(im["caption"])}</figcaption>'
+    desktop_url=im['url']+'?v='+im['sha256'][:16]
+    mobile_url=im['mobile_url']+'?v='+im['mobile_sha256'][:16]
+    out=f'<figure class="native-figure" data-native-chart="{variant}"><h3>{title}</h3><picture><source media="(max-width:600px)" srcset="{mobile_url}"><img src="{desktop_url}" alt="{esc(im["alt"],quote=True)}" loading="lazy"></picture><figcaption>{esc(im["caption"])}</figcaption>'
     if variant=='price_projection':
         return out+'<p><a href="assets/tradewave-price-path.csv" download>Download the TradeWave chart points</a></p></figure>'
     rows=data['card']['story_cell']['per_year']
