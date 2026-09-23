@@ -90,6 +90,10 @@ class EngineAuthorityTests(unittest.TestCase):
             self.assertIn('A positive short result means a bet on falling prices worked',e.stats_html(data))
             self.assertIn('Median full-window short result',e.stats_html(data))
             self.assertEqual(data['images'][0]['values_sha256'],digest(c['story_cell']['per_year']))
+            for image in data['images']:
+                markup=e.figure_html(data,image['variant'])
+                self.assertIn(image['url']+'?v='+image['sha256'][:16],markup)
+                self.assertIn(image['mobile_url']+'?v='+image['mobile_sha256'][:16],markup)
             (Path(directory)/data['images'][0]['url']).write_bytes(b'changed')
             with self.assertRaisesRegex(ValueError,'Changed'):e.verify_assets(data,directory)
 

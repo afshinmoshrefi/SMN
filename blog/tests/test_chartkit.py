@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -144,6 +145,59 @@ class RenderSmoke(unittest.TestCase):
         p = self._p("bars_dark.png")
         ck.record_bars(YEARS, NETS, BARS_META, p, palette="dark")
         self._assert_file(p)
+
+    def test_record_bars_median_label_keeps_last_bar_and_caps_clear(self):
+        for count in (6, 7):
+            for median in (2.75, -2.75):
+                with self.subTest(count=count, median=median):
+                    years = list(range(2019, 2019 + count))
+                    nets = [1.0, -3.0, 4.0, -2.0, 5.0, -4.0, 6.0][:count]
+                    engine = dict(price_median=median, title='Recorded outcomes',
+                                  spec='Net return by year', source='TradeWave',
+                                  caption='Recorded outcomes', mobile_title='Recorded outcomes')
+                    meta = dict(BARS_META, engine_presentation=engine, range_caps=True)
+                    captured = []
+                    with patch.object(ck, '_save', side_effect=lambda fig, path: captured.append(fig)):
+                        ck.record_bars(years, nets, meta, self._p('geometry.png'),
+                                       mfe=[v + 2 for v in nets], mae=[v - 2 for v in nets])
+                    fig = captured[0]
+                    try:
+                        ax = fig.axes[0]
+                        fig.canvas.draw()
+                        renderer = fig.canvas.get_renderer()
+                        label = next(t for t in ax.texts if t.get_text() == f'median {median:+.2f}%')
+                        box = label.get_window_extent(renderer)
+                        plot = ax.get_window_extent(renderer)
+                        last_cap = ax.transData.transform((count - 1 + .15, median))[0]
+                        last_bar = ax.transData.transform((count - 1 + .31, median))[0]
+                        self.assertGreater(box.x0, max(last_bar, last_cap) + 6)
+                        self.assertLessEqual(box.x1, plot.x1 - 6)
+                        self.assertEqual(label.get_fontsize(), 11)
+                        self.assertEqual([bar.get_height() for bar in ax.patches], nets)
+                    finally:
+                        ck.plt.close(fig)
+
+    def test_record_bars_long_median_uses_key_below_subtitle(self):
+        engine = dict(price_median=123456789.12, title='Recorded outcomes',
+                      spec='Net return by year', source='TradeWave',
+                      caption='Recorded outcomes', mobile_title='Recorded outcomes')
+        captured = []
+        with patch.object(ck, '_save', side_effect=lambda fig, path: captured.append(fig)):
+            ck.record_bars(list(range(2019, 2025)),
+                           [123456780, 123456770, 123456790, 123456800, 123456785, 123456795],
+                           dict(BARS_META, engine_presentation=engine), self._p('long.png'), w=500)
+        fig = captured[0]
+        try:
+            ax = fig.axes[0]
+            label = 'median +123456789.12%'
+            self.assertFalse(any(t.get_text() == label for t in ax.texts))
+            key = next(t for t in fig.texts if t.get_text() == label)
+            self.assertEqual(key.get_fontsize(), 11)
+            self.assertGreater(key.get_position()[1], ax.get_position().y1)
+            self.assertLess(key.get_position()[1], .842)
+            self.assertTrue(any(isinstance(line, ck.Line2D) for line in fig.artists))
+        finally:
+            ck.plt.close(fig)
 
     def test_trend_window_render(self):
         labels = [(datetime.date(2026, 7, 7) + datetime.timedelta(days=i)).isoformat()
