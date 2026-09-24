@@ -92,14 +92,14 @@ holds publication; code edits require a newly committed source and review.
 Use the clean current source repository and exact pinned commit:
 
 ```powershell
-python .\subscription_dev_publish.py stage --root $Root --repo $Repo
-python .\subscription_dev_publish.py activate --root $Root --repo $Repo --node $Node --playwright $Playwright
-python .\subscription_dev_publish.py finish --root $Root --repo $Repo
+python .\subscription_primary_publish.py stage --root $Root --repo $Repo
+python .\subscription_primary_publish.py activate --root $Root --repo $Repo --node $Node --playwright $Playwright
+python .\subscription_primary_publish.py finish --root $Root --repo $Repo
 ```
 
-`activate` stages and switches only the `.176` recovery Dev edition, then runs
-`subscription_live.cjs` against `https://smn-dev.trxstat.com`; it requires the
-main acknowledgement lock and rolls back on changed `origin/main` or failed
+`activate` merges the reviewed edition into the primary `.180` Dev site, then runs
+`subscription_primary_live.cjs` against `https://smn-dev.trxstat.com`; it requires the
+Dev activation lock and dashboard catalog lock and rolls back on changed `origin/main` or failed
 live verification. `finish` is allowed only after live desktop/mobile checks,
 public hash/provenance checks, preserved prior edition checks, and unchanged
 `origin/main`. Before `finish`, view both live landing screenshots and write
@@ -111,8 +111,33 @@ heartbeat. Preserve package/stage records and inspect an interrupted operation
 before resuming. Use explicit rollback for an interrupted activation:
 
 ```powershell
-python .\subscription_dev_publish.py rollback --root $Root --repo $Repo
+python .\subscription_primary_publish.py rollback --root $Root --repo $Repo
 ```
+
+The primary publisher preserves the installed dashboard and its template, all catalog
+metadata, existing article bytes, heroes, and pins. It never copies source over
+Claude's live application. Candidate rendering is scoped to private temporary
+files, uses the installed native homepage renderer, and records its exact helper
+hashes. Pin/catalog/source drift before activation requires re-preparing publication
+only; reuse completed writing. Recovery `.176` remains read-only for its older
+edition URLs. The old `subscription_dev_publish.py` is recovery-only, not the daily
+target. The public proxy may retain its existing `/editions/` fallback to `.180`.
+
+Publisher-only integration may advance the publication source SHA while immutable
+writer jobs retain their original SHA. `primary-stage.json` and the final local
+receipt record `writer_source_commit` separately; never rerun approved writing
+solely to change publisher code. Interrupted primary operations retain
+`primary-stage.json`, `primary-activation.json`, and the remote private receipt;
+inspect these before resuming or rolling back. For a rolled-back browser failure,
+repair the operational cause and reuse the immutable results in a fresh publication-
+only directory. Preserve the original package/remote receipt. Do not automatically
+rerun `activate` against its existing remote directory. A changed publisher commit
+provides a new remote transaction identity; without a code change, explicitly
+inspect and archive the rolled-back transaction before retrying, preserving all
+evidence. Never restart article writing to repair publication.
+Preparation reads all current
+catalog files and heroes. Final verification binds new and retained public hashes,
+checks native search and the pinned lead, and requires actual landing inspection.
 
 No command in this runbook changes TradeWave mathematics or production.
 
