@@ -20,8 +20,7 @@ import sys
 from engine_seasonal import make_card, verify_assets
 import seasonal_edition as se
 from subscription_edition import receive_draft, source_word_counts
-import subscription_writer
-import claude_subscription_writer
+import smn_models
 from subscription_writer import load_json, save_json, sha256
 from visual_charts import render_catalog, figure_html
 from visual_editorial import install_hero, render_edition
@@ -60,26 +59,27 @@ def apply_copy_edits(article,request):
     return result
 
 
-WRITERS={'astra':(subscription_writer,'xhigh','ChatGPT subscription; Astra xhigh'),
-         'claude':(claude_subscription_writer,'medium','Claude subscription; Claude Opus 5.5 medium')}
-# Stage -> (model, effort). Only writing/repair uses the high-end model.
-STAGE_MODELS={'claude':{'write':('claude-opus-5-5','medium'),'review':('claude-sonnet-5','low')}}
+# 'astra': Codex's original all-Astra-xhigh jobs. 'config': per-role models from
+# smn_models.json ('claude' is kept as an alias for 'config').
+WRITERS=('astra','config','claude')
 
 
 class Edition:
-    def __init__(self,root,date,codex=None,provider='astra',claude=None):
+    def __init__(self,root,date,codex=None,provider='astra',claude=None,models=None):
         self.root=Path(root).resolve(); self.date=date;self.codex=codex
         if provider not in WRITERS:raise ValueError('Unknown writer provider')
-        self.provider=provider;self.writer,self.effort,self.account=WRITERS[provider]
-        self.cli=claude if provider=='claude' else codex
+        self.provider=provider;self.roles=smn_models.ASTRA if provider=='astra' else smn_models.load(models)
+        self.clis={'codex':codex,'claude':claude}
+        w=self.roles['write'];self.account=('ChatGPT' if w['provider']=='codex' else 'Claude')+' subscription; '+w['model']+' '+w['effort']
         self.specs=load_json(self.root/'sources.json')
         self.expiry=(datetime.now(timezone.utc)+timedelta(hours=20)).isoformat()
 
     def _job_options(self,stage):
-        models=STAGE_MODELS.get(self.provider)
-        if not models:return {'effort':self.effort}
-        model,effort=models['review' if stage.startswith('review') or stage.endswith('review') else 'write']
-        return {'effort':effort,'model':model}
+        cfg=self.roles[smn_models.role_of(stage)]
+        return {'effort':cfg['effort']} if cfg['provider']=='codex' else {'effort':cfg['effort'],'model':cfg['model']}
+
+    def _prepare(self,stage,*args,**kwargs):
+        return smn_models.prepare(self.roles,smn_models.role_of(stage),*args,stage=stage,**kwargs)
 
     def job(self,sym,stage):return self.root/'jobs'/(sym+'-'+self.date.replace('-','')+'-'+stage)
     def result(self,sym):return self.root/'results'/sym
@@ -181,7 +181,7 @@ class Edition:
             '\nPREPARED EVIDENCE:\n'+json.dumps(evidence,ensure_ascii=False,separators=(',',':')))
         if previous is not None:
             prompt+='\nEVIDENCE REVISION: Preserve this already reviewed draft wherever possible. Correct only the defect below or another demonstrable evidence error. Return the full article JSON bound to the corrected evidence; do not rewrite for novelty.\nDEFECT:\n'+Path(issues).read_text(encoding='utf-8')+'\nPREVIOUS DRAFT:\n'+json.dumps(previous,ensure_ascii=False)
-        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,**self._job_options(stage))
+        self._prepare(stage,self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'])
         save_json(out/'commission.json',{'production_article':p,'angle':spec['angle'],'question':spec['question'],
             'account_writer':self.account,'production_window_preserved':True,
             'original_year_selection_preserved':True,'old_copy_supplied_to_writer':False,
@@ -217,7 +217,7 @@ class Edition:
             json.dumps(a,ensure_ascii=False)+'\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False,separators=(',',':'))+
             '\nMECHANICAL:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+
             '\nACTUAL DISPLAYED TEXT:\n'+text((out/'article.html').read_text(encoding='utf-8')))
-        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,**self._job_options(stage))
+        self._prepare(stage,self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'])
 
     def repair(self,sym,issuefile,stage):
         out=self.result(sym);b=load_json(out/'bundle.json')
@@ -228,7 +228,7 @@ class Edition:
             '\nARTICLE:\n'+json.dumps(load_json(out/'article.json'),ensure_ascii=False)+
             '\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False)+
             '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json')))
-        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,**self._job_options(stage))
+        self._prepare(stage,self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'])
 
     def copyedit(self,sym,editfile):
         out=self.result(sym);b=load_json(out/'bundle.json');prior=load_json(out/'article.json')
@@ -254,7 +254,7 @@ class Edition:
         print(json.dumps({'copyedited':sym,'fresh_review_required':True}),flush=True)
 
     def run(self,sym,stage):
-        receipt=self.writer.run_job(self.job(sym,stage),self.cli)
+        receipt=smn_models.run(self.job(sym,stage),self.clis)
         print(json.dumps({'completed':sym,'stage':stage,'seconds':receipt['seconds'],'usage':receipt['usage'],'auth':receipt['auth_type'],'api_fallback':receipt['api_fallback']}),flush=True)
         return receipt
 
@@ -291,7 +291,7 @@ class Edition:
         from subscription_publication import CHECKS
         out=self.result(sym);b=load_json(out/'bundle.json');a=load_json(out/'article.json')
         review_path=self.job(sym,stage)/'output.json';r=load_json(review_path)
-        job=self.writer.verify_job(self.job(sym,stage));receipt=load_json(self.job(sym,stage)/'receipt.json')
+        job=smn_models.verify(self.job(sym,stage));receipt=load_json(self.job(sym,stage)/'receipt.json')
         if receipt['output_sha256']!=sha256(review_path.read_bytes()) or job['evidence_sha256']!=b['evidence_sha256']:
             raise ValueError('Review custody changed')
         if r.get('passed') is not True or set(r['checks'])!=CHECKS or any(v.get('passed') is not True for v in r['checks'].values()):
@@ -323,9 +323,9 @@ if __name__=='__main__':
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('action',choices=['prepare','batch','run','receive','review','repair','finalize','copyedit'])
     ap.add_argument('--root',type=Path,required=True);ap.add_argument('--date',required=True)
-    ap.add_argument('--codex',type=Path);ap.add_argument('--provider',choices=sorted(WRITERS),default='astra');ap.add_argument('--claude',type=Path);ap.add_argument('--stage',default='write');ap.add_argument('--issues',type=Path);ap.add_argument('--edits',type=Path)
+    ap.add_argument('--codex',type=Path);ap.add_argument('--provider',choices=WRITERS,default='astra');ap.add_argument('--claude',type=Path);ap.add_argument('--models',type=Path);ap.add_argument('--stage',default='write');ap.add_argument('--issues',type=Path);ap.add_argument('--edits',type=Path)
     ap.add_argument('symbols',nargs='+');args=ap.parse_args()
-    edition=Edition(args.root,args.date,args.codex,args.provider,args.claude)
+    edition=Edition(args.root,args.date,args.codex,args.provider,args.claude,args.models)
     for sym in args.symbols:
         if args.action=='prepare':edition.prepare(sym,args.stage,args.issues)
         elif args.action=='batch':edition.batch([sym])

@@ -9,14 +9,8 @@ import seasonal_edition as seasonal
 from visual_evidence import digest, validate_bundle
 from visual_editorial import render_edition
 from subscription_writer import load_json, save_json, sha256
-import subscription_writer, claude_subscription_writer
+from smn_models import verify as verify_job
 
-
-def verify_job(job):
-    """Verify a prepared job with the adapter that created it."""
-    provider = load_json(Path(job)/'job.json').get('provider')
-    return (claude_subscription_writer if provider == claude_subscription_writer.PROVIDER
-            else subscription_writer).verify_job(job)
 
 
 def source_word_counts(article, bundle, chart_words):

@@ -9,8 +9,10 @@ receipt; any other model in the usage record fails the job. No paid API fallback
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
+import shutil
 from pathlib import Path
 import re
 import socket
@@ -65,7 +67,8 @@ def account_snapshot(claude, cwd, timeout=45):
 
 
 def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
-                evidence_sha256, stage='write', effort='medium', model=MODEL):
+                evidence_sha256, stage='write', effort='medium', model=MODEL, images=()):
+    """Persist one job. `images` (PNG/JPEG paths) are copied in and sent inline, never via file tools."""
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,100}', job_id):
         raise ValueError('Invalid job ID')
     if model not in MODELS:
@@ -76,13 +79,20 @@ def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
     job.mkdir(parents=True, exist_ok=False)
     (job / 'prompt.txt').write_text(prompt, encoding='utf-8')
     save_json(job / 'schema.json', schema)
+    names = ['prompt.txt', 'schema.json']
+    for i, image in enumerate(images):
+        image = Path(image)
+        if image.suffix.lower() not in MEDIA:
+            raise ValueError('Unsupported image type')
+        (job / 'images').mkdir(exist_ok=True)
+        shutil.copyfile(image, job / 'images' / (str(i) + '-' + image.name))
+        names.append('images/' + str(i) + '-' + image.name)
     manifest = {'version': 1, 'job_id': job_id, 'stage': stage,
                 'created_utc': utc_now(), 'as_of': as_of,
                 'valid_until': valid_until, 'provider': PROVIDER, 'model': model,
                 'effort': effort, 'evidence_sha256': evidence_sha256,
                 'publish': False,
-                'input_hashes': {name: sha256((job/name).read_bytes())
-                    for name in ['prompt.txt', 'schema.json']}}
+                'input_hashes': {name: sha256((job/name).read_bytes()) for name in names}}
     save_json(job / 'job.json', manifest)
     save_json(job / 'state.json', {'status': 'ready', 'utc': utc_now()})
     return job
@@ -95,7 +105,9 @@ def verify_job(job):
     if (manifest.get('publish') is not False or manifest.get('provider') != PROVIDER
             or manifest.get('model') not in MODELS):
         raise ValueError('Only the private Claude subscription handoff is enabled')
-    if set(manifest.get('input_hashes', {})) != {'prompt.txt', 'schema.json'}:
+    names = set(manifest.get('input_hashes', {}))
+    if not {'prompt.txt', 'schema.json'} <= names or any(
+            n not in {'prompt.txt', 'schema.json'} and not n.startswith('images/') for n in names):
         raise ValueError('Unexpected job inputs')
     for name, expected in manifest['input_hashes'].items():
         if (job / name).is_symlink() or sha256((job/name).read_bytes()) != expected:
@@ -106,11 +118,48 @@ def verify_job(job):
     return manifest
 
 
+MEDIA = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp'}
+
+
+def images_of(manifest):
+    return sorted(n for n in manifest['input_hashes'] if n.startswith('images/'))
+
+
 def command(claude, job, manifest):
+    fmt = (['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
+           if images_of(manifest) else ['--output-format', 'json'])
     return [str(claude), '-p', '--model', manifest['model'], '--effort', manifest['effort'],
-            '--output-format', 'json', '--json-schema', (job/'schema.json').read_text(encoding='utf-8'),
+            *fmt, '--json-schema', (job/'schema.json').read_text(encoding='utf-8'),
             '--tools', '', '--strict-mcp-config', '--setting-sources', '',
             '--no-session-persistence', '--system-prompt', SYSTEM]
+
+
+def stdin_for(job, manifest):
+    prompt = (job/'prompt.txt').read_text(encoding='utf-8')
+    names = images_of(manifest)
+    if not names:
+        return prompt
+    content = [{'type': 'image', 'source': {'type': 'base64', 'media_type': MEDIA[Path(n).suffix.lower()],
+                'data': base64.b64encode((job/n).read_bytes()).decode()}} for n in names]
+    content.append({'type': 'text', 'text': prompt})
+    return json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}) + '\n'
+
+
+def parse_result(stdout):
+    try:
+        value = json.loads(stdout)
+        if isinstance(value, dict):
+            return value
+    except json.JSONDecodeError:
+        pass
+    for line in reversed(stdout.strip().splitlines()):
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get('type') == 'result':
+            return value
+    raise json.JSONDecodeError('no result', stdout, 0)
 
 
 def run_job(job, claude, *, timeout=1800):
@@ -144,12 +193,12 @@ def run_job(job, claude, *, timeout=1800):
             'timeout_seconds': timeout})
         with (job/'diagnostic.log').open('w', encoding='utf-8') as stderr:
             proc = subprocess.run(cmd, cwd=job, env=child_environment(),
-                                  input=(job/'prompt.txt').read_text(encoding='utf-8'),
+                                  input=stdin_for(job, manifest),
                                   stdout=subprocess.PIPE, stderr=stderr, text=True,
                                   encoding='utf-8', timeout=timeout)
         (job/'result.json').write_text(proc.stdout, encoding='utf-8')
         try:
-            result = json.loads(proc.stdout)
+            result = parse_result(proc.stdout)
         except json.JSONDecodeError:
             raise RuntimeError('Claude returned no JSON result; inspect saved diagnostics')
         usage = result.get('modelUsage') or {}
