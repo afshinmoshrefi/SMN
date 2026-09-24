@@ -70,11 +70,21 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  const files=Object.entries({...activation.files,...activation.retained_articles,...activation.retained_heroes});
  const checked=[];
  for(let i=0;i<files.length;i+=6){
-  const results=await page.evaluate(async ({batch,base})=>Promise.all(batch.map(async ([rel,expected])=>{
+  const results=await page.evaluate(async ({batch,base,retained})=>Promise.all(batch.map(async ([rel,expected])=>{
    const response=await fetch(base+'/'+rel,{cache:'no-store'});const bytes=await response.arrayBuffer();
-   const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(b=>b.toString(16).padStart(2,'0')).join('');
-   return {rel,status:response.status,passed:response.status===200&&hash===expected,sha256:hash};
-  })),{batch:files.slice(i,i+6),base});
+   const sha=async b=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b))).map(b=>b.toString(16).padStart(2,'0')).join('');
+   const publicHash=await sha(bytes);let hash=publicHash,normalization=null;
+   if(hash!==expected&&retained.includes(rel)&&rel.endsWith('.html')){
+    // Reverse only Cloudflare's observed email-link delivery transform. The
+    // complete restored HTML must still match the retained origin byte hash.
+    const text=new TextDecoder().decode(bytes).replace(/href="\/cdn-cgi\/l\/email-protection#([a-f0-9]+)"/gi,(_,hex)=>{
+     const key=parseInt(hex.slice(0,2),16),out=[];for(let j=2;j<hex.length;j+=2)out.push(parseInt(hex.slice(j,j+2),16)^key);
+     return 'href="mailto:'+new TextDecoder().decode(new Uint8Array(out))+'"';
+    }).replace(/<script data-cfasync="false" src="\/cdn-cgi\/scripts\/[a-f0-9]+\/cloudflare-static\/email-decode\.min\.js"><\/script>/gi,'');
+    hash=await sha(new TextEncoder().encode(text));normalization='cloudflare-email-link';
+   }
+   return {rel,status:response.status,passed:response.status===200&&hash===expected,sha256:hash,public_sha256:publicHash,normalization};
+  })),{batch:files.slice(i,i+6),base,retained:Object.keys(activation.retained_articles)});
   for(const r of results)assert(r.passed,'Public asset hash: '+r.rel);checked.push(...results);
  }
  const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');
