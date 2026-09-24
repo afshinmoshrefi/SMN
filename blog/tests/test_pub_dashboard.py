@@ -299,6 +299,32 @@ class DashboardTestCase(DashboardFixture):
         self.assertEqual(self.search_calls, [("a1", True)])
         self.assertEqual(self.refreshes, [True])
 
+    # ---------------------------------------------------------------- default list = home order
+    def test_default_list_puts_pinned_first_then_home_order(self):
+        pin_store.set_pin("a0", position=2, days=3)           # oldest, pinned to #2
+        self.client.post("/api/articles/a2/unpublish", json={})
+        body = self.client.get("/api/articles").get_json()
+        rows = body["data"]
+        self.assertEqual([(r["slug"], r["section"]) for r in rows],
+                         [("a0", "pinned"), ("a4", "home"), ("a3", "home"),
+                          ("a1", "home"), ("a2", "unpublished")])
+        self.assertEqual([r["home_position"] for r in rows], [2, 1, 3, 4, None])
+        self.assertEqual(body["meta"]["sections"],
+                         {"pinned": 1, "home": 3, "off_home": 0, "unpublished": 1})
+        self.assertEqual(body["meta"]["sort"], "home")
+
+    def test_several_pins_show_in_display_order(self):
+        pin_store.set_pin("a1", position=3)
+        pin_store.set_pin("a0", position=1)
+        rows = self.client.get("/api/articles").get_json()["data"]
+        self.assertEqual([r["slug"] for r in rows[:2]], ["a0", "a1"])
+        self.assertEqual([r["home_position"] for r in rows[:2]], [1, 3])
+
+    def test_other_sorts_still_work(self):
+        pin_store.set_pin("a0", position=1)
+        rows = self.client.get("/api/articles?sort=published_date").get_json()["data"]
+        self.assertEqual(rows[0]["slug"], "a4")
+
     # ---------------------------------------------------------------- move / order
     def _order(self):
         return [r["slug"] for r in self.client.get("/api/order").get_json()["data"]]

@@ -103,6 +103,13 @@
   .sched-list li{display:flex;gap:8px;align-items:center;justify-content:space-between;
                  padding:7px 0;border-bottom:1px solid var(--line)}
   #when-preview{font-weight:600}
+  tr.section td{background:var(--bg);font-weight:700;font-size:12px;letter-spacing:.04em;
+                text-transform:uppercase;color:var(--muted);padding:10px 10px 6px;white-space:normal}
+  tr.section.pinned-head td{color:var(--pin)}
+  td.homepos{white-space:nowrap}
+  td.homepos b{font-size:14px}
+  td.homepos span{display:block;font-size:11px;color:var(--muted)}
+  #btn-homeorder{display:none}
   #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
          background:var(--panel);border:1px solid var(--line);border-radius:8px;
          padding:10px 16px;box-shadow:0 6px 24px rgba(0,0,0,.18);display:none;z-index:9}
@@ -167,6 +174,7 @@
       <button class="primary" id="btn-apply">Apply filters</button>
       <button id="btn-clear">Clear</button>
       <span class="muted" id="count"></span>
+      <button id="btn-homeorder" title="Pinned first, then the home page in display order">Back to home page order</button>
       <span class="grow"></span>
       <label for="f-limit" style="margin:0">Per page</label>
       <select id="f-limit" style="width:auto">
@@ -178,7 +186,7 @@
   <section class="panel tablewrap">
     <table>
       <thead><tr>
-        <th data-sort="">#</th>
+        <th data-sort="" title="Place on the home page (1 = headline)">Home #</th>
         <th data-sort="title">Title</th>
         <th data-sort="symbol">Symbol</th>
         <th data-sort="written_date">Written</th>
@@ -341,7 +349,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { limit: 50, offset: 0, total: 0, sort: "published_date", order: "desc",
+const state = { limit: 50, offset: 0, total: 0, sort: "home", order: "desc",
                 rows: [], editing: null, pinSlug: null };
 
 function toast(message, bad) {
@@ -450,15 +458,46 @@ function escapeHtml(text) {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function render(rows) {
+const SECTION_TITLES = {
+  pinned: "Pinned — in the order they show on the home page",
+  home: "Home page — the rest, in display order",
+  off_home: "Not on the home page — newest first",
+  unpublished: "Unpublished — off the site",
+};
+
+function sectionHead(section, counts, continued) {
+  const n = counts && counts[section] != null ? ` (${counts[section]})` : "";
+  return `<tr class="section ${section === "pinned" ? "pinned-head" : ""}"><td colspan="12">
+    ${escapeHtml(SECTION_TITLES[section] || section)}${n}${continued ? " — continued" : ""}</td></tr>`;
+}
+
+function homeCell(row) {
+  if (!row.home_position) return `<td class="homepos muted">—</td>`;
+  return `<td class="homepos"><b>#${row.home_position}</b><span>${escapeHtml(row.home_slot || "")}</span></td>`;
+}
+
+function render(rows, meta) {
   const body = $("rows");
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="12" class="muted">No articles match these filters.</td></tr>';
     return;
   }
-  body.innerHTML = rows.map((row, i) => `
+  const grouped = state.sort === "home";
+  let current = null;
+  body.innerHTML = rows.map((row, i) => {
+    let head = "";
+    if (grouped && row.section !== current) {
+      head = sectionHead(row.section, meta && meta.sections, i === 0 && state.offset > 0);
+      current = row.section;
+    }
+    return head + rowHtml(row, i);
+  }).join("");
+}
+
+function rowHtml(row, i) {
+  return `
     <tr class="${row.pinned ? "pinned" : ""} ${row.published === false ? "unpub" : ""}">
-      <td class="muted">${state.offset + i + 1}</td>
+      ${homeCell(row)}
       <td class="title">
         <a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">${escapeHtml(row.title)}</a>
         ${row.pinned ? pinBadge(row.pin) : ""}
@@ -487,7 +526,7 @@ function render(rows) {
              <button class="tiny" data-act="edit" data-slug="${escapeHtml(row.slug)}">Edit</button>`}
         <button class="tiny danger" data-act="delete" data-slug="${escapeHtml(row.slug)}">Delete</button>
       </td>
-    </tr>`).join("");
+    </tr>`;
 }
 
 async function load() {
@@ -496,13 +535,16 @@ async function load() {
     const body = await api("/api/articles?" + query());
     state.rows = body.data;
     state.total = body.meta.total;
-    render(body.data);
+    render(body.data, body.meta);
+    $("btn-homeorder").style.display = state.sort === "home" ? "none" : "";
     const facets = body.meta.facets || {};
     fillSelect($("f-symbol"), facets.symbol || [], "Any symbol");
     fillSelect($("f-family"), facets.market_family || [], "Any family");
     fillSelect($("f-direction"), facets.direction || [], "Any direction");
     fillSelect($("f-tag"), facets.tag || [], "Any tag");
-    $("count").textContent = `${body.meta.total} article(s) match`;
+    const sec = body.meta.sections || {};
+    $("count").textContent = `${body.meta.total} article(s) match` +
+      (sec.pinned ? ` · ${sec.pinned} pinned` : "");
     const from = state.total ? state.offset + 1 : 0;
     $("page-info").textContent = `Showing ${from}–${state.offset + body.data.length} of ${state.total}`;
     $("btn-prev").disabled = state.offset === 0;
@@ -520,6 +562,7 @@ $("btn-clear").onclick = () => {
   document.querySelectorAll(".filters select").forEach((s) => { s.selectedIndex = 0; });
   state.offset = 0; load();
 };
+$("btn-homeorder").onclick = () => { state.sort = "home"; state.order = "desc"; state.offset = 0; load(); };
 $("f-limit").onchange = () => { state.limit = +$("f-limit").value; state.offset = 0; load(); };
 $("btn-prev").onclick = () => { state.offset = Math.max(0, state.offset - state.limit); load(); };
 $("btn-next").onclick = () => { state.offset += state.limit; load(); };

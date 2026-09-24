@@ -294,6 +294,43 @@ def attach_schedules(rows: List[Dict[str, Any]]) -> None:
         row["schedules"] = pending.get(row.get("slug"), [])
 
 
+SECTION_RANK = {"pinned": 0, "home": 1, "off_home": 2, "unpublished": 3}
+
+
+def attach_home_positions(rows: List[Dict[str, Any]]) -> str:
+    """Mark where each article sits on the live home page.
+
+    row["home_position"]  1 = headline, None = not on the home page
+    row["home_slot"]      page area for that position (wire template), or None
+    row["section"]        pinned | home | off_home | unpublished
+    Returns the source of the order (the home builder's own pipeline, or an
+    approximation if it cannot load).
+    """
+    items, source = home_order()
+    where = {pin_store.article_slug(r): i + 1 for i, r in enumerate(items)}
+    for row in rows:
+        position = where.get(row.get("slug")) if row.get("published") else None
+        row["home_position"] = position
+        row["home_slot"] = page_slot(position) if position else None
+        if not row.get("published"):
+            row["section"] = "unpublished"
+        elif position and row.get("pinned"):
+            row["section"] = "pinned"
+        elif position:
+            row["section"] = "home"
+        else:
+            row["section"] = "off_home"
+    return source
+
+
+def sort_home(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Pinned (display order), then the rest of the home page (display order),
+    then everything else newest first, unpublished last."""
+    rows = sorted(rows, key=lambda r: r.get("published_date") or "", reverse=True)
+    return sorted(rows, key=lambda r: (SECTION_RANK[r["section"]],
+                                       r.get("home_position") or 10**9))
+
+
 def links_for(row: Dict[str, Any]) -> Dict[str, str]:
     slug = row.get("slug") or ""
     return {
@@ -341,8 +378,13 @@ def api_articles():
     wanted = (args.get("scheduled") or "any").lower()
     if wanted in ("true", "false"):
         rows = [r for r in rows if bool(r["schedules"]) == (wanted == "true")]
-    rows = article_index.sort_rows(rows, args.get("sort", "published_date"),
-                                   args.get("order", "desc"))
+    order_source = attach_home_positions(rows)
+    sort = args.get("sort", "home")
+    if sort == "home":
+        rows = sort_home(rows)
+    else:
+        rows = article_index.sort_rows(rows, sort, args.get("order", "desc"))
+    sections = {name: sum(1 for r in rows if r["section"] == name) for name in SECTION_RANK}
     total = len(rows)
     fields = [f.strip() for f in args.get("fields", "").split(",") if f.strip()]
     page = [dict(r) for r in rows[offset:offset + limit]]
@@ -356,7 +398,8 @@ def api_articles():
               filters_applied={k: args.get(k) for k in article_index.FILTER_KEYS
                                if args.get(k)},
               next_offset=(offset + limit) if offset + limit < total else None,
-              sortable_by=sorted(article_index.SORT_KEYS),
+              sort=sort, sections=sections, home_order_source=order_source,
+              sortable_by=["home"] + sorted(article_index.SORT_KEYS),
               docs="/llms.txt")
 
 
@@ -945,7 +988,8 @@ def home_order() -> Tuple[List[Dict[str, Any]], str]:
             source = f"approximate (home pipeline failed: {exc})"
     else:
         source = "approximate"
-    return pin_store.apply_pins(article_index.build_index()), source
+    live = [r for r in article_index.build_index() if r.get("published")]
+    return pin_store.apply_pins(live), source
 
 
 # Where each list position lands on the page, per home template.
@@ -1156,6 +1200,9 @@ FIELD_DOCS = {
     "published": "True when live on the site (listed in posts.json). "
                  "False when unpublished and held for re-publishing.",
     "unpublished_at": "When it was unpublished (unpublished rows only).",
+    "home_position": "Place on the live home page, 1 = headline; null when not on it.",
+    "home_slot": "Page area for home_position (Lead story, Headlines, ...).",
+    "section": "pinned | home | off_home | unpublished (the default list's sections).",
     "schedules": "Pending scheduled publish/unpublish for this article, soonest "
                  "first. Each has id, action, at (UTC), as_new, created_by.",
     "pin": "The active pin record, or null.",
@@ -1195,7 +1242,7 @@ def api_schema():
         "fields": "comma separated keys to return, e.g. fields=slug,title",
         "include": "on GET /api/articles/<slug>: html, text, or html,text",
         "actor": "send header X-Actor: <name> on writes; shows in /api/audit",
-        "sort": sorted(article_index.SORT_KEYS),
+        "sort": ["home (default)"] + sorted(article_index.SORT_KEYS),
         "order": ["desc", "asc"],
         "pin_fields": {
             "position": "1 = headline, 2 = second slot, and so on.",
@@ -1230,8 +1277,15 @@ GET /api/articles
              pattern_end_from, pattern_end_to,
              min_words, max_words, min_pattern_days, max_pattern_days
     Paging:  limit (max 500), offset. meta.next_offset is null on the last page.
-    Sort:    sort=published_date|written_date|pattern_start_date|
-                  pattern_end_date|word_count|symbol|title, order=desc|asc
+    Sort:    sort=home (default) | published_date | written_date |
+                  pattern_start_date | pattern_end_date | word_count | symbol |
+                  title, order=desc|asc
+             sort=home: pinned articles first in display order, then the rest
+             of the home page in display order, then articles not on the home
+             page (newest first), unpublished last. Each row has
+             home_position (1 = headline, null = not on the home page),
+             home_slot and section (pinned|home|off_home|unpublished);
+             meta.sections counts them.
     Fields:  fields=slug,title,published_date returns only those keys.
              Use it to keep replies small.
     meta.facets lists every real value, so never guess a symbol or a family.
@@ -1355,7 +1409,8 @@ def openapi():
             ("max_words", "Maximum word_count."),
             ("min_pattern_days", "Minimum pattern length in days."),
             ("max_pattern_days", "Maximum pattern length in days."),
-            ("sort", "published_date | written_date | pattern_start_date | "
+            ("sort", "home (default: pinned, then home-page order, then the rest) | "
+                     "published_date | written_date | pattern_start_date | "
                      "pattern_end_date | word_count | symbol | title."),
             ("order", "desc | asc."),
             ("fields", "Comma separated keys to return. Keeps replies small."),
