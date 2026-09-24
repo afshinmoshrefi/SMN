@@ -1,0 +1,1062 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMN Publishing Dashboard</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#fff; --ink:#15181d; --muted:#6a7280; --line:#e2e5ea;
+    --accent:#1f5fd8; --accent-ink:#fff; --pin:#b45309; --pin-bg:#fef3c7;
+    --danger:#b42318; --ok:#067647; --radius:10px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1115; --panel:#171a20; --ink:#e8eaee; --muted:#9aa3b0; --line:#2a2f38;
+      --accent:#6c9bff; --accent-ink:#0f1115; --pin:#fbbf24; --pin-bg:#3a2d0c;
+      --danger:#ff7a70; --ok:#4ade80;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:18px 16px;border-bottom:1px solid var(--line);background:var(--panel);
+         display:flex;flex-wrap:wrap;gap:12px;align-items:baseline}
+  h1{font-size:19px;margin:0}
+  .sub{color:var(--muted);font-size:13px}
+  .grow{flex:1}
+  main{padding:16px;max-width:1500px;margin:0 auto}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+         padding:14px;margin-bottom:16px}
+  .filters{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
+  input,select,textarea{width:100%;padding:7px 9px;border:1px solid var(--line);
+         border-radius:7px;background:var(--bg);color:var(--ink);font:inherit}
+  textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;min-height:220px}
+  button{padding:7px 13px;border:1px solid var(--line);border-radius:7px;
+         background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  button.danger{color:var(--danger)}
+  button.tiny{padding:3px 8px;font-size:12px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+  .tablewrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);
+        vertical-align:top;white-space:nowrap}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;
+     cursor:pointer;user-select:none;position:sticky;top:0;background:var(--panel)}
+  td.title{white-space:normal;min-width:300px;max-width:480px}
+  td.title a{color:inherit;text-decoration:none;font-weight:600}
+  td.title a:hover{text-decoration:underline}
+  .slug{color:var(--muted);font-size:11px;font-family:ui-monospace,monospace}
+  tr.pinned{background:color-mix(in srgb,var(--pin-bg) 60%,transparent)}
+  .badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;
+         background:var(--pin-bg);color:var(--pin);font-weight:600}
+  .muted{color:var(--muted)}
+  dialog{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);
+         color:var(--ink);padding:0;width:min(760px,94vw)}
+  dialog::backdrop{background:rgba(0,0,0,.45)}
+  .dlg-head{padding:14px 16px;border-bottom:1px solid var(--line);font-weight:600}
+  .dlg-body{padding:16px;display:grid;gap:12px;max-height:70vh;overflow:auto}
+  .dlg-foot{padding:12px 16px;border-top:1px solid var(--line);display:flex;
+            gap:8px;justify-content:flex-end}
+  .two{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  .hero-btn{padding:3px 6px;line-height:0;color:var(--muted)}
+  .hero-btn.bad{color:var(--danger);border-color:var(--danger)}
+  .hero-btn svg{width:18px;height:18px}
+  #hero-pop{position:fixed;z-index:8;display:none;pointer-events:none;background:var(--panel);
+            border:1px solid var(--line);border-radius:8px;padding:4px;
+            box-shadow:0 8px 28px rgba(0,0,0,.25)}
+  #hero-pop img{display:block;width:360px;max-width:70vw;height:auto;border-radius:5px}
+  #hero-big{width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+  .hero-meta{font-size:12px;color:var(--muted);word-break:break-all}
+  tr.unpub td{opacity:.6}
+  tr.unpub td:last-child,tr.unpub td.title{opacity:1}
+  .badge.off{background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)}
+  .badge.held{background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
+  #dlg-order{width:min(980px,96vw)}
+  .order-list{list-style:none;margin:0;padding:0}
+  .order-list li{display:flex;gap:10px;align-items:center;padding:7px 8px;
+                 border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:var(--panel)}
+  .order-list li.dragging{opacity:.4}
+  .order-list li.over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+  .order-list .grip{cursor:grab;color:var(--muted);user-select:none;font-size:18px;line-height:1}
+  .order-list .pos{width:34px;text-align:right;font-weight:700}
+  .order-list .slot{width:86px;font-size:11px;color:var(--muted)}
+  .order-list .ttl{flex:1;min-width:0}
+  .order-list .ttl div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .order-list .ctl{display:flex;gap:4px;align-items:center}
+  .order-list input{width:56px;padding:3px 6px}
+  .order-list .thumb{width:64px;height:32px;object-fit:cover;border-radius:4px;background:var(--bg)}
+  @media (max-width:640px){.order-list .slot,.order-list .thumb{display:none}}
+  .who{display:flex;align-items:center;gap:6px}
+  .who input{width:130px}
+  .who input.need{border-color:var(--danger)}
+  .badge.sched{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+  .shortcuts{display:flex;flex-wrap:wrap;gap:6px}
+  .shortcuts button.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+  .when-row{display:flex;gap:14px;flex-wrap:wrap}
+  .when-row label{display:flex;gap:6px;align-items:center;margin:0;color:var(--ink);font-size:14px}
+  .when-row input{width:auto}
+  .sched-list{margin:0;padding:0;list-style:none}
+  .sched-list li{display:flex;gap:8px;align-items:center;justify-content:space-between;
+                 padding:7px 0;border-bottom:1px solid var(--line)}
+  #when-preview{font-weight:600}
+  #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+         background:var(--panel);border:1px solid var(--line);border-radius:8px;
+         padding:10px 16px;box-shadow:0 6px 24px rgba(0,0,0,.18);display:none;z-index:9}
+  #toast.bad{border-color:var(--danger);color:var(--danger)}
+  #toast.good{border-color:var(--ok)}
+  @media (max-width:640px){main{padding:12px}.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>SMN Publishing Dashboard</h1>
+    <div class="sub">Position 1 is the headline article. Agent API: <a href="/llms.txt">/llms.txt</a></div>
+  </div>
+  <div class="grow"></div>
+  <div class="who"><label for="who" style="margin:0">Your name</label>
+    <input id="who" placeholder="e.g. afshin" autocomplete="username"></div>
+  <button id="btn-sched">Scheduled</button>
+  <button id="btn-new" class="primary">+ New article</button>
+  <button id="btn-order">Home page order</button>
+  <button id="btn-rebuild">Rebuild home page</button>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="filters">
+      <div><label for="f-q">Search</label><input id="f-q" placeholder="title, dek, symbol"></div>
+      <div><label for="f-symbol">Symbol</label><select id="f-symbol"></select></div>
+      <div><label for="f-family">Market family</label><select id="f-family"></select></div>
+      <div><label for="f-direction">Direction</label><select id="f-direction"></select></div>
+      <div><label for="f-tag">Tag</label><select id="f-tag"></select></div>
+      <div><label for="f-status">Status</label>
+        <select id="f-status"><option value="any">Any</option>
+          <option value="published">Published</option>
+          <option value="unpublished">Not published</option></select></div>
+      <div><label for="f-pinned">Pinned</label>
+        <select id="f-pinned"><option value="any">Any</option>
+          <option value="true">Pinned only</option>
+          <option value="false">Not pinned</option></select></div>
+      <div><label for="f-hero">Hero image</label>
+        <select id="f-hero"><option value="any">Any</option>
+          <option value="ok">OK</option>
+          <option value="missing">Missing or empty</option></select></div>
+      <div><label for="f-scheduled">Scheduled</label>
+        <select id="f-scheduled"><option value="any">Any</option>
+          <option value="true">Has a schedule</option>
+          <option value="false">No schedule</option></select></div>
+      <div><label for="f-written-from">Written from</label><input id="f-written-from" type="date"></div>
+      <div><label for="f-written-to">Written to</label><input id="f-written-to" type="date"></div>
+      <div><label for="f-pub-from">Published from</label><input id="f-pub-from" type="date"></div>
+      <div><label for="f-pub-to">Published to</label><input id="f-pub-to" type="date"></div>
+      <div><label for="f-ps-from">Pattern start from</label><input id="f-ps-from" type="date"></div>
+      <div><label for="f-ps-to">Pattern start to</label><input id="f-ps-to" type="date"></div>
+      <div><label for="f-pe-from">Pattern end from</label><input id="f-pe-from" type="date"></div>
+      <div><label for="f-pe-to">Pattern end to</label><input id="f-pe-to" type="date"></div>
+      <div><label for="f-minw">Min words</label><input id="f-minw" type="number" min="0" step="50"></div>
+      <div><label for="f-maxw">Max words</label><input id="f-maxw" type="number" min="0" step="50"></div>
+      <div><label for="f-mind">Min pattern days</label><input id="f-mind" type="number" min="0"></div>
+      <div><label for="f-maxd">Max pattern days</label><input id="f-maxd" type="number" min="0"></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="btn-apply">Apply filters</button>
+      <button id="btn-clear">Clear</button>
+      <span class="muted" id="count"></span>
+      <span class="grow"></span>
+      <label for="f-limit" style="margin:0">Per page</label>
+      <select id="f-limit" style="width:auto">
+        <option>50</option><option>100</option><option>250</option><option>500</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="panel tablewrap">
+    <table>
+      <thead><tr>
+        <th data-sort="">#</th>
+        <th data-sort="title">Title</th>
+        <th data-sort="symbol">Symbol</th>
+        <th data-sort="written_date">Written</th>
+        <th data-sort="published_date">Published</th>
+        <th data-sort="pattern_start_date">Pattern start</th>
+        <th data-sort="pattern_end_date">Pattern end</th>
+        <th data-sort="">Days</th>
+        <th data-sort="word_count">Words</th>
+        <th data-sort="">Hero</th>
+        <th data-sort="">Pin</th>
+        <th data-sort="">Actions</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="12" class="muted">Loading…</td></tr></tbody>
+    </table>
+    <div class="row">
+      <button id="btn-prev">← Previous</button>
+      <button id="btn-next">Next →</button>
+      <span class="muted" id="page-info"></span>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-pin"><form method="dialog">
+  <div class="dlg-head">Pin article</div>
+  <div class="dlg-body">
+    <div class="muted" id="pin-title"></div>
+    <div class="two">
+      <div><label for="pin-position">Position (1 = headline)</label>
+        <input id="pin-position" type="number" min="1" value="1"></div>
+      <div><label for="pin-mode">Pin lasts</label>
+        <select id="pin-mode">
+          <option value="days">A number of days</option>
+          <option value="until">Until a date</option>
+          <option value="forever">Until I remove it</option>
+        </select></div>
+    </div>
+    <div class="two">
+      <div id="wrap-days"><label for="pin-days">Days</label>
+        <input id="pin-days" type="number" min="1" value="7"></div>
+      <div id="wrap-until" style="display:none"><label for="pin-until">Until</label>
+        <input id="pin-until" type="date"></div>
+    </div>
+    <div><label for="pin-expiry">When the pin ends</label>
+      <select id="pin-expiry">
+        <option value="natural">Go back to its own published date</option>
+        <option value="republish">Treat it as just published, then sink normally</option>
+      </select></div>
+    <div><label for="pin-note">Note (optional)</label><input id="pin-note"></div>
+  </div>
+  <div class="dlg-foot">
+    <button value="cancel">Cancel</button>
+    <button class="primary" id="pin-save" value="save">Pin it</button>
+  </div>
+</form></dialog>
+
+<dialog id="dlg-edit"><form method="dialog">
+  <div class="dlg-head" id="edit-head">Article</div>
+  <div class="dlg-body">
+    <div class="two">
+      <div><label for="e-symbol">Symbol *</label><input id="e-symbol"></div>
+      <div><label for="e-family">Market family</label><input id="e-family" placeholder="US"></div>
+    </div>
+    <div><label for="e-title">Title *</label><input id="e-title"></div>
+    <div><label for="e-dek">Dek</label><input id="e-dek"></div>
+    <div class="two">
+      <div><label for="e-direction">Direction</label><input id="e-direction" placeholder="long"></div>
+      <div><label for="e-published">Published date</label><input id="e-published" type="date"></div>
+    </div>
+    <div class="two">
+      <div><label for="e-ps">Pattern start</label><input id="e-ps" type="date"></div>
+      <div><label for="e-days">Pattern days</label><input id="e-days" type="number" min="0"></div>
+    </div>
+    <div class="two">
+      <div><label for="e-years">Lookback years</label><input id="e-years" placeholder="20"></div>
+      <div><label for="e-tags">Tags (comma separated)</label><input id="e-tags" placeholder="manual"></div>
+    </div>
+    <div><label for="e-html">Article HTML *</label><textarea id="e-html" spellcheck="false"></textarea></div>
+  </div>
+  <div class="dlg-foot">
+    <button value="cancel">Cancel</button>
+    <button class="primary" id="edit-save" value="save">Save</button>
+  </div>
+</form></dialog>
+
+<dialog id="dlg-order"><form method="dialog">
+  <div class="dlg-head">Home page order — drag, use the arrows, or type a position</div>
+  <div class="dlg-body">
+    <div class="muted" id="order-msg">A moved article is held in place until you click Release.</div>
+    <ol class="order-list" id="order-body"></ol>
+  </div>
+  <div class="dlg-foot"><button value="close">Close</button></div>
+</form></dialog>
+
+<dialog id="dlg-act"><form method="dialog">
+  <div class="dlg-head" id="act-head">Publish</div>
+  <div class="dlg-body">
+    <div id="act-title" style="font-weight:600"></div>
+    <div class="when-row">
+      <label><input type="radio" name="act-when" value="now" checked> Now</label>
+      <label><input type="radio" name="act-when" value="later"> At a time (schedule)</label>
+    </div>
+    <div id="act-later" style="display:none">
+      <div class="shortcuts" id="act-shortcuts"></div>
+      <div class="two" style="margin-top:10px">
+        <div><label for="act-at">Date and time (<span id="act-tz"></span>)</label>
+          <input id="act-at" type="datetime-local" step="60"></div>
+        <div><label>Runs at</label><div id="when-preview" class="muted">—</div></div>
+      </div>
+    </div>
+    <div id="act-publish-opts">
+      <label for="act-asnew">Date on the site</label>
+      <select id="act-asnew">
+        <option value="keep">Keep its original date</option>
+        <option value="new">Publish as new (top of the page, then moves down)</option>
+      </select>
+    </div>
+    <div id="act-unpublish-opts">
+      <label for="act-reason">Reason (optional)</label><input id="act-reason">
+      <label style="margin-top:8px"><input type="checkbox" id="act-return" style="width:auto">
+        Also schedule it to come back</label>
+      <div id="act-return-box" style="display:none;margin-top:8px">
+        <div class="shortcuts" id="ret-shortcuts"></div>
+        <div class="two" style="margin-top:10px">
+          <div><label for="ret-at">Publish again at</label>
+            <input id="ret-at" type="datetime-local" step="60"></div>
+          <div><label>Runs at</label><div id="ret-preview" class="muted">—</div></div>
+        </div>
+      </div>
+    </div>
+    <div id="act-existing"></div>
+    <div class="muted" id="act-msg"></div>
+  </div>
+  <div class="dlg-foot">
+    <button value="cancel">Cancel</button>
+    <button type="button" class="primary" id="act-go">Publish now</button>
+  </div>
+</form></dialog>
+
+<dialog id="dlg-sched-all"><form method="dialog">
+  <div class="dlg-head">Scheduled publish and unpublish</div>
+  <div class="dlg-body"><ul class="sched-list" id="sched-all"></ul></div>
+  <div class="dlg-foot"><button value="close">Close</button></div>
+</form></dialog>
+
+<dialog id="dlg-hero"><form method="dialog">
+  <div class="dlg-head" id="hero-head">Hero image</div>
+  <div class="dlg-body">
+    <img id="hero-big" alt="Hero image">
+    <div class="hero-meta" id="hero-meta"></div>
+    <div class="muted" id="hero-msg"></div>
+  </div>
+  <div class="dlg-foot">
+    <button type="button" id="hero-recreate" class="primary">Recreate hero</button>
+    <button value="close">Close</button>
+  </div>
+</form></dialog>
+
+<div id="hero-pop"><img alt=""></div>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { limit: 50, offset: 0, total: 0, sort: "published_date", order: "desc",
+                rows: [], editing: null, pinSlug: null };
+
+function toast(message, bad) {
+  const box = $("toast");
+  box.textContent = message;
+  box.className = bad ? "bad" : "good";
+  box.style.display = "block";
+  clearTimeout(box._t);
+  box._t = setTimeout(() => { box.style.display = "none"; }, bad ? 7000 : 3500);
+}
+
+const WHO_KEY = "smn_dashboard_user";
+function who() { return ($("who").value || "").trim(); }
+try { $("who").value = localStorage.getItem(WHO_KEY) || ""; } catch (_) {}
+$("who").addEventListener("change", () => {
+  $("who").classList.remove("need");
+  try { localStorage.setItem(WHO_KEY, who()); } catch (_) {}
+});
+function requireWho() {
+  if (who()) return true;
+  $("who").classList.add("need");
+  $("who").focus();
+  toast("Type your name at the top first. It is saved with the schedule.", true);
+  return false;
+}
+
+async function api(path, options) {
+  options = Object.assign({}, options || {});
+  options.headers = Object.assign({}, options.headers || {});
+  if (who()) options.headers["X-Actor"] = who();
+  const response = await fetch(path, options);
+  let body = {};
+  try { body = await response.json(); } catch (_) {}
+  if (!response.ok || body.ok === false) {
+    const error = body.error || {};
+    throw new Error([error.message, error.hint].filter(Boolean).join(" — ")
+                    || ("HTTP " + response.status));
+  }
+  return body;
+}
+
+const ICON_IMAGE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/>' +
+  '<circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5-9 9"/></svg>';
+
+function bust(url) {
+  if (!url) return "";
+  return url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();
+}
+
+function day(value) { return value ? String(value).slice(0, 10) : "—"; }
+
+function query() {
+  const params = new URLSearchParams();
+  const put = (key, value) => { if (value !== "" && value != null) params.set(key, value); };
+  put("q", $("f-q").value.trim());
+  put("symbol", $("f-symbol").value);
+  put("market_family", $("f-family").value);
+  put("direction", $("f-direction").value);
+  put("tag", $("f-tag").value);
+  put("status", $("f-status").value);
+  put("pinned", $("f-pinned").value);
+  put("hero", $("f-hero").value);
+  put("scheduled", $("f-scheduled").value);
+  put("written_from", $("f-written-from").value);
+  put("written_to", $("f-written-to").value);
+  put("published_from", $("f-pub-from").value);
+  put("published_to", $("f-pub-to").value);
+  put("pattern_start_from", $("f-ps-from").value);
+  put("pattern_start_to", $("f-ps-to").value);
+  put("pattern_end_from", $("f-pe-from").value);
+  put("pattern_end_to", $("f-pe-to").value);
+  put("min_words", $("f-minw").value);
+  put("max_words", $("f-maxw").value);
+  put("min_pattern_days", $("f-mind").value);
+  put("max_pattern_days", $("f-maxd").value);
+  params.set("sort", state.sort);
+  params.set("order", state.order);
+  params.set("limit", state.limit);
+  params.set("offset", state.offset);
+  return params.toString();
+}
+
+function fillSelect(element, values, anyLabel) {
+  const keep = element.value;
+  element.innerHTML = `<option value="">${anyLabel}</option>` +
+    values.map((v) => `<option>${v}</option>`).join("");
+  if (values.includes(keep)) element.value = keep;
+}
+
+function pinBadge(pin) {
+  if (!pin) return "";
+  return pin.expires_at
+    ? `<span class="badge">PINNED ${escapeHtml(pinLabel(pin))}</span>`
+    : `<span class="badge held">HELD AT #${pin.position}</span>`;
+}
+
+function pinLabel(pin) {
+  if (!pin) return "";
+  const ends = pin.expires_at ? day(pin.expires_at) : "no end date";
+  return `#${pin.position} · until ${ends}`;
+}
+
+function escapeHtml(text) {
+  return String(text == null ? "" : text).replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function render(rows) {
+  const body = $("rows");
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="12" class="muted">No articles match these filters.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map((row, i) => `
+    <tr class="${row.pinned ? "pinned" : ""} ${row.published === false ? "unpub" : ""}">
+      <td class="muted">${state.offset + i + 1}</td>
+      <td class="title">
+        <a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">${escapeHtml(row.title)}</a>
+        ${row.pinned ? pinBadge(row.pin) : ""}
+        ${row.published === false ? `<span class="badge off">UNPUBLISHED ${day(row.unpublished_at)}</span>` : ""}
+        ${(row.schedules || []).map(schedBadge).join(" ")}
+        <div class="slug">${escapeHtml(row.slug)}</div>
+      </td>
+      <td>${escapeHtml(row.symbol)} <span class="muted">${escapeHtml(row.market_family || "")}</span></td>
+      <td>${day(row.written_date)}</td>
+      <td>${day(row.published_date)}</td>
+      <td>${day(row.pattern_start_date)}</td>
+      <td>${day(row.pattern_end_date)}</td>
+      <td>${row.pattern_days ?? "—"}</td>
+      <td>${row.word_count || 0}</td>
+      <td><button class="tiny hero-btn ${row.hero_ok ? "" : "bad"}" data-act="hero"
+            data-slug="${escapeHtml(row.slug)}" data-img="${escapeHtml(row.hero_image || "")}"
+            title="${row.hero_ok ? "Hero image" : "Hero image missing or empty"}"
+            aria-label="Hero image">${ICON_IMAGE}</button></td>
+      <td>${row.published === false ? "" : row.pinned
+            ? `<button class="tiny" data-act="unpin" data-slug="${escapeHtml(row.slug)}">Unpin</button>`
+            : `<button class="tiny" data-act="pin" data-slug="${escapeHtml(row.slug)}">Pin</button>`}</td>
+      <td>
+        ${row.published === false
+          ? `<button class="tiny primary" data-act="publish" data-slug="${escapeHtml(row.slug)}">Publish</button>`
+          : `<button class="tiny" data-act="unpublish" data-slug="${escapeHtml(row.slug)}">Unpublish</button>
+             <button class="tiny" data-act="edit" data-slug="${escapeHtml(row.slug)}">Edit</button>`}
+        <button class="tiny danger" data-act="delete" data-slug="${escapeHtml(row.slug)}">Delete</button>
+      </td>
+    </tr>`).join("");
+}
+
+async function load() {
+  $("rows").innerHTML = '<tr><td colspan="12" class="muted">Loading…</td></tr>';
+  try {
+    const body = await api("/api/articles?" + query());
+    state.rows = body.data;
+    state.total = body.meta.total;
+    render(body.data);
+    const facets = body.meta.facets || {};
+    fillSelect($("f-symbol"), facets.symbol || [], "Any symbol");
+    fillSelect($("f-family"), facets.market_family || [], "Any family");
+    fillSelect($("f-direction"), facets.direction || [], "Any direction");
+    fillSelect($("f-tag"), facets.tag || [], "Any tag");
+    $("count").textContent = `${body.meta.total} article(s) match`;
+    const from = state.total ? state.offset + 1 : 0;
+    $("page-info").textContent = `Showing ${from}–${state.offset + body.data.length} of ${state.total}`;
+    $("btn-prev").disabled = state.offset === 0;
+    $("btn-next").disabled = state.offset + state.limit >= state.total;
+  } catch (error) {
+    $("rows").innerHTML = `<tr><td colspan="12" class="muted">${escapeHtml(error.message)}</td></tr>`;
+    toast(error.message, true);
+  }
+}
+
+// filters
+$("btn-apply").onclick = () => { state.offset = 0; load(); };
+$("btn-clear").onclick = () => {
+  document.querySelectorAll(".filters input").forEach((i) => { i.value = ""; });
+  document.querySelectorAll(".filters select").forEach((s) => { s.selectedIndex = 0; });
+  state.offset = 0; load();
+};
+$("f-limit").onchange = () => { state.limit = +$("f-limit").value; state.offset = 0; load(); };
+$("btn-prev").onclick = () => { state.offset = Math.max(0, state.offset - state.limit); load(); };
+$("btn-next").onclick = () => { state.offset += state.limit; load(); };
+$("f-q").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-apply").click(); });
+
+document.querySelectorAll("th[data-sort]").forEach((th) => {
+  th.onclick = () => {
+    const key = th.dataset.sort;
+    if (!key) return;
+    state.order = (state.sort === key && state.order === "desc") ? "asc" : "desc";
+    state.sort = key; state.offset = 0; load();
+  };
+});
+
+// row actions
+$("rows").onclick = (event) => {
+  const button = event.target.closest("button[data-act]");
+  if (!button) return;
+  const slug = button.dataset.slug;
+  const row = state.rows.find((r) => r.slug === slug);
+  if (button.dataset.act === "pin") openPin(row);
+  if (button.dataset.act === "unpin") unpin(slug);
+  if (button.dataset.act === "edit") openEdit(row);
+  if (button.dataset.act === "delete") remove(row);
+  if (button.dataset.act === "hero") openHero(row);
+  if (button.dataset.act === "unpublish") openAct(row, "unpublish");
+  if (button.dataset.act === "publish") openAct(row, "publish");
+};
+
+// hero: hover preview
+const pop = $("hero-pop");
+$("rows").addEventListener("mouseover", (event) => {
+  const button = event.target.closest(".hero-btn");
+  if (!button || !button.dataset.img) return;
+  pop.querySelector("img").src = button.dataset.img;
+  pop.style.display = "block";
+});
+$("rows").addEventListener("mousemove", (event) => {
+  if (pop.style.display !== "block") return;
+  const width = pop.offsetWidth || 370, height = pop.offsetHeight || 200;
+  let x = event.clientX - width - 16, y = event.clientY - height / 2;
+  if (x < 8) x = event.clientX + 16;
+  y = Math.max(8, Math.min(y, window.innerHeight - height - 8));
+  pop.style.left = x + "px"; pop.style.top = y + "px";
+});
+$("rows").addEventListener("mouseout", (event) => {
+  if (event.target.closest(".hero-btn")) pop.style.display = "none";
+});
+
+// hero: click panel with Recreate
+let heroRow = null;
+function openHero(row) {
+  heroRow = row;
+  pop.style.display = "none";
+  $("hero-head").textContent = "Hero image — " + row.symbol;
+  $("hero-big").src = bust(row.hero_image);
+  $("hero-meta").textContent = row.hero_image || "No hero image set.";
+  const edition = (row.hero_image || "").includes("/editions/");
+  $("hero-recreate").disabled = edition;
+  $("hero-msg").textContent = edition
+    ? "Subscription-edition hero. Recreate it through the edition workflow."
+    : (row.hero_ok ? "" : "The hero file is missing or empty. Recreate it.");
+  $("dlg-hero").showModal();
+}
+$("hero-big").onerror = () => { $("hero-msg").textContent = "The image did not load. Recreate it."; };
+
+$("hero-recreate").onclick = async () => {
+  const button = $("hero-recreate");
+  button.disabled = true;
+  $("hero-msg").textContent = "Recreating… this can take 1–3 minutes. Keep this open.";
+  try {
+    await api("/api/articles/" + encodeURIComponent(heroRow.slug) + "/hero/recreate", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    $("hero-big").src = bust(heroRow.hero_image);
+    $("hero-msg").textContent = "Done. New image shown above. The public site may show the old one until its cache clears.";
+    toast("Hero image recreated.");
+    load();
+  } catch (error) {
+    $("hero-msg").textContent = error.message;
+    toast(error.message, true);
+  }
+  button.disabled = false;
+};
+
+// pin dialog
+function openPin(row) {
+  state.pinSlug = row.slug;
+  $("pin-title").textContent = row.title;
+  $("pin-position").value = row.pin ? row.pin.position : 1;
+  $("pin-mode").value = "days";
+  $("pin-days").value = 7;
+  $("pin-until").value = "";
+  $("pin-expiry").value = row.pin ? row.pin.on_expiry : "natural";
+  $("pin-note").value = row.pin ? row.pin.note : "";
+  syncPinMode();
+  $("dlg-pin").showModal();
+}
+function syncPinMode() {
+  const mode = $("pin-mode").value;
+  $("wrap-days").style.display = mode === "days" ? "" : "none";
+  $("wrap-until").style.display = mode === "until" ? "" : "none";
+}
+$("pin-mode").onchange = syncPinMode;
+
+$("dlg-pin").addEventListener("close", async () => {
+  if ($("dlg-pin").returnValue !== "save") return;
+  const mode = $("pin-mode").value;
+  const payload = {
+    position: +$("pin-position").value || 1,
+    on_expiry: $("pin-expiry").value,
+    note: $("pin-note").value,
+  };
+  if (mode === "days") payload.days = +$("pin-days").value;
+  if (mode === "until") payload.until = $("pin-until").value;
+  try {
+    await api("/api/pins/" + encodeURIComponent(state.pinSlug), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("Pinned. The site updates in about a minute.");
+    load();
+  } catch (error) { toast(error.message, true); }
+});
+
+async function unpin(slug) {
+  try {
+    await api("/api/pins/" + encodeURIComponent(slug), { method: "DELETE" });
+    toast("Unpinned. The site updates in about a minute.");
+    load();
+  } catch (error) { toast(error.message, true); }
+}
+
+// edit / new dialog
+function openEdit(row) {
+  state.editing = row ? row.slug : null;
+  $("edit-head").textContent = row ? "Edit article" : "New article";
+  $("e-symbol").value = row ? row.symbol || "" : "";
+  $("e-family").value = row ? row.market_family || "" : "US";
+  $("e-title").value = row ? row.title || "" : "";
+  $("e-dek").value = row ? row.dek || "" : "";
+  $("e-direction").value = row ? row.direction || "" : "";
+  $("e-published").value = row ? day(row.published_date) : "";
+  $("e-ps").value = row ? day(row.pattern_start_date) : "";
+  $("e-days").value = row ? row.pattern_days || "" : "";
+  $("e-years").value = row ? row.lookback_years || "" : "";
+  $("e-tags").value = row ? (row.tags || []).join(", ") : "manual";
+  $("e-html").value = "";
+  $("dlg-edit").showModal();
+  if (row) {
+    $("e-html").placeholder = "Loading current HTML…";
+    api("/api/articles/" + encodeURIComponent(row.slug) + "?include=html")
+      .then((body) => { $("e-html").value = body.data.html || ""; })
+      .catch((error) => toast(error.message, true));
+  } else {
+    $("e-html").placeholder = "<article> … full article HTML … </article>";
+  }
+}
+$("btn-new").onclick = () => openEdit(null);
+
+$("dlg-edit").addEventListener("close", async () => {
+  if ($("dlg-edit").returnValue !== "save") return;
+  const payload = {
+    symbol: $("e-symbol").value.trim(),
+    market_family: $("e-family").value.trim(),
+    title: $("e-title").value.trim(),
+    dek: $("e-dek").value.trim(),
+    direction: $("e-direction").value.trim(),
+    pattern_start_date: $("e-ps").value,
+    pattern_days: $("e-days").value,
+    lookback_years: $("e-years").value.trim(),
+    tags: $("e-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+  };
+  if ($("e-published").value) payload.published_date = $("e-published").value + "T00:00:00Z";
+  const html = $("e-html").value;
+  if (html.trim()) payload.html = html;
+  try {
+    if (state.editing) {
+      await api("/api/articles/" + encodeURIComponent(state.editing), {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      toast("Saved. The site updates in about a minute.");
+    } else {
+      if (!payload.html) { toast("A new article needs its HTML.", true); return; }
+      await api("/api/articles", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      toast("Article added. The site updates in about a minute.");
+    }
+    load();
+  } catch (error) { toast(error.message, true); }
+});
+
+async function remove(row) {
+  if (!confirm(`Delete "${row.title}"?\n\nIt leaves the site. The file is moved to a trash folder, not destroyed.`)) return;
+  try {
+    await api("/api/articles/" + encodeURIComponent(row.slug), { method: "DELETE" });
+    toast("Deleted. The file is in the trash folder.");
+    load();
+  } catch (error) { toast(error.message, true); }
+}
+
+// ---------------------------------------------------------------- time helpers
+const LOCAL_TZ = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "local time";
+
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric",
+                                       hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+}
+function toLocalInput(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function atLocal(daysAhead, hour, minute) {
+  const d = new Date();
+  d.setDate(d.getDate() + daysAhead);
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}
+function nextWeekday(target, hour, minute) {          // 1 = Monday
+  const d = new Date();
+  let add = (target - d.getDay() + 7) % 7;
+  if (add === 0) add = 7;
+  return atLocal(add, hour, minute);
+}
+// The next 9:30 AM New York that is still ahead (skips Sat/Sun; not holidays).
+function nyMarketOpen() {
+  const parts = (d) => Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23", weekday: "short" })
+    .formatToParts(d).map((p) => [p.type, p.value]));
+  let probe = new Date();
+  for (let i = 0; i < 8; i++) {
+    const p = parts(probe);
+    if (p.weekday !== "Sat" && p.weekday !== "Sun") {
+      for (const offset of [-4, -5]) {                 // EDT, EST
+        const utc = Date.UTC(+p.year, +p.month - 1, +p.day, 9 - offset, 30);
+        const check = parts(new Date(utc));
+        if (check.hour === "09" && check.minute === "30" && utc > Date.now()) return new Date(utc);
+      }
+    }
+    probe = new Date(probe.getTime() + 24 * 3600e3);
+  }
+  return null;
+}
+function shortcutList() {
+  const now = new Date();
+  const list = [["In 1 hour", new Date(now.getTime() + 3600e3)]];
+  const today4 = atLocal(0, 16, 0);
+  if (today4 > now) list.push(["Today 4 PM", today4]);
+  list.push(["Tonight 9 PM", atLocal(0, 21, 0) > now ? atLocal(0, 21, 0) : atLocal(1, 21, 0)]);
+  list.push(["Tomorrow 7 AM", atLocal(1, 7, 0)]);
+  const open = nyMarketOpen();
+  if (open) list.push(["Market open 9:30 ET", open]);
+  list.push(["Next Monday 7 AM", nextWeekday(1, 7, 0)]);
+  list.push(["In 1 week", new Date(now.getTime() + 7 * 24 * 3600e3)]);
+  return list;
+}
+function wireShortcuts(boxId, inputId, previewId) {
+  const box = $(boxId), input = $(inputId);
+  box.innerHTML = shortcutList().map(([label, d], i) =>
+    `<button type="button" class="tiny" data-i="${i}" data-t="${d.getTime()}">${label}</button>`).join("");
+  const preview = () => {
+    const v = input.value ? new Date(input.value) : null;
+    $(previewId).textContent = v && !isNaN(v) ? fmtWhen(v.toISOString()) : "—";
+    box.querySelectorAll("button").forEach((b) =>
+      b.classList.toggle("on", v && Math.abs(+b.dataset.t - v.getTime()) < 60e3));
+  };
+  box.onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    input.value = toLocalInput(new Date(+b.dataset.t)); preview();
+  };
+  input.oninput = preview;
+  preview();
+}
+function readInput(inputId) {
+  const v = $(inputId).value;
+  if (!v) return null;
+  const d = new Date(v);                               // browser local time
+  return isNaN(d) ? null : d;
+}
+
+function schedBadge(item) {
+  const verb = item.action === "publish" ? "PUBLISH" : "UNPUBLISH";
+  return `<span class="badge sched" title="Scheduled by ${escapeHtml(item.created_by)}">⏰ ${verb} ${escapeHtml(fmtWhen(item.at))} · ${escapeHtml(item.created_by)}</span>`;
+}
+
+// ---------------------------------------------------------------- publish / unpublish panel
+let actRow = null, actMode = "publish";
+
+function actExisting(row) {
+  const items = row.schedules || [];
+  if (!items.length) return "";
+  return "<label>Already scheduled</label><ul class='sched-list'>" + items.map((x) => `
+    <li><span>${x.action === "publish" ? "Publish" : "Unpublish"} ${escapeHtml(fmtWhen(x.at))}
+      <span class="muted">· by ${escapeHtml(x.created_by)}</span></span>
+      <button type="button" class="tiny danger" data-cancel="${escapeHtml(x.id)}">Cancel</button></li>`).join("") + "</ul>";
+}
+
+function syncAct() {
+  const later = document.querySelector('input[name="act-when"]:checked').value === "later";
+  $("act-later").style.display = later ? "" : "none";
+  $("act-publish-opts").style.display = actMode === "publish" ? "" : "none";
+  $("act-unpublish-opts").style.display = actMode === "unpublish" ? "" : "none";
+  $("act-return-box").style.display = $("act-return").checked ? "" : "none";
+  const verb = actMode === "publish" ? "Publish" : "Unpublish";
+  $("act-go").textContent = later ? `Schedule ${verb.toLowerCase()}` : `${verb} now`;
+}
+
+function openAct(row, mode) {
+  actRow = row; actMode = mode;
+  $("act-head").textContent = mode === "publish" ? "Publish" : "Unpublish";
+  $("act-title").textContent = row.title;
+  document.querySelector('input[name="act-when"][value="now"]').checked = true;
+  $("act-at").value = ""; $("ret-at").value = "";
+  $("act-asnew").value = "keep"; $("act-reason").value = "";
+  $("act-return").checked = false;
+  $("act-tz").textContent = LOCAL_TZ;
+  $("act-msg").textContent = mode === "publish"
+    ? "It goes back to its original URL. With no schedule, it stays unpublished."
+    : "It leaves the site but is kept. It stays unpublished until you publish or schedule it.";
+  $("act-existing").innerHTML = actExisting(row);
+  wireShortcuts("act-shortcuts", "act-at", "when-preview");
+  wireShortcuts("ret-shortcuts", "ret-at", "ret-preview");
+  syncAct();
+  $("dlg-act").showModal();
+}
+document.querySelectorAll('input[name="act-when"]').forEach((r) => r.onchange = syncAct);
+$("act-return").onchange = syncAct;
+
+$("act-existing").onclick = async (e) => {
+  const b = e.target.closest("button[data-cancel]"); if (!b) return;
+  try {
+    await api("/api/schedule/" + encodeURIComponent(b.dataset.cancel), { method: "DELETE" });
+    actRow.schedules = (actRow.schedules || []).filter((x) => x.id !== b.dataset.cancel);
+    $("act-existing").innerHTML = actExisting(actRow);
+    toast("Schedule cancelled."); load();
+  } catch (error) { toast(error.message, true); }
+};
+
+async function postJSON(path, payload) {
+  return api(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                     body: JSON.stringify(payload) });
+}
+
+$("act-go").onclick = async () => {
+  const later = document.querySelector('input[name="act-when"]:checked').value === "later";
+  const slug = encodeURIComponent(actRow.slug);
+  try {
+    if (later) {
+      if (!requireWho()) return;
+      const at = readInput("act-at");
+      if (!at || at <= new Date()) { $("act-msg").textContent = "Pick a time in the future."; return; }
+      await postJSON("/api/schedule", { slug: actRow.slug, action: actMode, at: at.toISOString(),
+                                        as_new: $("act-asnew").value === "new",
+                                        note: actMode === "unpublish" ? $("act-reason").value : "" });
+      toast(`${actMode === "publish" ? "Publish" : "Unpublish"} scheduled for ${fmtWhen(at.toISOString())}.`);
+    } else if (actMode === "publish") {
+      await postJSON(`/api/articles/${slug}/publish`, { as_new: $("act-asnew").value === "new" });
+      toast("Published. The site updates in about a minute.");
+    } else {
+      const payload = { reason: $("act-reason").value };
+      if ($("act-return").checked) {
+        if (!requireWho()) return;
+        const back = readInput("ret-at");
+        if (!back || back <= new Date()) { $("act-msg").textContent = "Pick a future time to bring it back."; return; }
+        payload.publish_at = back.toISOString();
+      }
+      await postJSON(`/api/articles/${slug}/unpublish`, payload);
+      toast(payload.publish_at ? `Unpublished. Back on ${fmtWhen(payload.publish_at)}.` : "Unpublished. It stays off until you publish it.");
+    }
+    $("dlg-act").close("done");
+    load();
+  } catch (error) { $("act-msg").textContent = error.message; toast(error.message, true); }
+};
+
+// ---------------------------------------------------------------- all schedules
+async function loadAllSchedules() {
+  const body = await api("/api/schedule");
+  const rows = body.data;
+  $("btn-sched").textContent = rows.length ? `Scheduled (${rows.length})` : "Scheduled";
+  $("sched-all").innerHTML = rows.length ? rows.map((x) => `
+    <li><span><b>${x.action === "publish" ? "Publish" : "Unpublish"}</b> ${escapeHtml(fmtWhen(x.at))}
+      <div class="slug">${escapeHtml(x.slug)} · by ${escapeHtml(x.created_by)}${x.as_new ? " · as new" : ""}</div></span>
+      <button type="button" class="tiny danger" data-cancel="${escapeHtml(x.id)}">Cancel</button></li>`).join("")
+    : "<li class='muted'>Nothing is scheduled.</li>";
+}
+$("btn-sched").onclick = async () => {
+  $("sched-all").innerHTML = "<li class='muted'>Loading…</li>";
+  $("dlg-sched-all").showModal();
+  try { await loadAllSchedules(); } catch (error) { toast(error.message, true); }
+};
+$("sched-all").onclick = async (e) => {
+  const b = e.target.closest("button[data-cancel]"); if (!b) return;
+  try {
+    await api("/api/schedule/" + encodeURIComponent(b.dataset.cancel), { method: "DELETE" });
+    await loadAllSchedules(); toast("Schedule cancelled."); load();
+  } catch (error) { toast(error.message, true); }
+};
+loadAllSchedules().catch(() => {});
+
+// home page order: drag, arrows, move-to, release
+let orderRows = [];
+let orderBusy = false;
+
+function renderOrder() {
+  $("order-body").innerHTML = orderRows.map((row) => `
+    <li draggable="true" data-slug="${escapeHtml(row.slug)}" data-pos="${row.position}">
+      <span class="grip" title="Drag to move">⋮⋮</span>
+      <span class="pos">${row.position}</span>
+      <span class="slot">${escapeHtml(row.slot || "")}</span>
+      <img class="thumb" src="${escapeHtml(row.hero_image || "")}" alt="" loading="lazy">
+      <span class="ttl"><div>${escapeHtml(row.title)}</div>
+        <div class="slug">${escapeHtml(row.symbol)} · ${day(row.published_date)}
+          ${row.pinned ? pinBadge(row.pin) : ""}</div></span>
+      <span class="ctl">
+        <button type="button" class="tiny" data-move="up" ${row.position === 1 ? "disabled" : ""} aria-label="Move up">↑</button>
+        <button type="button" class="tiny" data-move="down" aria-label="Move down">↓</button>
+        <input type="number" min="1" value="${row.position}" aria-label="Position">
+        <button type="button" class="tiny" data-move="to">Move</button>
+        ${row.pinned ? `<button type="button" class="tiny" data-move="release">Release</button>` : ""}
+      </span>
+    </li>`).join("");
+}
+
+async function loadOrder() {
+  const body = await api("/api/order?limit=50");
+  orderRows = body.data;
+  renderOrder();
+}
+
+async function moveTo(slug, position) {
+  if (orderBusy) return;
+  orderBusy = true;
+  $("order-msg").textContent = "Saving…";
+  try {
+    await api("/api/order/move", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, position }),
+    });
+    await loadOrder();
+    $("order-msg").textContent = `Moved to #${position} and held there. The live page updates in about a minute.`;
+    load();
+  } catch (error) {
+    $("order-msg").textContent = error.message;
+    toast(error.message, true);
+  }
+  orderBusy = false;
+}
+
+async function release(slug) {
+  if (orderBusy) return;
+  orderBusy = true;
+  $("order-msg").textContent = "Releasing…";
+  try {
+    await api("/api/pins/" + encodeURIComponent(slug), { method: "DELETE" });
+    await loadOrder();
+    $("order-msg").textContent = "Released. It is back in its normal place.";
+    load();
+  } catch (error) { $("order-msg").textContent = error.message; }
+  orderBusy = false;
+}
+
+$("btn-order").onclick = async () => {
+  $("order-msg").textContent = "A moved article is held in place until you click Release.";
+  $("order-body").innerHTML = "<li class='muted'>Loading…</li>";
+  $("dlg-order").showModal();
+  try { await loadOrder(); } catch (error) { $("order-msg").textContent = error.message; }
+};
+
+$("order-body").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-move]");
+  if (!button) return;
+  const item = button.closest("li");
+  const slug = item.dataset.slug, pos = +item.dataset.pos;
+  const kind = button.dataset.move;
+  if (kind === "up") moveTo(slug, pos - 1);
+  if (kind === "down") moveTo(slug, pos + 1);
+  if (kind === "to") {
+    const wanted = +item.querySelector("input").value;
+    if (wanted >= 1 && wanted !== pos) moveTo(slug, wanted);
+  }
+  if (kind === "release") release(slug);
+});
+$("order-body").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.matches("input")) {
+    event.preventDefault();
+    event.target.closest("li").querySelector('[data-move="to"]').click();
+  }
+});
+
+let dragSlug = null;
+$("order-body").addEventListener("dragstart", (event) => {
+  const item = event.target.closest("li");
+  if (!item) return;
+  dragSlug = item.dataset.slug;
+  item.classList.add("dragging");
+  event.dataTransfer.effectAllowed = "move";
+});
+$("order-body").addEventListener("dragend", (event) => {
+  const item = event.target.closest("li");
+  if (item) item.classList.remove("dragging");
+});
+$("order-body").addEventListener("dragover", (event) => {
+  const item = event.target.closest("li");
+  if (!item || !dragSlug) return;
+  event.preventDefault();
+  document.querySelectorAll(".order-list li.over").forEach((x) => x.classList.remove("over"));
+  item.classList.add("over");
+});
+$("order-body").addEventListener("drop", (event) => {
+  const item = event.target.closest("li");
+  document.querySelectorAll(".order-list li.over").forEach((x) => x.classList.remove("over"));
+  if (!item || !dragSlug) return;
+  event.preventDefault();
+  const target = +item.dataset.pos;
+  const slug = dragSlug;
+  dragSlug = null;
+  if (item.dataset.slug !== slug) moveTo(slug, target);
+});
+
+$("btn-rebuild").onclick = async () => {
+  $("btn-rebuild").disabled = true;
+  try {
+    const body = await api("/api/rebuild", { method: "POST" });
+    toast(body.data.ran && body.data.returncode === 0
+      ? "Home page rebuilt."
+      : "Rebuild reported a problem: " + (body.data.reason || body.data.stderr || ""),
+      !(body.data.ran && body.data.returncode === 0));
+  } catch (error) { toast(error.message, true); }
+  $("btn-rebuild").disabled = false;
+};
+
+load();
+</script>
+</body>
+</html>

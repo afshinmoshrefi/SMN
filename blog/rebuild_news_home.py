@@ -6914,6 +6914,34 @@ def _get_autocomplete_script_html():
 # MAIN BUILD FUNCTION
 # =============================================================================
 
+def _apply_manual_pins(items):
+    """Honour manual pins set in the publishing dashboard (pin_store).
+
+    A pinned article is pulled in even when the display filter or the 99-item
+    load cap would have dropped it.  Any failure here is swallowed: a broken
+    pin file must never stop the home page from building.
+    """
+    try:
+        import json as _pin_json
+        import pin_store
+    except Exception:
+        return items
+    try:
+        wanted = pin_store.pins_by_slug()
+        if not wanted:
+            return items
+        present = {pin_store.article_slug(a) for a in items}
+        missing = [s for s in wanted if s and s not in present]
+        if missing and POSTS_JSON.exists():
+            for post in _pin_json.loads(POSTS_JSON.read_text("utf-8")):
+                if pin_store.article_slug(post) in missing:
+                    items.append(post)
+        return pin_store.apply_pins(items)
+    except Exception as exc:
+        print(f"[pins] skipped, using natural order: {exc}")
+        return items
+
+
 def build_home():
     """Build the home page HTML and write to index.html."""
 
@@ -6945,6 +6973,9 @@ def build_home():
 
     # Apply display filters (age and count limits)
     items = _filter_articles_for_display(all_items)
+
+    # Manual dashboard pins win over the published_date order.
+    items = _apply_manual_pins(items)
 
     # Fetch MailerLite group IDs for the signup form (server-side, token never exposed)
     ml_groups = _get_ml_group_ids()

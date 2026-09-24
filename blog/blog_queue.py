@@ -447,6 +447,37 @@ def delete_posts(num_days_old,category,user_id,slug,post_id,max_total):
     redis_client.rpush(stream_name, json.dumps(action_dict) )
 
     return jsonify({'message': 'success'})
+def _existing_hero_article_id(resource_id, symbol, date, days, years):
+    """Id in the hero file name the published article already shows, or ''.
+
+    Matches posts.json on the pattern identity (newest article wins when a
+    pattern has several), then reads the 8-hex id from hero_<SYM>_<id>.jpg.
+    Articles with a plain hero_<SYM>.jpg return ''.
+    """
+    import re
+    try:
+        posts_path = os.path.join(config.news_root_folder, 'posts.json')
+        with open(posts_path, encoding='utf-8') as fh:
+            posts = json.load(fh)
+    except Exception:
+        return ''
+    file_symbol = re.escape(symbol.replace('/', '_').replace('=', '_'))
+    matches = [p for p in posts
+               if str(p.get('resource_id')) == str(resource_id)
+               and str(p.get('symbol', '')).upper() == symbol.upper()
+               and str(p.get('pattern_start_date', ''))[:10] == date
+               and str(p.get('pattern_days')) == str(days)
+               and str(p.get('lookback_years')) == str(years)]
+    # One pattern can have several articles. Callers that know the exact
+    # article pass ?article_id=; otherwise take the newest one.
+    matches.sort(key=lambda p: p.get('published_date') or '', reverse=True)
+    for p in matches:
+        m = re.search(rf'/hero_{file_symbol}_([0-9a-f]{{8}})\.jpg$', p.get('hero_image') or '')
+        if m:
+            return m.group(1)
+    return ''
+
+
 #---------------------------------------------------------------------------------------------
 # mode can be 
 # default - creates chatGPT UI prompt includes web search
@@ -470,7 +501,17 @@ def article_prompt(resource_id, symbol, date, days, years, userid, mode, note):
     if mode == "hero":
         try:
             from article_hero_image import hero_image_workflow
-            hero_info = hero_image_workflow(resource_id=str(resource_id), symbol=symbol, date=date, sentiment=sentiment)
+            # Newer articles show hero_<SYM>_<article_id>.jpg. Without the id the
+            # workflow writes hero_<SYM>.jpg, which the article never shows.
+            # ?article_id=<8 hex> or ?article_id=none (plain hero_<SYM>.jpg) from
+            # callers that know the exact article; else look it up.
+            article_id = request.args.get('article_id')
+            if article_id == 'none':
+                article_id = ''
+            elif not article_id:
+                article_id = _existing_hero_article_id(resource_id, symbol, date, days, years)
+            hero_info = hero_image_workflow(resource_id=str(resource_id), symbol=symbol, date=date,
+                                            sentiment=sentiment, article_id=article_id)
 
             if hero_info and hero_info.get("image_url"):
                 # success, nothing else needed
@@ -838,6 +879,63 @@ def article_publish_bq(): # bq stands for blog_queue which is this script
 
     return jsonify(return_dict)
 #---------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------
+# Publish / unpublish from the TradeWave portfolio (Publish Article dialog icon).
+# The publishing dashboard (pub_dashboard.py, same box) owns the logic; these
+# routes only find the article for a pattern and forward the request.
+#---------------------------------------------------------------------------------------------
+SMN_DASHBOARD_URL = os.environ.get('SMN_DASHBOARD_URL', 'http://127.0.0.1:7172')
+
+
+def _dashboard_article_for_pattern(resource_id, symbol, date, days, years):
+    import requests
+    resp = requests.get(f"{SMN_DASHBOARD_URL}/api/articles/by-pattern", timeout=20,
+                        params={"resource_id": resource_id, "symbol": symbol,
+                                "date": date, "days": days, "years": years})
+    return resp.json().get("data") or {}
+
+
+@app.route('/article_publish_state_bq/<string:resource_id>/<string:symbol>/<string:date>/<string:days>/<string:years>', methods=['GET'])
+def article_publish_state_get_bq(resource_id, symbol, date, days, years):
+    """{"state": "published" | "unpublished" | "none", "slug", "schedules"}"""
+    try:
+        return jsonify(_dashboard_article_for_pattern(resource_id, symbol, date, days, years))
+    except Exception as e:
+        return jsonify({"state": "unknown", "reason": f"dashboard unreachable: {e}"}), 503
+
+
+@app.route('/article_publish_state_bq', methods=['POST'])
+def article_publish_state_set_bq():
+    """Body: resource_id, symbol, date, days, years, userid, state ("published"|"unpublished")."""
+    import requests
+    payload = request.get_json(silent=True) or {}
+    missing = [f for f in ('resource_id', 'symbol', 'date', 'days', 'years', 'userid', 'state')
+               if not str(payload.get(f, '')).strip()]
+    if missing:
+        return jsonify({"message": "failed", "reason": "missing " + ", ".join(missing)}), 400
+    wanted = str(payload['state'])
+    if wanted not in ('published', 'unpublished'):
+        return jsonify({"message": "failed", "reason": "state must be published or unpublished"}), 400
+    try:
+        found = _dashboard_article_for_pattern(payload['resource_id'], payload['symbol'],
+                                               payload['date'], payload['days'], payload['years'])
+        if not found.get('slug'):
+            return jsonify({"message": "failed", "reason": "no article for this pattern"}), 404
+        if found.get('state') == wanted:
+            return jsonify({"message": "success", "state": wanted, "slug": found['slug'],
+                            "note": "already " + wanted})
+        action = 'publish' if wanted == 'published' else 'unpublish'
+        resp = requests.post(f"{SMN_DASHBOARD_URL}/api/articles/{found['slug']}/{action}",
+                             json={"reason": "from TradeWave portfolio"}, timeout=300,
+                             headers={"X-Actor": f"tw2-user-{payload['userid']}"})
+        body = resp.json()
+    except Exception as e:
+        return jsonify({"message": "failed", "reason": f"dashboard unreachable: {e}"}), 503
+    if not body.get('ok'):
+        return jsonify({"message": "failed", "reason": (body.get('error') or {}).get('message')}), 502
+    return jsonify({"message": "success", "state": wanted, "slug": found['slug']})
+
+
 @app.route('/delete_article_bq', methods=['POST'])
 def delete_article_bq():
     """
@@ -913,7 +1011,7 @@ def delete_article_bq():
         # You already have (or will have) this function wired to:
         #   - remove HTML / file
         #   - update any Redis keys / WordPress / etc.
-        delete_result = delete_article_web( rid,sym,date,days,years,uid)
+        delete_result = delete_article_web(rid, sym, date, days, years, uid, slug=payload.get("slug"))
     except Exception as e:
         print("[delete_article_bq] ERROR during delete_article_web:", e)
         return jsonify({

@@ -870,7 +870,7 @@ def publish_article_to_folder(resource_id, symbol, pattern_start_date, days, yea
     )
 #-----------------------------------------------------------------------------------------------
 
-def delete_article_web(resource_id,symbol,date,days,years,uid):
+def delete_article_web(resource_id,symbol,date,days,years,uid,slug=None):
 
     """
     Delete a published article and all associated artifacts for a given pattern.
@@ -891,16 +891,38 @@ def delete_article_web(resource_id,symbol,date,days,years,uid):
     posts = json.loads(posts_json.read_text(encoding="utf-8")) if posts_json.exists() else []
 
     # Find matching entry in posts.json
-    match_idx = next(
-        (
-            i for i, p in enumerate(posts)
-            if p.get("symbol", "").upper() == symbol.upper()
-            and p.get("pattern_start_date", "") == date
-            and str(p.get("pattern_days", "")) == str(int(days))
-            and str(p.get("lookback_years", "")) == str(years)
-        ),
-        None,
+    same_pattern = [
+        i for i, p in enumerate(posts)
+        if p.get("symbol", "").upper() == symbol.upper()
+        and p.get("pattern_start_date", "") == date
+        and str(p.get("pattern_days", "")) == str(int(days))
+        and str(p.get("lookback_years", "")) == str(years)
+    ]
+    redis_key = make_redis_key(
+        resource_id=resource_id,
+        symbol=symbol,
+        pattern_start_date=date,
+        days=int(days),
+        years=years,
+        tone=DEFAULT_TONE,
+        website_id=DEFAULT_WEBSITE_ID,
     )
+    # One pattern can have several articles.  Delete the exact one asked for
+    # (slug), else the one the portfolio shows (this pattern's Redis entry),
+    # else the newest -- never just the first (oldest) match.
+    match_idx = None
+    if slug:
+        match_idx = next((i for i in same_pattern if posts[i].get("slug") == slug), None)
+    elif len(same_pattern) > 1:
+        try:
+            shown = json.loads(redis_client3.get(redis_key) or "{}").get("entry", {}).get("path")
+        except Exception:
+            shown = None
+        match_idx = next((i for i in same_pattern if shown and posts[i].get("path") == shown), None)
+        if match_idx is None:
+            match_idx = max(same_pattern, key=lambda i: posts[i].get("published_date", ""))
+    elif same_pattern:
+        match_idx = same_pattern[0]
 
     if match_idx is None:
         logging.warning(
@@ -936,18 +958,6 @@ def delete_article_web(resource_id,symbol,date,days,years,uid):
     html_path = Path(path_str)
     _safe_unlink(html_path)
 
-    # Delete from Redis
-    redis_key = make_redis_key(
-        resource_id=resource_id,
-        symbol=symbol,
-        pattern_start_date=date,
-        days=int(days),
-        years=years,
-        tone=DEFAULT_TONE,
-        website_id=DEFAULT_WEBSITE_ID,
-    )
-    delete_article_from_redis(redis_key)
-
     # Remove entry from posts.json and rewrite it
     del posts[match_idx]
     _write_atomic(posts_json, json.dumps(posts, ensure_ascii=False, indent=2))
@@ -955,12 +965,34 @@ def delete_article_web(resource_id,symbol,date,days,years,uid):
     # Remove from search index (fast)
     delete_search_index_entry(news_root, entry.get("url", ""))
 
-    # Delete hero/images and rebuild home page
-    _delete_article_images(symbol, date, days, years)
+    siblings = [
+        p for p in posts
+        if p.get("symbol", "").upper() == symbol.upper()
+        and p.get("pattern_start_date", "") == date
+        and str(p.get("pattern_days", "")) == str(int(days))
+        and str(p.get("lookback_years", "")) == str(years)
+    ]
+    if siblings:
+        # Other articles still use this pattern: keep its Redis key (pointed at
+        # the newest one left) and its shared chart images.
+        save_article_to_redis(redis_key, max(siblings, key=lambda p: p.get("published_date", "")))
+    else:
+        delete_article_from_redis(redis_key)
+        _delete_article_images(symbol, date, days, years)
+
     build_home()
+    # Same listing refresh as publishing, so the deleted URL also leaves the
+    # sitemaps, RSS and llms.txt.
+    for refresh in (generate_sitemap, generate_news_sitemap, generate_rss_feed, generate_llms_txt):
+        try:
+            refresh()
+        except Exception as exc:
+            logging.warning(f"delete_article_web: {refresh.__name__} failed: {exc}")
 
     return {
         "removed": True,
+        "slug": entry.get("slug", ""),
+        "siblings_left": len(siblings),
         "symbol": symbol,
         "date": date,
         "days": int(days),
