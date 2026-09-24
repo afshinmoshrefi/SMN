@@ -1,4 +1,5 @@
 import json
+import os  # noqa: F401
 import sys
 import tempfile
 import unittest
@@ -61,6 +62,9 @@ class DashboardFixture(unittest.TestCase):
             (pub_dashboard, "REFRESH_FLAG"): self.state / "refresh.pending",
             (pub_dashboard, "REFRESH_LOCK"): self.state / "refresh.lock",
         }
+        env = patch.dict("os.environ", {"SMN_DASHBOARD_AUTH": "off"})
+        env.start()
+        self.addCleanup(env.stop)
         for (module, name), value in patches.items():
             p = patch.object(module, name, value)
             p.start()

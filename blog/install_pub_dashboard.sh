@@ -10,9 +10,47 @@ SRC="$(cd "$(dirname "$0")" && pwd)"
 LIVE=/home/flask/blog
 STATE=/var/lib/smn-dashboard
 UNITS="pub_dashboard.service pub_dashboard_sweep.service pub_dashboard_sweep.timer"
-FILES="pin_store.py article_index.py schedule_store.py pub_dashboard.py pin_sweeper.py templates/pub_dashboard.html"
+FILES="pin_store.py article_index.py schedule_store.py dashboard_auth.py pub_dashboard.py pin_sweeper.py templates/pub_dashboard.html"
 PATCHED="rebuild_news_home.py blog_queue.py publish_article.py"
 PY=/home/flask/venv-smn-integrity-20260711T205457Z/bin/python
+ENVFILE=/etc/SMN/dashboard.env
+SNIPPET=/etc/nginx/snippets/smn_dashboard.conf
+SITE=/etc/nginx/sites-available/smn.conf
+
+# Public web address /dashboard/: open ONLY when login is required and
+# SMN_DASHBOARD_PUBLIC=1.  Otherwise the path answers 404 (LAN port 7172 only).
+write_nginx_snippet() {
+  local public=0
+  if grep -qx 'SMN_DASHBOARD_PUBLIC=1' "$ENVFILE" 2>/dev/null \
+     && ! grep -qx 'SMN_DASHBOARD_AUTH=off' "$ENVFILE" 2>/dev/null \
+     && grep -q '^SMN_DASHBOARD_TW_PUBKEY=' "$ENVFILE" 2>/dev/null; then public=1; fi
+  mkdir -p "$(dirname "$SNIPPET")"
+  if [[ $public == 1 ]]; then
+    cat > "$SNIPPET" <<'NGX'
+# SMN publishing dashboard (login required). Managed by install_pub_dashboard.sh
+location = /dashboard { return 301 /dashboard/; }
+location /dashboard/ {
+    proxy_pass http://127.0.0.1:7172/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Prefix /dashboard;
+    proxy_read_timeout 900s;
+    add_header Cache-Control "no-store" always;
+    add_header X-Frame-Options "DENY" always;
+}
+NGX
+  else
+    printf '# SMN publishing dashboard is not public (login off or not configured).\nlocation /dashboard/ { return 404; }\n' > "$SNIPPET"
+  fi
+  if ! grep -q 'include snippets/smn_dashboard.conf;' "$SITE"; then
+    cp -p "$SITE" "$SITE.bak-dashboard-$(date -u +%Y%m%dT%H%M%SZ)"
+    # first server block: add the include after its server_name line
+    sed -i '0,/server_name .*;/s//&\n    include snippets\/smn_dashboard.conf;/' "$SITE"
+  fi
+  nginx -t -q && systemctl reload nginx && echo "OK  nginx /dashboard/ public=$public"
+}
 
 restore_latest() {  # $1 = file name
   local last
@@ -27,6 +65,9 @@ if [[ "${1:-}" == "--rollback" ]]; then
   for f in $PATCHED; do restore_latest "$f"; done
   for f in $FILES; do rm -f "$LIVE/$f"; done
   systemctl restart blog_queue.service
+  if [[ -f "$SNIPPET" ]]; then
+    printf 'location /dashboard/ { return 404; }\n' > "$SNIPPET"; nginx -t -q && systemctl reload nginx
+  fi
   echo "Rolled back. Pins and audit log kept in $STATE (delete by hand if unwanted)."
   exit 0
 fi
@@ -39,8 +80,13 @@ for f in $FILES $PATCHED; do install -m 644 "$SRC/$f" "$LIVE/$f"; done
 mkdir -p "$STATE" && chmod 750 "$STATE"
 for u in $UNITS; do install -m 644 "$SRC/systemd/$u" /etc/systemd/system/; done
 systemctl daemon-reload
+if [[ ! -f "$ENVFILE" ]]; then     # first install: login off, private network only
+  mkdir -p "$(dirname "$ENVFILE")"
+  printf 'SMN_DASHBOARD_ENV=dev\nSMN_DASHBOARD_AUTH=off\nSMN_DASHBOARD_PUBLIC=0\n' > "$ENVFILE"
+  chmod 640 "$ENVFILE"
+fi
 
-(cd "$LIVE" && "$PY" -c "import pub_dashboard, schedule_store, rebuild_news_home, publish_article, blog_queue") \
+(cd "$LIVE" && "$PY" -c "import pub_dashboard, schedule_store, dashboard_auth, rebuild_news_home, publish_article, blog_queue") \
   || { echo "IMPORT FAILED - rolling back"; bash "$0" --rollback; exit 1; }
 
 systemctl enable pub_dashboard.service pub_dashboard_sweep.timer
@@ -49,6 +95,7 @@ if [[ $BQ_CHANGED == 1 ]]; then systemctl restart blog_queue.service; fi
 systemctl restart pub_dashboard.service
 systemctl start pub_dashboard_sweep.timer
 sleep 4
+write_nginx_snippet || echo "WARN nginx not updated (config test failed); dashboard still on LAN port 7172"
 dash_ok=0; bq_ok=0
 curl -fsS http://127.0.0.1:7172/api/health >/dev/null && dash_ok=1
 systemctl is-active --quiet blog_queue.service && curl -s -o /dev/null http://127.0.0.1:7171/ && bq_ok=1

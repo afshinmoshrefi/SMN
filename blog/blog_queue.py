@@ -885,11 +885,25 @@ def article_publish_bq(): # bq stands for blog_queue which is this script
 # routes only find the article for a pattern and forward the request.
 #---------------------------------------------------------------------------------------------
 SMN_DASHBOARD_URL = os.environ.get('SMN_DASHBOARD_URL', 'http://127.0.0.1:7172')
+SMN_DASHBOARD_SERVICE_KEY_FILE = os.environ.get('SMN_DASHBOARD_SERVICE_KEY_FILE',
+                                                '/var/lib/smn-dashboard/service.key')
+
+
+def _dashboard_headers(extra=None):
+    """The dashboard needs a login; blog_queue uses its local service key."""
+    headers = dict(extra or {})
+    try:
+        with open(SMN_DASHBOARD_SERVICE_KEY_FILE) as fh:
+            headers['Authorization'] = 'Bearer ' + fh.read().strip()
+    except OSError:
+        pass
+    return headers
 
 
 def _dashboard_article_for_pattern(resource_id, symbol, date, days, years):
     import requests
     resp = requests.get(f"{SMN_DASHBOARD_URL}/api/articles/by-pattern", timeout=20,
+                        headers=_dashboard_headers(),
                         params={"resource_id": resource_id, "symbol": symbol,
                                 "date": date, "days": days, "years": years})
     return resp.json().get("data") or {}
@@ -927,7 +941,7 @@ def article_publish_state_set_bq():
         action = 'publish' if wanted == 'published' else 'unpublish'
         resp = requests.post(f"{SMN_DASHBOARD_URL}/api/articles/{found['slug']}/{action}",
                              json={"reason": "from TradeWave portfolio"}, timeout=300,
-                             headers={"X-Actor": f"tw2-user-{payload['userid']}"})
+                             headers=_dashboard_headers({"X-Actor": f"tw2-user-{payload['userid']}"}))
         body = resp.json()
     except Exception as e:
         return jsonify({"message": "failed", "reason": f"dashboard unreachable: {e}"}), 503

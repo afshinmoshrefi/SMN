@@ -46,9 +46,13 @@ for _extra in ("/home/flask", "/home/flask/blog"):
     if _extra not in sys.path:
         sys.path.append(_extra)
 
-from flask import Flask, Response, jsonify, render_template, request
+from datetime import timedelta
+
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, session
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import article_index
+import dashboard_auth
 import pin_store
 import schedule_store
 from article_index import NEWS_ROOT, POSTS_JSON, TRASH_DIR
@@ -62,6 +66,25 @@ MAX_LIMIT = 500
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
+# Behind nginx at /dashboard/: trust its X-Forwarded-* (only nginx on this box
+# can reach the app port from outside the LAN).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+app.config.update(
+    SECRET_KEY=dashboard_auth.session_secret(),
+    SESSION_COOKIE_NAME="smn_dashboard",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=dashboard_auth.cookie_secure(),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=dashboard_auth.SESSION_HOURS),
+)
+
+# Create the blog_queue service key now: blog_queue only sends it once the
+# file exists, so it must not wait for a first use.
+dashboard_auth.service_key()
+
+# Reachable without a login.  Everything else needs one (see guard()).
+PUBLIC_PATHS = {"/auth", "/logout", "/llms.txt", "/api/llms.txt", "/openapi.json",
+                "/api/health"}
 
 
 # --------------------------------------------------------------------------- #
@@ -88,10 +111,148 @@ AUDIT_LOG = pin_store.STATE_DIR / "audit.jsonl"
 
 
 def actor(data: Optional[Dict[str, Any]] = None) -> str:
-    """Who is acting: X-Actor header, then created_by/actor in the body."""
+    """Who is acting, for audit and schedules.
+
+    Logged-in admin: "<name> (tw:<user id>)".  API key: "agent:<key name>".
+    The blog_queue service key, or login switched off: X-Actor header, then
+    actor/created_by in the body.  Nobody else can claim another name.
+    """
+    ident = getattr(g, "identity", None) or {}
+    if ident.get("kind") == "admin":
+        return f"{ident['name']} (tw:{ident['user_id']})"[:80]
+    if ident.get("kind") == "agent":
+        return ident["name"][:64]
     data = data or {}
     return (request.headers.get("X-Actor") or data.get("actor")
             or data.get("created_by") or "dashboard").strip()[:64]
+
+
+# --------------------------------------------------------------------------- #
+# login
+# --------------------------------------------------------------------------- #
+def _session_identity() -> Optional[Dict[str, Any]]:
+    ident = session.get("identity")
+    if not ident or ident.get("env") != dashboard_auth.this_env():
+        return None
+    try:
+        started = parse_dt(ident.get("login_at"))
+    except Exception:
+        started = None
+    if not started or utcnow() - started > timedelta(hours=dashboard_auth.SESSION_HOURS):
+        return None
+    return ident
+
+
+def _login_page(message: str = "", status: int = 401):
+    url = dashboard_auth.login_url()
+    if url and not message:
+        return redirect(url)
+    link = (f'<p><a href="{url}">Log in through TradeWave</a></p>' if url
+            else "<p>Open the dashboard from the TradeWave admin menu.</p>")
+    safe = (message or "Please log in.").replace("<", "&lt;")
+    return Response(f"<!doctype html><meta name=viewport content='width=device-width'>"
+                    f"<title>SMN Dashboard login</title><body style='font-family:sans-serif;"
+                    f"max-width:520px;margin:60px auto;padding:0 16px'>"
+                    f"<h2>SMN Publishing Dashboard</h2><p>{safe}</p>{link}</body>",
+                    status=status, mimetype="text/html")
+
+
+@app.before_request
+def guard():
+    """Every request needs a TradeWave admin session, an API key, or the
+    blog_queue service key — unless login is switched off (tests)."""
+    g.identity = None
+    if not dashboard_auth.auth_required():
+        g.identity = {"kind": "open", "name": "open"}
+        return None
+    bearer = dashboard_auth.check_bearer(request.headers.get("Authorization", ""))
+    if bearer:
+        g.identity = bearer
+        return None
+    ident = _session_identity()
+    if ident:
+        g.identity = ident
+        # CSRF: a browser session may only change things from our own page,
+        # which sends this header; other sites cannot add it.
+        if request.method not in ("GET", "HEAD", "OPTIONS") \
+                and request.headers.get("X-SMN-Dashboard") != "1":
+            return fail("csrf", "missing X-SMN-Dashboard header", 403,
+                        hint="use the dashboard page, or an API key for scripts")
+        return None
+    if request.path in PUBLIC_PATHS:
+        return None
+    if request.path.startswith("/api/") or request.path == "/openapi.json":
+        return fail("login_required", "log in through TradeWave, or send an API key", 401,
+                    hint="Authorization: Bearer smnd_<id>_<secret> (ask an admin for a key)")
+    return _login_page()
+
+
+@app.route("/auth", methods=["GET"])
+def auth_ticket():
+    """TradeWave sends an admin here with a one-time signed ticket."""
+    try:
+        ident = dashboard_auth.verify_ticket(request.args.get("ticket", ""))
+    except dashboard_auth.TicketError as exc:
+        return _login_page(str(exc), 403)
+    session.clear()
+    session.permanent = True
+    session["identity"] = ident
+    g.identity = ident
+    audit("login", "", actor(), via="tradewave")
+    return redirect(request.script_root + "/")
+
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    who = (session.get("identity") or {}).get("name")
+    session.clear()
+    if who:
+        audit("logout", "", who)
+    return _login_page("You are logged out.", 200)
+
+
+@app.route("/api/whoami", methods=["GET"])
+def api_whoami():
+    ident = dict(g.identity or {})
+    return ok({"kind": ident.get("kind"), "name": ident.get("name"),
+               "user_id": ident.get("user_id"), "env": dashboard_auth.this_env() or None,
+               "login_required": dashboard_auth.auth_required(),
+               "logout": request.script_root + "/logout"})
+
+
+def _admin_only():
+    if (g.identity or {}).get("kind") not in ("admin", "open"):
+        return fail("admin_only", "only a logged-in TradeWave admin can manage keys", 403)
+    return None
+
+
+@app.route("/api/keys", methods=["GET"])
+def api_keys_list():
+    return _admin_only() or ok(dashboard_auth.list_keys())
+
+
+@app.route("/api/keys", methods=["POST"])
+def api_keys_create():
+    blocked = _admin_only()
+    if blocked:
+        return blocked
+    try:
+        key = dashboard_auth.create_key(body_json().get("name", ""), actor())
+    except ValueError as exc:
+        return fail("bad_key_name", str(exc), field="name")
+    audit("api_key_create", "", actor(), key_name=key["name"], key_id=key["id"])
+    return ok(key, note="copy the key now; it is not shown again"), 201
+
+
+@app.route("/api/keys/<key_id>", methods=["DELETE"])
+def api_keys_revoke(key_id):
+    blocked = _admin_only()
+    if blocked:
+        return blocked
+    if not dashboard_auth.revoke_key(key_id, actor()):
+        return fail("not_found", f"no active key {key_id!r}", 404)
+    audit("api_key_revoke", "", actor(), key_id=key_id)
+    return ok({"revoked": key_id})
 
 
 def audit(action: str, slug: str, who: str, **detail) -> None:
@@ -354,7 +515,7 @@ def with_links(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def index():
     sweep()
     return render_template("pub_dashboard.html", version=VERSION,
-                           site_base=site_base())
+                           site_base=site_base(), base=request.script_root)
 
 
 # --------------------------------------------------------------------------- #
@@ -833,7 +994,7 @@ def api_schedule_add():
     """
     data = body_json()
     who = actor(data)
-    if who == "dashboard":
+    if who in ("dashboard", "open"):
         return fail("who_required", "say who is scheduling", 400,
                     hint="send header X-Actor: <your name or agent id>")
     slug = str(data.get("slug") or "")
@@ -1172,6 +1333,8 @@ def api_rebuild():
 # --------------------------------------------------------------------------- #
 @app.route("/api/health", methods=["GET"])
 def api_health():
+    if not g.identity:
+        return ok({"status": "ok"})
     return ok({"status": "ok", "posts_json": str(POSTS_JSON),
                "posts_json_exists": POSTS_JSON.exists(),
                "articles": len(article_index.load_posts()),

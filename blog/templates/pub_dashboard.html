@@ -122,11 +122,14 @@
 <header>
   <div>
     <h1>SMN Publishing Dashboard</h1>
-    <div class="sub">Position 1 is the headline article. Agent API: <a href="/llms.txt">/llms.txt</a></div>
+    <div class="sub">Position 1 is the headline article. Agent API: <a href="{{ base }}/llms.txt">llms.txt</a></div>
   </div>
   <div class="grow"></div>
-  <div class="who"><label for="who" style="margin:0">Your name</label>
+  <div class="who" id="who-box" style="display:none"><label for="who" style="margin:0">Your name</label>
     <input id="who" placeholder="e.g. afshin" autocomplete="username"></div>
+  <div class="who" id="me-box" style="display:none"><span id="me" class="muted"></span>
+    <a id="logout" href="{{ base }}/logout">Log out</a></div>
+  <button id="btn-keys" style="display:none">API keys</button>
   <button id="btn-sched">Scheduled</button>
   <button id="btn-new" class="primary">+ New article</button>
   <button id="btn-order">Home page order</button>
@@ -344,6 +347,20 @@
   </div>
 </form></dialog>
 
+<dialog id="dlg-keys"><form method="dialog">
+  <div class="dlg-head">API keys for agents</div>
+  <div class="dlg-body">
+    <div class="muted">Each agent (Codex, Astra, a script) gets its own key. It sends
+      <code>Authorization: Bearer &lt;key&gt;</code>. Its name goes into the audit log.</div>
+    <div class="two"><div><label for="key-name">New key name</label>
+      <input id="key-name" placeholder="e.g. codex"></div>
+      <div style="align-self:end"><button type="button" class="primary" id="key-create">Create key</button></div></div>
+    <div id="key-new" class="panel" style="display:none"></div>
+    <ul class="sched-list" id="key-list"></ul>
+  </div>
+  <div class="dlg-foot"><button value="close">Close</button></div>
+</form></dialog>
+
 <div id="hero-pop"><img alt=""></div>
 <div id="toast"></div>
 
@@ -361,6 +378,8 @@ function toast(message, bad) {
   box._t = setTimeout(() => { box.style.display = "none"; }, bad ? 7000 : 3500);
 }
 
+const BASE = "{{ base }}";
+let IDENTITY = { kind: "open" };
 const WHO_KEY = "smn_dashboard_user";
 function who() { return ($("who").value || "").trim(); }
 try { $("who").value = localStorage.getItem(WHO_KEY) || ""; } catch (_) {}
@@ -369,7 +388,7 @@ $("who").addEventListener("change", () => {
   try { localStorage.setItem(WHO_KEY, who()); } catch (_) {}
 });
 function requireWho() {
-  if (who()) return true;
+  if (IDENTITY.kind !== "open" || who()) return true;
   $("who").classList.add("need");
   $("who").focus();
   toast("Type your name at the top first. It is saved with the schedule.", true);
@@ -378,9 +397,14 @@ function requireWho() {
 
 async function api(path, options) {
   options = Object.assign({}, options || {});
-  options.headers = Object.assign({}, options.headers || {});
-  if (who()) options.headers["X-Actor"] = who();
-  const response = await fetch(path, options);
+  options.headers = Object.assign({ "X-SMN-Dashboard": "1" }, options.headers || {});
+  if (IDENTITY.kind === "open" && who()) options.headers["X-Actor"] = who();
+  const response = await fetch(path.startsWith("/") ? BASE + path : path,
+                               Object.assign({ credentials: "same-origin" }, options));
+  if (response.status === 401) {                  // session ended: log in again
+    window.location.href = BASE + "/";
+    throw new Error("Your login ended. Opening the login page…");
+  }
   let body = {};
   try { body = await response.json(); } catch (_) {}
   if (!response.ok || body.ok === false) {
@@ -966,6 +990,55 @@ $("sched-all").onclick = async (e) => {
   } catch (error) { toast(error.message, true); }
 };
 loadAllSchedules().catch(() => {});
+
+// ---------------------------------------------------------------- identity + API keys
+async function loadIdentity() {
+  try {
+    const body = await api("/api/whoami");
+    IDENTITY = body.data;
+  } catch (_) { IDENTITY = { kind: "open" }; }
+  const open = IDENTITY.kind === "open";
+  $("who-box").style.display = open ? "" : "none";
+  $("me-box").style.display = open ? "none" : "";
+  $("me").textContent = open ? "" : `${IDENTITY.name}${IDENTITY.env ? " · " + IDENTITY.env : ""}`;
+  $("btn-keys").style.display = (open || IDENTITY.kind === "admin") ? "" : "none";
+}
+
+async function loadKeys() {
+  const body = await api("/api/keys");
+  $("key-list").innerHTML = body.data.length ? body.data.map((k) => `
+    <li><span><b>${escapeHtml(k.name)}</b> <span class="slug">id ${escapeHtml(k.id)}</span>
+      <div class="slug">created ${escapeHtml(fmtWhen(k.created_at))} by ${escapeHtml(k.created_by)}
+        · last used ${k.last_used_at ? escapeHtml(fmtWhen(k.last_used_at)) : "never"}
+        ${k.revoked_at ? " · <b>revoked</b>" : ""}</div></span>
+      ${k.revoked_at ? "" : `<button type="button" class="tiny danger" data-revoke="${escapeHtml(k.id)}">Revoke</button>`}
+    </li>`).join("") : "<li class='muted'>No keys yet.</li>";
+}
+$("btn-keys").onclick = async () => {
+  $("key-new").style.display = "none"; $("key-name").value = "";
+  $("dlg-keys").showModal();
+  try { await loadKeys(); } catch (error) { toast(error.message, true); }
+};
+$("key-create").onclick = async () => {
+  try {
+    const body = await api("/api/keys", { method: "POST", headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ name: $("key-name").value }) });
+    $("key-new").style.display = "";
+    $("key-new").innerHTML = `<b>Copy this key now. It is not shown again.</b>
+      <input readonly value="${escapeHtml(body.data.key)}" onclick="this.select()">`;
+    $("key-name").value = "";
+    await loadKeys();
+  } catch (error) { toast(error.message, true); }
+};
+$("key-list").onclick = async (e) => {
+  const b = e.target.closest("button[data-revoke]"); if (!b) return;
+  if (!confirm("Revoke this key? The agent using it stops working at once.")) return;
+  try {
+    await api("/api/keys/" + encodeURIComponent(b.dataset.revoke), { method: "DELETE" });
+    await loadKeys(); toast("Key revoked.");
+  } catch (error) { toast(error.message, true); }
+};
+loadIdentity();
 
 // home page order: drag, arrows, move-to, release
 let orderRows = [];
