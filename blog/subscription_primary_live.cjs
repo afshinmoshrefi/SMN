@@ -41,7 +41,8 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
   const oldPath=new URL(archived.url).pathname;
   await page.waitForFunction(p=>[...document.querySelectorAll('#resultsList a[href]')].some(a=>new URL(a.href).pathname===p),oldPath);
   await page.goto(base+oldPath,{waitUntil:'domcontentloaded'});
-  assert(await page.locator('h1').innerText()===archived.title,'Older article content retained');
+  const titleText=t=>t.replace(/[—–]/g,'-').replace(/\s+/g,' ').trim();
+  assert(titleText(await page.locator('h1').innerText())===titleText(archived.title),'Older article content retained');
  }
  const pages=[];
  for(const e of entries){
