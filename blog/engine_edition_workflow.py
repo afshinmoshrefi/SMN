@@ -62,6 +62,8 @@ def apply_copy_edits(article,request):
 
 WRITERS={'astra':(subscription_writer,'xhigh','ChatGPT subscription; Astra xhigh'),
          'claude':(claude_subscription_writer,'medium','Claude subscription; Claude Opus 5.5 medium')}
+# Stage -> (model, effort). Only writing/repair uses the high-end model.
+STAGE_MODELS={'claude':{'write':('claude-opus-5-5','medium'),'review':('claude-sonnet-5','low')}}
 
 
 class Edition:
@@ -72,6 +74,12 @@ class Edition:
         self.cli=claude if provider=='claude' else codex
         self.specs=load_json(self.root/'sources.json')
         self.expiry=(datetime.now(timezone.utc)+timedelta(hours=20)).isoformat()
+
+    def _job_options(self,stage):
+        models=STAGE_MODELS.get(self.provider)
+        if not models:return {'effort':self.effort}
+        model,effort=models['review' if stage.startswith('review') or stage.endswith('review') else 'write']
+        return {'effort':effort,'model':model}
 
     def job(self,sym,stage):return self.root/'jobs'/(sym+'-'+self.date.replace('-','')+'-'+stage)
     def result(self,sym):return self.root/'results'/sym
@@ -173,7 +181,7 @@ class Edition:
             '\nPREPARED EVIDENCE:\n'+json.dumps(evidence,ensure_ascii=False,separators=(',',':')))
         if previous is not None:
             prompt+='\nEVIDENCE REVISION: Preserve this already reviewed draft wherever possible. Correct only the defect below or another demonstrable evidence error. Return the full article JSON bound to the corrected evidence; do not rewrite for novelty.\nDEFECT:\n'+Path(issues).read_text(encoding='utf-8')+'\nPREVIOUS DRAFT:\n'+json.dumps(previous,ensure_ascii=False)
-        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,effort=self.effort)
+        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,**self._job_options(stage))
         save_json(out/'commission.json',{'production_article':p,'angle':spec['angle'],'question':spec['question'],
             'account_writer':self.account,'production_window_preserved':True,
             'original_year_selection_preserved':True,'old_copy_supplied_to_writer':False,
@@ -209,7 +217,7 @@ class Edition:
             json.dumps(a,ensure_ascii=False)+'\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False,separators=(',',':'))+
             '\nMECHANICAL:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+
             '\nACTUAL DISPLAYED TEXT:\n'+text((out/'article.html').read_text(encoding='utf-8')))
-        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,effort=self.effort)
+        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,**self._job_options(stage))
 
     def repair(self,sym,issuefile,stage):
         out=self.result(sym);b=load_json(out/'bundle.json')
@@ -220,7 +228,7 @@ class Edition:
             '\nARTICLE:\n'+json.dumps(load_json(out/'article.json'),ensure_ascii=False)+
             '\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False)+
             '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json')))
-        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,effort=self.effort)
+        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,**self._job_options(stage))
 
     def copyedit(self,sym,editfile):
         out=self.result(sym);b=load_json(out/'bundle.json');prior=load_json(out/'article.json')

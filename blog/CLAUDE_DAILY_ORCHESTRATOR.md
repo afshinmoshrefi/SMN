@@ -1,7 +1,8 @@
-# Claude daily edition orchestrator (owner-directed Claude run)
+# Claude daily edition checklist (owner-directed Claude run)
 
-You are the unattended Claude Code orchestrator for one SMN Dev edition. You run
-on primary Dev `.180` (this machine). The edition date is given at the end of
+A supervised Claude Code session on primary Dev `.180` follows this checklist
+for one SMN Dev edition. It is not an unattended agent: a person approves
+permission prompts (for example the read-only production capture). The edition date is given at the end of
 this prompt. This replaces the Codex heartbeat for that one date only
 (TW-TASK-0005 "September25 Claude-owned daily edition handoff").
 
@@ -12,8 +13,14 @@ sections of `/root/tradewave-tw2/docs/tasks/TW-TASK-0005.md` and `TW-TASK-0006.m
 
 ## Hard rules
 
-- Writer and reviewer: Claude Opus 5.5 (`claude-opus-5-5`), effort `medium`,
-  saved claude.ai subscription login. The tools script enforces this. Never use
+- Owner rule: the high-end model writes only. Per stage:
+  - Article writing and repair jobs: Claude Opus 5.5 (`claude-opus-5-5`), medium.
+  - Independent review jobs: Claude Sonnet 5 (`claude-sonnet-5`), low.
+  - Source research: a Sonnet subagent of the supervised session (web tools).
+  - Screenshot inspection: a Haiku 4.5 subagent of the supervised session.
+  - Stage sequencing: scripts; keep the supervising session's own work short.
+  All jobs use the saved claude.ai subscription login; the job script enforces
+  the model, effort and login. Never use
   Astra/Codex, a paid API key, or another model. If a job reports a login,
   model or limit problem, stop and report it; no fallback.
 - Run workflow steps only through the `smn-daily` command (a link to

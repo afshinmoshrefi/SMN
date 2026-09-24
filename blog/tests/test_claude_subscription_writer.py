@@ -110,5 +110,18 @@ class GenerationProvenanceTests(unittest.TestCase):
                 ed.generation('ABC', 'review', article)
 
 
+class StageModelTests(unittest.TestCase):
+    def test_only_writing_uses_the_high_end_model(self):
+        from engine_edition_workflow import Edition
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'sources.json').write_text('{}')
+            ed = Edition(tmp, '2026-09-25', provider='claude')
+            for stage in ('write', 'repair', 'repair-two'):
+                self.assertEqual(ed._job_options(stage), {'model': 'claude-opus-5-5', 'effort': 'medium'})
+            for stage in ('review', 'rereview'):
+                self.assertEqual(ed._job_options(stage), {'model': 'claude-sonnet-5', 'effort': 'low'})
+            self.assertEqual(Edition(tmp, '2026-09-25')._job_options('review'), {'effort': 'xhigh'})
+
+
 if __name__ == '__main__':
     unittest.main()

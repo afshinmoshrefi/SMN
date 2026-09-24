@@ -21,8 +21,10 @@ from subscription_writer import (load_json, save_json, sha256, utc_now,
                                  validate_schema)
 
 PROVIDER = 'anthropic'
-MODEL = 'claude-opus-5-5'
-MODEL_NAME = 'Claude Opus 5.5'
+MODEL = 'claude-opus-5-5'           # article writing and repair
+REVIEW_MODEL = 'claude-sonnet-5'    # independent review
+LIGHT_MODEL = 'claude-haiku-4-5-20251001'  # screenshot inspection
+MODELS = {MODEL, REVIEW_MODEL, LIGHT_MODEL}
 EFFORTS = {'low', 'medium', 'high', 'xhigh', 'max'}
 SYSTEM = ('You are a professional financial writer and editor for Seasonal Market News. '
           'Answer only with the requested structured output. Use only the supplied evidence.')
@@ -63,9 +65,11 @@ def account_snapshot(claude, cwd, timeout=45):
 
 
 def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
-                evidence_sha256, stage='write', effort='medium'):
+                evidence_sha256, stage='write', effort='medium', model=MODEL):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,100}', job_id):
         raise ValueError('Invalid job ID')
+    if model not in MODELS:
+        raise ValueError('Unsupported Claude model')
     if effort not in EFFORTS:
         raise ValueError('Unsupported explicit effort')
     job = Path(root).resolve() / job_id
@@ -74,7 +78,7 @@ def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
     save_json(job / 'schema.json', schema)
     manifest = {'version': 1, 'job_id': job_id, 'stage': stage,
                 'created_utc': utc_now(), 'as_of': as_of,
-                'valid_until': valid_until, 'provider': PROVIDER, 'model': MODEL,
+                'valid_until': valid_until, 'provider': PROVIDER, 'model': model,
                 'effort': effort, 'evidence_sha256': evidence_sha256,
                 'publish': False,
                 'input_hashes': {name: sha256((job/name).read_bytes())
@@ -89,7 +93,7 @@ def verify_job(job):
     job = Path(job).resolve()
     manifest = load_json(job / 'job.json')
     if (manifest.get('publish') is not False or manifest.get('provider') != PROVIDER
-            or manifest.get('model') != MODEL):
+            or manifest.get('model') not in MODELS):
         raise ValueError('Only the private Claude subscription handoff is enabled')
     if set(manifest.get('input_hashes', {})) != {'prompt.txt', 'schema.json'}:
         raise ValueError('Unexpected job inputs')
