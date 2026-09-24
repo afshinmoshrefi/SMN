@@ -20,6 +20,7 @@ class PrimaryPublicationTest(unittest.TestCase):
         (self.web/'hero.jpg').write_bytes(b'old hero')
         p.write(self.web/'posts.json',[{'url':p.ORIGIN+'/old.html','title':'old','published_date':'2026-09-23','custom_dashboard':'retain','hero_image':p.ORIGIN+'/hero.jpg'}])
         (self.web/'index.html').write_text('original home')
+        (self.web/'search.html').write_text('<html><head><meta content="index, follow" name="robots"></head><body>native search</body></html>')
         p.write(self.dash/'pins.json',{'pins':[{'slug':'old','position':1}]})
         self.package=root/'package';self.package.mkdir()
         entries=[];files={}
@@ -35,11 +36,22 @@ class PrimaryPublicationTest(unittest.TestCase):
         for x in reversed(self.patches):x.stop()
         self.tmp.cleanup()
     def render(self,candidate):
-        (candidate/'index.html').write_text('new home')
+        (candidate/'index.html').write_text('<html><head><meta name="robots" content="index, follow"></head><body>new home</body></html>')
         p.write(candidate/'suggest.json',[])
         p.write(candidate/'search_index.json',[])
     def prepared(self):
         return Path(p.prepare(self.package)['record'])
+    def test_index_and_search_noindex_preserve_native_content(self):
+        record=self.prepared()
+        for name in ('index.html','search.html'):
+            text=(record/'candidate'/name).read_text()
+            self.assertIn('content="noindex,nofollow"',text)
+            self.assertNotIn('index, follow',text)
+        self.assertIn('native search',(record/'candidate/search.html').read_text())
+        p.activate(record)
+        self.assertEqual((self.web/'posts.json').stat().st_mode & 0o777,0o644)
+        p.rollback(record)
+        self.assertIn('index, follow',(self.web/'search.html').read_text())
     def test_merge_preserves_arbitrary_dashboard_metadata(self):
         record=self.prepared();posts=p.read(record/'candidate/posts.json')
         self.assertEqual(len(posts),7)

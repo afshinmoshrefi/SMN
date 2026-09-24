@@ -22,7 +22,7 @@ STATE = Path('/var/lib/tradewave/release-state')
 DASH = Path('/var/lib/smn-dashboard')
 BLOG = Path('/home/flask/blog')
 ORIGIN = 'https://smn-dev.trxstat.com'
-GENERATED = ('posts.json', 'index.html', 'suggest.json', 'home-manifest.json', 'search_index.json')
+GENERATED = ('posts.json', 'index.html', 'suggest.json', 'home-manifest.json', 'search_index.json', 'search.html')
 
 
 def guard():
@@ -69,6 +69,15 @@ def merge_posts(previous, incoming):
     return sorted(merged.values(), key=lambda p: (p.get('published_date',''), p['url']), reverse=True)
 
 
+def noindex_html(html):
+    """Keep the native page intact while replacing any robots indexing policy."""
+    html = re.sub(r"<meta\b(?=[^>]*\bname\s*=\s*['\"]robots['\"])[^>]*>", '', html, flags=re.I)
+    html, count = re.subn(r'</head\s*>', '<meta name="robots" content="noindex,nofollow">\n</head>', html, count=1, flags=re.I)
+    if count != 1:
+        raise ValueError('Native page has no head closing tag')
+    return html
+
+
 def render(candidate):
     # Use the installed dashboard template, with output paths scoped to candidate.
     # The two legacy security-page price updaters are outside this publication.
@@ -86,9 +95,6 @@ def render(candidate):
         sys.modules[name] = module
     with contextlib.redirect_stdout(sys.stderr):
         home.build_home()
-    index = candidate/'index.html'
-    html = re.sub(r'<meta\s+name=[\"\']robots[\"\'][^>]*>', '', index.read_text(), flags=re.I)
-    index.write_text(html.replace('</head>', '<meta name="robots" content="noindex,nofollow">\n</head>'), encoding='utf-8')
     # Native search consumes search_index.json, while autocomplete uses suggest.
     posts = read(candidate/'posts.json')
     prior = read(WEB/'search_index.json') if (WEB/'search_index.json').exists() else []
@@ -132,6 +138,9 @@ def prepare(package):
     write(candidate/'editions'/date/'provenance.json', {'source_commit':manifest['source_commit'],
           'publication_target':'SMN primary Dev', 'engine_authority':'TradeWave'})
     render(candidate)
+    for name in ('index.html', 'search.html'):
+        source = candidate/name if name == 'index.html' else WEB/name
+        (candidate/name).write_text(noindex_html(source.read_text(encoding='utf-8')), encoding='utf-8')
     for e in entries:
         path = urlsplit(e['url']).path.lstrip('/')
         articles[path] = sha(candidate/path)
