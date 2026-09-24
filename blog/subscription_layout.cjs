@@ -4,7 +4,7 @@ const R=path.resolve(process.argv[2]),read=p=>JSON.parse(fs.readFileSync(p,'utf8
 const sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 const symbols=process.argv.slice(3);let browser;
 (async()=>{
- browser=await chromium.launch({channel:'chrome',headless:true});
+ browser=await chromium.launch({...(process.env.SMN_BROWSER_CHANNEL==='bundled'?{}:{channel:process.env.SMN_BROWSER_CHANNEL||'chrome'}),headless:true});
  const page=await browser.newPage();
  for(const sym of symbols){
   const dir=path.join(R,'results',sym),a=read(path.join(dir,'article.json'));

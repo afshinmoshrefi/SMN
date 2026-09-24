@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 import argparse
 import html
+import re
 import json
 import logging
 import shutil
@@ -19,7 +20,9 @@ import sys
 from engine_seasonal import make_card, verify_assets
 import seasonal_edition as se
 from subscription_edition import receive_draft, source_word_counts
-from subscription_writer import load_json, save_json, prepare_job, run_job, sha256, verify_job
+import subscription_writer
+import claude_subscription_writer
+from subscription_writer import load_json, save_json, sha256
 from visual_charts import render_catalog, figure_html
 from visual_editorial import install_hero, render_edition
 from visual_evidence import digest, validate_bundle
@@ -57,9 +60,16 @@ def apply_copy_edits(article,request):
     return result
 
 
+WRITERS={'astra':(subscription_writer,'xhigh','ChatGPT subscription; Astra xhigh'),
+         'claude':(claude_subscription_writer,'medium','Claude subscription; Claude Opus 5.5 medium')}
+
+
 class Edition:
-    def __init__(self,root,date,codex=None):
+    def __init__(self,root,date,codex=None,provider='astra',claude=None):
         self.root=Path(root).resolve(); self.date=date;self.codex=codex
+        if provider not in WRITERS:raise ValueError('Unknown writer provider')
+        self.provider=provider;self.writer,self.effort,self.account=WRITERS[provider]
+        self.cli=claude if provider=='claude' else codex
         self.specs=load_json(self.root/'sources.json')
         self.expiry=(datetime.now(timezone.utc)+timedelta(hours=20)).isoformat()
 
@@ -163,9 +173,9 @@ class Edition:
             '\nPREPARED EVIDENCE:\n'+json.dumps(evidence,ensure_ascii=False,separators=(',',':')))
         if previous is not None:
             prompt+='\nEVIDENCE REVISION: Preserve this already reviewed draft wherever possible. Correct only the defect below or another demonstrable evidence error. Return the full article JSON bound to the corrected evidence; do not rewrite for novelty.\nDEFECT:\n'+Path(issues).read_text(encoding='utf-8')+'\nPREVIOUS DRAFT:\n'+json.dumps(previous,ensure_ascii=False)
-        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage)
+        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,effort=self.effort)
         save_json(out/'commission.json',{'production_article':p,'angle':spec['angle'],'question':spec['question'],
-            'account_writer':'ChatGPT subscription; Astra xhigh','production_window_preserved':True,
+            'account_writer':self.account,'production_window_preserved':True,
             'original_year_selection_preserved':True,'old_copy_supplied_to_writer':False,
             'history_status':'verified_same_production_engine','target':'smn-dev.trxstat.com'})
         hero=source/'assets'/Path(urlparse(p['hero_image']).path).name
@@ -199,7 +209,7 @@ class Edition:
             json.dumps(a,ensure_ascii=False)+'\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False,separators=(',',':'))+
             '\nMECHANICAL:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+
             '\nACTUAL DISPLAYED TEXT:\n'+text((out/'article.html').read_text(encoding='utf-8')))
-        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage)
+        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,effort=self.effort)
 
     def repair(self,sym,issuefile,stage):
         out=self.result(sym);b=load_json(out/'bundle.json')
@@ -210,7 +220,7 @@ class Edition:
             '\nARTICLE:\n'+json.dumps(load_json(out/'article.json'),ensure_ascii=False)+
             '\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False)+
             '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json')))
-        prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage)
+        self.writer.prepare_job(self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'],stage=stage,effort=self.effort)
 
     def copyedit(self,sym,editfile):
         out=self.result(sym);b=load_json(out/'bundle.json');prior=load_json(out/'article.json')
@@ -236,9 +246,31 @@ class Edition:
         print(json.dumps({'copyedited':sym,'fresh_review_required':True}),flush=True)
 
     def run(self,sym,stage):
-        receipt=run_job(self.job(sym,stage),self.codex)
+        receipt=self.writer.run_job(self.job(sym,stage),self.cli)
         print(json.dumps({'completed':sym,'stage':stage,'seconds':receipt['seconds'],'usage':receipt['usage'],'auth':receipt['auth_type'],'api_fallback':receipt['api_fallback']}),flush=True)
         return receipt
+
+    def generation(self,sym,review_stage,article):
+        """Machine-readable model provenance, bound to the final article and immutable receipts."""
+        receipts={}
+        for job in sorted((self.root/'jobs').glob(sym+'-'+self.date.replace('-','')+'-*')):
+            if (job/'receipt.json').exists():
+                r=load_json(job/'receipt.json')
+                if r['output_sha256']!=sha256((job/'output.json').read_bytes()):raise ValueError('Receipt output changed')
+                receipts[r['stage']]=r
+        if review_stage not in receipts or not any(s!=review_stage and not s.startswith('review') for s in receipts):
+            raise ValueError('Writer and reviewer receipts required for provenance')
+        def role(r):
+            return {'provider':r.get('provider','openai'),'model':r['model_requested'],'effort':r['effort_requested'],
+                    'billing_source':r.get('billing_source','subscription'),'api_fallback':r['api_fallback'],
+                    'job_id':r['job_id'],'output_sha256':r['output_sha256']}
+        writers=[role(r) for s,r in sorted(receipts.items(),key=lambda x:x[1]['finished_utc']) if s!=review_stage and not s.startswith('review')]
+        reviewer=role(receipts[review_stage])
+        if any(x['api_fallback'] is not False for x in writers+[reviewer]):raise ValueError('API fallback recorded')
+        last=writers[-1]
+        summary={'provider':last['provider'],'model':last['model'],'effort':last['effort'],'billing_source':last['billing_source'],
+                 'api_fallback':False,'reviewer':{k:reviewer[k] for k in ('provider','model','effort','billing_source')}}
+        return {'article_sha256':digest(article),'summary':summary,'writers':writers,'reviewer':reviewer}
 
     def batch(self,symbols):
         for sym in symbols:
@@ -251,7 +283,7 @@ class Edition:
         from subscription_publication import CHECKS
         out=self.result(sym);b=load_json(out/'bundle.json');a=load_json(out/'article.json')
         review_path=self.job(sym,stage)/'output.json';r=load_json(review_path)
-        job=verify_job(self.job(sym,stage));receipt=load_json(self.job(sym,stage)/'receipt.json')
+        job=self.writer.verify_job(self.job(sym,stage));receipt=load_json(self.job(sym,stage)/'receipt.json')
         if receipt['output_sha256']!=sha256(review_path.read_bytes()) or job['evidence_sha256']!=b['evidence_sha256']:
             raise ValueError('Review custody changed')
         if r.get('passed') is not True or set(r['checks'])!=CHECKS or any(v.get('passed') is not True for v in r['checks'].values()):
@@ -266,6 +298,11 @@ class Edition:
         nav='<nav class="reading-nav" style="max-width:1064px;margin:18px auto;padding:0 28px"><a href="/editions/'+self.date+'/">Market analysis</a> <details style="display:inline"><summary style="display:inline">Article details</summary><a href="'+html.escape(original,quote=True)+'" target="_blank" rel="noopener">Original publication</a></details></nav>'
         rendered=rendered.replace('<article><header',nav+'<article><header',1)
         rendered=rendered.replace('Development preview · Not published ·','© '+str(datetime.now().year)+' Tara Data Research LLC ·')
+        generation=self.generation(sym,stage,a)
+        meta='<meta name="smn-generation" content="'+html.escape(json.dumps(generation['summary'],separators=(',',':')),quote=True)+'">'
+        rendered,count=re.subn(r'</head\s*>',meta+'\n</head>',rendered,count=1,flags=re.I)
+        if count!=1:raise ValueError('Rendered article has no head')
+        save_json(out/'generation.json',generation)
         (out/'article.html').write_text(rendered,encoding='utf-8')
         save_json(out/'review-binding.json',{'article_sha256':digest(a),'review_sha256':sha256(review_path.read_bytes()),
             'price_path_sha256':n['price_path']['evidence_sha256'],
@@ -278,9 +315,9 @@ if __name__=='__main__':
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('action',choices=['prepare','batch','run','receive','review','repair','finalize','copyedit'])
     ap.add_argument('--root',type=Path,required=True);ap.add_argument('--date',required=True)
-    ap.add_argument('--codex',type=Path);ap.add_argument('--stage',default='write');ap.add_argument('--issues',type=Path);ap.add_argument('--edits',type=Path)
+    ap.add_argument('--codex',type=Path);ap.add_argument('--provider',choices=sorted(WRITERS),default='astra');ap.add_argument('--claude',type=Path);ap.add_argument('--stage',default='write');ap.add_argument('--issues',type=Path);ap.add_argument('--edits',type=Path)
     ap.add_argument('symbols',nargs='+');args=ap.parse_args()
-    edition=Edition(args.root,args.date,args.codex)
+    edition=Edition(args.root,args.date,args.codex,args.provider,args.claude)
     for sym in args.symbols:
         if args.action=='prepare':edition.prepare(sym,args.stage,args.issues)
         elif args.action=='batch':edition.batch([sym])

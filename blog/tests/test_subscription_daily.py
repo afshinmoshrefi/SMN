@@ -19,7 +19,14 @@ class FakeEdition:
     def review(self,s,stage='review'):self.calls.append(('review',s));self.job(s,stage).mkdir(parents=True)
     def finalize(self,s,stage='review'):
         self.calls.append(('finalize',s));(self.result(s)/'article.html').write_text('<article/>');(self.result(s)/'review-binding.json').write_text('{}')
+class FailingChecks(FakeEdition):
+    def receive(self,s,stage='write'):
+        super().receive(s,stage);return {'passed':False}
 class Tests(unittest.TestCase):
+    def test_failed_mechanical_checks_hold_before_review_job(self):
+        d=self.make();FakeEdition.calls=[]
+        with patch('subscription_daily.Edition',FailingChecks):self.assertEqual(self.execute(d)['status'],'failed_needs_review')
+        self.assertNotIn(('review','S0'),FakeEdition.calls);self.assertEqual([c for c in FakeEdition.calls if c[0]=='run'],[('run','write','S0')])
     def make(self,n=6):
         d=Path(tempfile.mkdtemp());(d/'production').mkdir();posts=[{'symbol':f'S{i}','published_date':'2026-09-10'} for i in range(n)];(d/'production/posts.json').write_text(json.dumps(posts));(d/'sources.json').write_text('{}');(d/'production-engine-export.json').write_text('{}')
         for p in posts:(d/'production'/p['symbol']).mkdir()

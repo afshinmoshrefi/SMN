@@ -24,8 +24,11 @@ def require_dev(url):
     if u.scheme!='https' or u.netloc!='smn-dev.trxstat.com' or u.username or u.query or u.fragment:
         raise ValueError('Publication is restricted to the exact SMN Dev origin')
 
+def digest(value):
+    from visual_evidence import digest as d
+    return d(value)
+
 def reviewed(result,review_path):
-    from visual_evidence import digest
     a=read(result/'article.json');m=read(result/'mechanical-checks.json');r=read(review_path)
     if not m.get('passed') or not sha256_equal(digest(a),m.get('article_sha256')):raise ValueError('Changed or mechanically held article')
     if (r.get('passed') is not True or set(r.get('checks',{}))!=CHECKS or
@@ -119,6 +122,12 @@ def package(edition_root,date,source_commit,review_stages):
             seo_title=a['title'],meta_description=a['dek'][:155],publish_status='true',
             production_original=original['url'],edition_id='subscription-'+date,source_commit=source_commit,
             production_release_allowed=False,history_validation=commission['history_status'])
+        if (result/'generation.json').exists():
+            generation=read(result/'generation.json')
+            if not sha256_equal(digest(a),generation.get('article_sha256')) or generation['summary'].get('api_fallback') is not False:
+                raise ValueError('Generation provenance is not bound to this exact article')
+            if 'name="smn-generation"' not in htmltext:raise ValueError('Generation metadata missing from page')
+            entry['generation']=generation['summary']
         entries.append(entry)
         prepared.append((rel,htmltext,assets))
     if len(entries)!=6:raise ValueError('This requested daily edition must contain all six reviewed subjects')

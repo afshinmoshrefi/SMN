@@ -21,8 +21,8 @@ def digest(path):
     return h.hexdigest()
 
 class DailyController:
-    def __init__(self,root,date,codex=None,max_new_model_jobs=2,source_commit=None):
-        self.root=Path(root).resolve();self.date=date;self.codex=codex;self.max_new=max_new_model_jobs;self.source_commit=source_commit
+    def __init__(self,root,date,codex=None,max_new_model_jobs=2,source_commit=None,provider='astra',claude=None):
+        self.root=Path(root).resolve();self.date=date;self.codex=codex;self.provider=provider;self.claude=claude;self.max_new=max_new_model_jobs;self.source_commit=source_commit
         self.state_path=self.root/'daily-state.json';self.lock=self.root/'.daily-lock'
     def _commit(self):
         value=self.source_commit
@@ -71,7 +71,7 @@ class DailyController:
                 if state.get('date')!=self.date or state.get('source_commit')!=commit or state.get('input_hashes')!=hashes or state.get('symbols')!=symbols:raise ValueError('prepared input or source changed; use a new edition attempt directory')
             else:
                 state={'version':2,'date':self.date,'source_commit':commit,'symbols':symbols,'input_hashes':hashes,'stages':{},'status':'ready','publish':False};save_json(self.state_path,state)
-            edition=Edition(self.root,self.date,self.codex);created=0
+            edition=Edition(self.root,self.date,self.codex) if self.provider=='astra' else Edition(self.root,self.date,self.codex,provider=self.provider,claude=self.claude);created=0
             for sym in symbols:
                 checks=state['stages'].setdefault(sym,{})
                 try:self._verify_outputs(checks)
@@ -90,7 +90,11 @@ class DailyController:
                                 if created>=self.max_new:
                                     state['status']='budget_exhausted';save_json(self.state_path,state);return self.summary(state)
                                 edition.run(sym,'write');created+=1
-                        elif stage=='receive':edition.receive(sym)
+                        elif stage=='receive':
+                            checks_result=edition.receive(sym)
+                            # Hold before spending a review job on a draft that failed mechanical checks.
+                            if isinstance(checks_result,dict) and checks_result.get('passed') is False:
+                                raise ValueError('mechanical checks failed; repair the draft before review')
                         elif stage=='review':
                             job=edition.job(sym,'review')
                             if not job.exists():edition.review(sym)
@@ -106,5 +110,5 @@ class DailyController:
     def summary(self,state):return {'date':self.date,'status':state['status'],'symbols':state['symbols'],'completed':{s:[x for x in STAGES if c.get(x,{}).get('status')=='done'] for s,c in state['stages'].items()}}
 
 if __name__=='__main__':
-    ap=argparse.ArgumentParser();ap.add_argument('--root',type=Path,required=True);ap.add_argument('--date',required=True);ap.add_argument('--codex',type=Path);ap.add_argument('--max-new-model-jobs',type=int,default=2);ap.add_argument('--source-commit')
-    a=ap.parse_args();print(json.dumps(DailyController(a.root,a.date,a.codex,a.max_new_model_jobs,a.source_commit).run()))
+    ap=argparse.ArgumentParser();ap.add_argument('--root',type=Path,required=True);ap.add_argument('--date',required=True);ap.add_argument('--codex',type=Path);ap.add_argument('--max-new-model-jobs',type=int,default=2);ap.add_argument('--source-commit');ap.add_argument('--provider',choices=['astra','claude'],default='astra');ap.add_argument('--claude',type=Path)
+    a=ap.parse_args();print(json.dumps(DailyController(a.root,a.date,a.codex,a.max_new_model_jobs,a.source_commit,a.provider,a.claude).run()))

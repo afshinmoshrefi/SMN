@@ -160,7 +160,7 @@ def prepare(source,bundle,directory):
     card,e,contract=bind_source(source,bundle)
     root=Path(directory); assets=root/'assets'; assets.mkdir(parents=True,exist_ok=True)
     c=card['story_cell']; rows=c['per_year']; years=[r['year'] for r in rows]; stats=e['stats']; images=[]
-    caps=int(digest(card['production_identity'])[:8],16)%4!=0
+    caps=True  # owner decision 2026-09-24: every range chart is capped; the 75/25 style split is retired
     for variant in ('bars','bars_mae_mfe'):
         is_range=variant=='bars_mae_mfe'
         caption=('Each year shows the same seasonal period. Bars show the price change at its end. Thin lines show the highest and lowest changes from the starting price during that period. '

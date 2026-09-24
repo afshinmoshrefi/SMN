@@ -5,7 +5,7 @@ const root=path.join(R,'publication-package'),manifest=read(path.join(root,'mani
 const base='https://smn-dev.trxstat.com',date=manifest.edition_date;let browser;
 const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
 (async()=>{
- browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1050}});
+ browser=await chromium.launch({...(process.env.SMN_BROWSER_CHANNEL==='bundled'?{}:{channel:process.env.SMN_BROWSER_CHANNEL||'chrome'}),headless:true});const page=await browser.newPage({viewport:{width:1440,height:1050}});
  const home=await page.goto(base+'/',{waitUntil:'domcontentloaded',timeout:60000});assert(home.status()===200,'Dev home HTTP');
  assert(await page.locator('meta[name="robots"]').getAttribute('content')==='noindex,nofollow','Dev homepage noindex');
  assert(new URL(page.url()).pathname==='/','Cumulative home must not redirect to one edition');

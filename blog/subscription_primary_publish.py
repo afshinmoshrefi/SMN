@@ -19,7 +19,8 @@ def call(receipt, action):
 
 
 def stage(root, repo):
-    shared.SOURCE_FILES += ('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs')
+    extra = ('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs','blog/claude_subscription_writer.py')
+    shared.SOURCE_FILES += tuple(f for f in extra if f not in shared.SOURCE_FILES)
     receipt = shared.stage(root, repo)
     receipt['target_host'] = HOST
     state = root/'daily-state.json'
