@@ -135,8 +135,8 @@ class DashboardAuthTest(DashboardFixture):
 
     def test_prefix_behind_nginx(self):
         r = self.client.get("/auth?ticket=" + self.ticket(),
-                            headers={"X-Forwarded-Prefix": "/dashboard"})
-        self.assertEqual(r.headers["Location"], "/dashboard/")
+                            headers={"X-Forwarded-Prefix": "/smn-dashboard"})
+        self.assertEqual(r.headers["Location"], "/smn-dashboard/")
 
     def test_service_key_file_exists_at_startup(self):
         import importlib

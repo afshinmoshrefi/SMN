@@ -17,7 +17,7 @@ ENVFILE=/etc/SMN/dashboard.env
 SNIPPET=/etc/nginx/snippets/smn_dashboard.conf
 SITE=/etc/nginx/sites-available/smn.conf
 
-# Public web address /dashboard/: open ONLY when login is required and
+# Public web address /smn-dashboard/: open ONLY when login is required and
 # SMN_DASHBOARD_PUBLIC=1.  Otherwise the path answers 404 (LAN port 7172 only).
 write_nginx_snippet() {
   local public=0
@@ -28,28 +28,28 @@ write_nginx_snippet() {
   if [[ $public == 1 ]]; then
     cat > "$SNIPPET" <<'NGX'
 # SMN publishing dashboard (login required). Managed by install_pub_dashboard.sh
-location = /dashboard { return 301 /dashboard/; }
-location /dashboard/ {
+location = /smn-dashboard { return 301 /smn-dashboard/; }
+location /smn-dashboard/ {
     proxy_pass http://127.0.0.1:7172/;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header X-Forwarded-Host $host;
-    proxy_set_header X-Forwarded-Prefix /dashboard;
+    proxy_set_header X-Forwarded-Prefix /smn-dashboard;
     proxy_read_timeout 900s;
     add_header Cache-Control "no-store" always;
     add_header X-Frame-Options "DENY" always;
 }
 NGX
   else
-    printf '# SMN publishing dashboard is not public (login off or not configured).\nlocation /dashboard/ { return 404; }\n' > "$SNIPPET"
+    printf '# SMN publishing dashboard is not public (login off or not configured).\nlocation /smn-dashboard/ { return 404; }\n' > "$SNIPPET"
   fi
   if ! grep -q 'include snippets/smn_dashboard.conf;' "$SITE"; then
     cp -p "$SITE" "$SITE.bak-dashboard-$(date -u +%Y%m%dT%H%M%SZ)"
     # first server block: add the include after its server_name line
     sed -i '0,/server_name .*;/s//&\n    include snippets\/smn_dashboard.conf;/' "$SITE"
   fi
-  nginx -t -q && systemctl reload nginx && echo "OK  nginx /dashboard/ public=$public"
+  nginx -t -q && systemctl reload nginx && echo "OK  nginx /smn-dashboard/ public=$public"
 }
 
 restore_latest() {  # $1 = file name
@@ -66,7 +66,7 @@ if [[ "${1:-}" == "--rollback" ]]; then
   for f in $FILES; do rm -f "$LIVE/$f"; done
   systemctl restart blog_queue.service
   if [[ -f "$SNIPPET" ]]; then
-    printf 'location /dashboard/ { return 404; }\n' > "$SNIPPET"; nginx -t -q && systemctl reload nginx
+    printf 'location /smn-dashboard/ { return 404; }\n' > "$SNIPPET"; nginx -t -q && systemctl reload nginx
   fi
   echo "Rolled back. Pins and audit log kept in $STATE (delete by hand if unwanted)."
   exit 0

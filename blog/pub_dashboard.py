@@ -66,7 +66,7 @@ MAX_LIMIT = 500
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
-# Behind nginx at /dashboard/: trust its X-Forwarded-* (only nginx on this box
+# Behind nginx at /smn-dashboard/: trust its X-Forwarded-* (only nginx on this box
 # can reach the app port from outside the LAN).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.config.update(
