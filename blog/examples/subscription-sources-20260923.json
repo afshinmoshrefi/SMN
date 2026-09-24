@@ -1,0 +1,470 @@
+{
+  "CTAS": {
+    "company": "Cintas Corporation",
+    "angle": "EARNINGS_EVE_AND_UNIFIRST_DECISION",
+    "category": "Stocks / Business services and seasonal timing",
+    "question": "What will Cintas's fiscal first-quarter report reveal as its long seasonal window begins and the UniFirst acquisition remains pending?",
+    "brief": "Cintas's 323-day TradeWave window starts September 24, one day after the company is scheduled to release fiscal 2027 first-quarter results and hold a 10 a.m. Eastern call on September 23. At this edition's early-morning source check, those results were still forthcoming; do not portray them as reported. The latest reported full year showed fiscal 2026 revenue of $11.26 billion, versus $10.34 billion in fiscal 2025. July management guidance projected fiscal 2027 revenue of $12.10 billion to $12.25 billion, excluding the proposed UniFirst acquisition. The $5.5 billion UniFirst transaction was agreed in March; Cintas said in July that shareholder approval was received, an FTC second request remained, and it expected a second-half 2026 close. The earnings release and call are the immediate checkpoint for organic growth, guidance and deal timing. None of these business facts validates a future seasonal return. Explicitly frame this as a pre-earnings analysis prepared at 7 a.m. ET on September 23, 2026; results were not available at that cutoff. Do not imply they remain unavailable whenever the reader opens the page.",
+    "sources": [
+      {
+        "id": "cintas-fy26-results",
+        "title": "Cintas Corporation Announces Fiscal 2026 Fourth Quarter and Full Year Results",
+        "url": "https://www.cintas.com/about/newsroom/details/news/2026/07/15/cintas-corporation-announces-fiscal-2026-fourth-quarter-and-full-year-results/",
+        "date": "2026-07-15",
+        "excerpt": "Cintas reported fiscal 2026 revenue of $11.26 billion versus $10.34 billion in fiscal 2025; fourth-quarter revenue was $2.91 billion. It projected fiscal 2027 revenue of $12.10 billion to $12.25 billion and adjusted diluted EPS of $5.36 to $5.50, excluding expected UniFirst impacts. Management said UniFirst shareholders had approved the deal, both companies received an FTC second request, and it still expected closing in the second half of calendar 2026. FY2027 figures and close timing are forecasts, not realized outcomes.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "cintas-unifirst-agreement",
+        "title": "Cintas to Acquire UniFirst in $5.5 Billion Transaction",
+        "url": "https://www.cintas.com/about/newsroom/details/news/2026/03/11/cintas-to-acquire-unifirst-in-5.5-billion-transaction-that-expands-service-capabilities-enhances-workday-solutions-and-advances-industry-innovation/",
+        "date": "2026-03-11",
+        "excerpt": "Cintas and UniFirst announced a definitive agreement under which Cintas would acquire UniFirst for $310 per share in cash and stock, with an estimated enterprise value of $5.5 billion. Closing remained subject to conditions; the announcement is not evidence of a completed acquisition.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "cintas-q1-fy27-calendar",
+        "title": "Cintas Announces Webcast for First Quarter Fiscal Year 2027 Results",
+        "url": "https://www.cintas.com/about/newsroom/details/news/2026/09/09/cintas-corporation-announces-webcast-for-first-quarter-fiscal-year-2027-results/",
+        "date": "2026-09-09",
+        "excerpt": "Cintas scheduled its fiscal 2027 first-quarter earnings release for Wednesday, September 23, 2026 and its webcast for 10:00 a.m. Eastern that day. The company also said a webcast replay would be available about two hours after the call. This scheduling notice does not report first-quarter results.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      }
+    ],
+    "chart": [
+      {
+        "id": "business-context",
+        "kind": "bars",
+        "title": "Cintas reported higher annual revenue before the next earnings release",
+        "subtitle": "Fiscal years ended May 31; reported revenue",
+        "question": "How did Cintas's reported revenue compare across its last two completed fiscal years?",
+        "note": "Fiscal 2027 guidance is excluded because it is a forecast. Values are Cintas-reported, not TradeWave seasonal results.",
+        "unit": "USD billions",
+        "rows": [
+          {
+            "record_id": "biz-0",
+            "label": "Fiscal 2025"
+          },
+          {
+            "record_id": "biz-1",
+            "label": "Fiscal 2026"
+          }
+        ]
+      },
+      [
+        {
+          "id": "biz-0",
+          "value": 10.34,
+          "unit": "USD billions",
+          "period": "FY2025",
+          "status": "reported",
+          "source_id": "cintas-fy26-results",
+          "locator": "Release, full-year revenue comparison paragraph"
+        },
+        {
+          "id": "biz-1",
+          "value": 11.26,
+          "unit": "USD billions",
+          "period": "FY2026",
+          "status": "reported",
+          "source_id": "cintas-fy26-results",
+          "locator": "Release, full-year revenue comparison paragraph"
+        }
+      ]
+    ],
+    "hero_alt": "Conceptual illustration of workplace uniforms and service delivery ahead of a company earnings report."
+  },
+  "NDX": {
+    "company": "Nasdaq-100 Index",
+    "angle": "RATE_PRESSURE_VERSUS_EARNINGS_BREADTH",
+    "category": "Indexes / Nasdaq-100 and seasonal timing",
+    "question": "Can broad earnings support the Nasdaq-100 as its midterm-year seasonal window opens under a higher-rate backdrop?",
+    "brief": "The Nasdaq-100's 300-day TradeWave midterm window begins September 23. Nasdaq's September 10 scorecard reported that the index rose 4.2% in August and was up 16.7% year to date through August 31; the equal-weight version was up 19.1% year to date, evidence that the backdrop extended beyond the largest constituents. Nasdaq also reported that 85 of 102 members representing 85% of index weight had beaten second-quarter EPS expectations as of August 31. Since then the Federal Reserve raised its target rate range by 25 basis points to 3.75%-4.00% on September 16, making rate sensitivity a live counterweight to earnings strength. The next formal policy checkpoints are the October 7 release of September FOMC minutes and October 27-28 FOMC meeting. The seasonal study is historical; the rate and earnings context does not predict its next outcome.",
+    "sources": [
+      {
+        "id": "nasdaq-aug26-scorecard",
+        "title": "Index Monthly Scorecard: August 2026",
+        "url": "https://www.nasdaq.com/articles/global-indexes/monthly-scorecard-august-2026",
+        "date": "2026-09-10",
+        "excerpt": "Nasdaq Index Insights reported the Nasdaq-100 advanced 4.2% in August 2026 and was up 16.7% year to date through August 31. The Nasdaq-100 Equal Weighted Index gained 4.1% in August and was up 19.1% year to date. The report said 85 of 102 Nasdaq-100 companies, accounting for 85% of index weight, beat Q2 EPS expectations as of August 31. These are historical August observations, not September 23 levels or future returns.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "fed-sep26-decision",
+        "title": "Federal Reserve Issues FOMC Statement",
+        "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260916a.htm",
+        "date": "2026-09-16",
+        "excerpt": "The FOMC raised the federal funds target range by one-quarter percentage point to 3.75%-4.00% on September 16, 2026. Its statement described solid economic expansion and elevated inflation. This is an actual policy decision, not a forecast of Nasdaq-100 performance.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "fed-policy-calendar",
+        "title": "Federal Reserve Monetary Policy Calendar",
+        "url": "https://www.federalreserve.gov/monetarypolicy.htm",
+        "date": "2026-09-16",
+        "excerpt": "The Fed's upcoming-dates list scheduled September 15-16 FOMC minutes for October 7 and the next two-day FOMC meeting for October 27-28, 2026. These are scheduled checkpoints, not decisions already made.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      }
+    ],
+    "chart": [
+      {
+        "id": "business-context",
+        "kind": "bars",
+        "title": "Equal-weight Nasdaq-100 led the flagship index through August",
+        "subtitle": "Year-to-date reported index returns through August 31, 2026",
+        "question": "Was the Nasdaq-100's 2026 advance concentrated only in its largest members?",
+        "note": "Nasdaq-reported index returns as of August 31, 2026; this is separate from the TradeWave seasonal study.",
+        "unit": "percent",
+        "rows": [
+          {
+            "record_id": "biz-0",
+            "label": "Nasdaq-100"
+          },
+          {
+            "record_id": "biz-1",
+            "label": "Nasdaq-100 Equal Weighted"
+          }
+        ]
+      },
+      [
+        {
+          "id": "biz-0",
+          "value": 16.7,
+          "unit": "percent",
+          "period": "YTD through 2026-08-31",
+          "status": "reported",
+          "source_id": "nasdaq-aug26-scorecard",
+          "locator": "Nasdaq Featured Indexes section"
+        },
+        {
+          "id": "biz-1",
+          "value": 19.1,
+          "unit": "percent",
+          "period": "YTD through 2026-08-31",
+          "status": "reported",
+          "source_id": "nasdaq-aug26-scorecard",
+          "locator": "Nasdaq Featured Indexes section"
+        }
+      ]
+    ],
+    "hero_alt": "Conceptual illustration of a broad technology stock index with changing interest rates in focus."
+  },
+  "SHOP": {
+    "company": "Shopify Inc.",
+    "angle": "HOLIDAY_COMMERCE_PREPARATION_AND_Q2_MOMENTUM",
+    "category": "Stocks / E-commerce software and seasonal timing",
+    "question": "What do Shopify's recent results and merchant tools add to the context before its October-December seasonal window?",
+    "brief": "Shopify's October 10 TradeWave window is approaching as merchants prepare storefront changes for the holiday quarter. On September 22, Shopify updated Rollouts so merchants can plan launches, temporary events and tests across theme, checkout and customer-account pages. Its latest reported quarter, Q2 2026, had $3.583 billion of revenue and $115.567 billion of GMV; management's low-thirties Q3 revenue-growth expectation is guidance, not a reported result. Shopify's September 21 Analytics measurement change can shift session and conversion metrics without changing orders or sales, so holiday comparisons need that caveat. The next operating checkpoint is Q3 results. Product updates and seasonal history do not establish a future stock outcome.",
+    "sources": [
+      {
+        "id": "shopify-q2-2026",
+        "title": "Shopify Delivers Big: 30%+ Growth Across GMV, Revenue, Gross Profit, and Free Cash Flow",
+        "url": "https://www.globenewswire.com/news-release/2026/08/05/3339164/0/en/shopify-delivers-big-30-growth-across-gmv-revenue-gross-profit-and-free-cash-flow.html",
+        "date": "2026-08-05",
+        "excerpt": "Shopify's company-issued Q2 2026 financial release reports revenue growth of 34% and an 18% free-cash-flow margin. Q2 GMV was $115,567 million versus $87,837 million a year earlier; revenue was $3,583 million versus $2,680 million. For Q3, management expected revenue growth at a low-thirties year-over-year percentage rate; that is outlook, not actual Q3 performance.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "shopify-rollouts-sep22",
+        "title": "Plan launches, events, and tests with clearer and more granular controls in Rollouts",
+        "url": "https://changelog.shopify.com/posts/plan-launches-events-and-tests-with-clearer-and-more-granular-controls-in-rollouts",
+        "date": "2026-09-22",
+        "excerpt": "Shopify updated Rollouts setup for launches, temporary events and experiments. Merchants can set timing and traffic percentage and combine theme, checkout and customer-account changes in one rollout. The release describes a tool improvement, not measured holiday sales impact.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "shopify-analytics-sep21",
+        "title": "Shopify Analytics session measurement improvements",
+        "url": "https://changelog.shopify.com/posts/shopify-analytics-session-measurement-improvements",
+        "date": "2026-09-21",
+        "excerpt": "Shopify changed the Analytics session baseline starting September 21. Sessions, conversion rate and other session-based metrics may look different; orders, sales and customer counts are unchanged by this measurement update. Compare pre- and post-change session metrics with that caveat.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      }
+    ],
+    "chart": [
+      {
+        "id": "business-context",
+        "kind": "bars",
+        "title": "Shopify reported higher quarterly revenue",
+        "subtitle": "Second quarter, 2025 and 2026",
+        "question": "How did Shopify's reported second-quarter revenue compare year over year?",
+        "note": "Company-reported revenue; USD millions. This is business context, not a projection for the seasonal window.",
+        "unit": "USD millions",
+        "rows": [
+          {
+            "record_id": "biz-0",
+            "label": "Q2 2025"
+          },
+          {
+            "record_id": "biz-1",
+            "label": "Q2 2026"
+          }
+        ]
+      },
+      [
+        {
+          "id": "biz-0",
+          "value": 2680,
+          "unit": "USD millions",
+          "period": "Q2 2025",
+          "status": "reported",
+          "source_id": "shopify-q2-2026",
+          "locator": "Selected Business Performance Information, Revenue row, June 30, 2025 column"
+        },
+        {
+          "id": "biz-1",
+          "value": 3583,
+          "unit": "USD millions",
+          "period": "Q2 2026",
+          "status": "reported",
+          "source_id": "shopify-q2-2026",
+          "locator": "Selected Business Performance Information, Revenue row, June 30, 2026 column"
+        }
+      ]
+    ],
+    "hero_alt": "Conceptual illustration of an online storefront preparing for seasonal shopping."
+  },
+  "PAYX": {
+    "company": "Paychex, Inc.",
+    "angle": "EARNINGS_CHECKPOINT_AND_SMALL_BUSINESS_EMPLOYMENT",
+    "category": "Stocks / Payroll services and seasonal timing",
+    "question": "What should readers watch in Paychex's earnings as its October-to-July seasonal window nears?",
+    "brief": "Paychex's October 9 to July TradeWave window is approaching an immediate company checkpoint: fiscal Q1 2027 results are scheduled for September 23 before the market opens, with a 9:30 a.m. ET call. At the 7 a.m. ET research cutoff, the result was still pending; do not treat it as known. In fiscal Q4 2026, reported revenue was $1,605.5 million, up from $1,427.3 million a year earlier, but the quarter included a full Paycor contribution versus only a partial contribution in the comparison quarter. Management's fiscal 2027 revenue-growth range of 5% to 6% is guidance. Paychex's August small-business employment index was 99.13, with positive weekly hours growth of 0.07%. The earnings release will test whether reported results and guidance reinforce that backdrop; seasonal history alone is not a forecast. Explicitly frame this as a pre-earnings analysis prepared at 7 a.m. ET on September 23, 2026; results were not available at that cutoff. Do not imply they remain unavailable whenever the reader opens the page.",
+    "sources": [
+      {
+        "id": "paychex-q4-fy2026",
+        "title": "Paychex Reports Fourth Quarter and Full-Year 2026 Results",
+        "url": "https://investor.paychex.com/sec-filings/all-sec-filings/content/0001193125-26-280314/payx-ex99_1.htm",
+        "date": "2026-06-24",
+        "excerpt": "Paychex reported fiscal Q4 2026 revenue of $1,605.5 million versus $1,427.3 million in fiscal Q4 2025, and adjusted operating income of $675.8 million versus $576.7 million; adjusted operating income is non-GAAP. Q4 included a full Paycor quarter versus a partial prior-year quarter. Its fiscal 2027 total revenue-growth outlook was 5% to 6%, a forecast rather than an actual result.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "paychex-q1-call-sep23",
+        "title": "Paychex Schedules First Quarter Fiscal 2027 Earnings Conference Call on September 23, 2026",
+        "url": "https://investor.paychex.com/news-events/press-releases/detail/847/paychex-schedules-first-quarter-fiscal-2027-earnings",
+        "date": "2026-09-09",
+        "excerpt": "Paychex scheduled fiscal Q1 2027 results for September 23 before U.S. markets open and a 9:30 a.m. ET conference call. The company said the quarter ended August 31. This schedule does not report Q1 results; at the 7 a.m. ET September 23 research cutoff they were still pending.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "paychex-employment-aug2026",
+        "title": "Stable Employment Levels Continue for U.S. Small Businesses in August",
+        "url": "https://www.paychex.com/newsroom/news-releases/small-business-employment-watch-august-2026",
+        "date": "2026-09-01",
+        "excerpt": "Paychex's August 2026 Small Business Employment Watch reported a jobs index of 99.13 for firms with fewer than 50 workers. Weekly hours worked growth was 0.07%, positive for a sixth consecutive month; hourly earnings growth was 2.89%. These payroll-based indicators describe the measured client sample, not Paychex's revenue or a stock forecast.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      }
+    ],
+    "chart": [
+      {
+        "id": "business-context",
+        "kind": "bars",
+        "title": "Paychex reported higher fourth-quarter revenue",
+        "subtitle": "Fiscal Q4, 2025 and 2026",
+        "question": "How did Paychex's reported fiscal fourth-quarter revenue compare year over year?",
+        "note": "USD millions; Paycor contributed a full quarter in 2026 and a partial quarter in 2025.",
+        "unit": "USD millions",
+        "rows": [
+          {
+            "record_id": "biz-0",
+            "label": "Fiscal Q4 2025"
+          },
+          {
+            "record_id": "biz-1",
+            "label": "Fiscal Q4 2026"
+          }
+        ]
+      },
+      [
+        {
+          "id": "biz-0",
+          "value": 1427.3,
+          "unit": "USD millions",
+          "period": "Fiscal Q4 2025",
+          "status": "reported",
+          "source_id": "paychex-q4-fy2026",
+          "locator": "Official Q4 release: Results table, Total revenue row, three months ended May 31, 2025"
+        },
+        {
+          "id": "biz-1",
+          "value": 1605.5,
+          "unit": "USD millions",
+          "period": "Fiscal Q4 2026",
+          "status": "reported",
+          "source_id": "paychex-q4-fy2026",
+          "locator": "Official Q4 release: Results table, Total revenue row, three months ended May 31, 2026"
+        }
+      ]
+    ],
+    "hero_alt": "Conceptual illustration of payroll administration and a small-business workplace."
+  },
+  "WMT": {
+    "company": "Walmart Inc.",
+    "angle": "ECOMMERCE_AND_HOLIDAY_EXECUTION",
+    "category": "Stocks / Retail and seasonal timing",
+    "question": "Can Walmart's eCommerce and customer-share gains carry into the holiday trading period as its September 29 seasonal window approaches?",
+    "brief": "Walmart's September 29 start to a 199-day historical seasonal window is close, making its August fiscal Q2 results timely business context. Q2 revenue rose 5.9% to $187.9 billion; global eCommerce rose 23%, and Walmart U.S. comparable sales grew 2.6%. Management said U.S. share gains spanned income tiers and were led by upper-income households. Its September 16 supplier event outlined new commerce-data capabilities, but these plans are not reported revenue. Watch fiscal Q3 results against Walmart's stated guidance: constant-currency net sales growth of 3.0% to 3.75% and adjusted EPS of $0.62 to $0.64. The seasonal record is historical, not a forecast.",
+    "sources": [
+      {
+        "id": "wmt-q2-fy27",
+        "title": "Walmart reports second-quarter fiscal 2027 results",
+        "url": "https://stock.walmart.com/sec-filings/all-sec-filings/content/0000104169-26-000145/earningsreleasefy27q2.htm",
+        "date": "2026-08-20",
+        "excerpt": "Q2 revenue was $187.9 billion, up 5.9%; global eCommerce grew 23%; Walmart U.S. comparable sales rose 2.6%. Walmart guided Q3 constant-currency net sales growth to 3.0%-3.75% and adjusted EPS to $0.62-$0.64. Q2 operating income and gross margin benefited from tariff refunds; the company said remaining refunds would be prioritized for price investments.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "wmt-q2-fy27-presentation",
+        "title": "Walmart fiscal Q2 2027 earnings presentation",
+        "url": "https://stock.walmart.com/sec-filings/all-sec-filings/content/0000104169-26-000145/earningspresentationfy27.htm",
+        "date": "2026-08-20",
+        "excerpt": "The Walmart U.S. slide reports net sales of $125.2 billion, eCommerce growth of 24% and comparable-sales growth of 2.6%. Management describes broad share gains across categories and income tiers, led by upper-income households. Store-fulfilled delivery grew about 43%. These are Q2 reported measures, not a holiday forecast.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "wmt-scintilla-sep",
+        "title": "Walmart Data Ventures is building the future of commerce intelligence",
+        "url": "https://corporate.walmart.com/news/2026/09/walmart-data-ventures-commerce-intelligence",
+        "date": "2026-09-16",
+        "excerpt": "At its Inspire supplier event, Walmart said Scintilla is evolving toward a more integrated commerce-intelligence platform. More than 2,000 suppliers and merchants gathered; added Marketplace visibility and customizable boards were described as future capabilities. This is an initiative announcement, not evidence of incremental sales.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      }
+    ],
+    "chart": [
+      {
+        "id": "business-context",
+        "kind": "bars",
+        "title": "Walmart U.S. online growth outpaced comparable sales",
+        "subtitle": "Fiscal Q2 2027 reported year-over-year growth",
+        "question": "How did Walmart U.S. eCommerce growth compare with comparable sales?",
+        "note": "Comparable sales exclude fuel; both values are Walmart U.S. Q2 measures.",
+        "unit": "percent",
+        "rows": [
+          {
+            "record_id": "biz-0",
+            "label": "eCommerce sales"
+          },
+          {
+            "record_id": "biz-1",
+            "label": "Comparable sales"
+          }
+        ]
+      },
+      [
+        {
+          "id": "biz-0",
+          "value": 24,
+          "unit": "percent",
+          "period": "Q2 FY27",
+          "status": "reported",
+          "source_id": "wmt-q2-fy27-presentation",
+          "locator": "Walmart U.S. slide, net sales/eCommerce"
+        },
+        {
+          "id": "biz-1",
+          "value": 2.6,
+          "unit": "percent",
+          "period": "Q2 FY27",
+          "status": "reported",
+          "source_id": "wmt-q2-fy27-presentation",
+          "locator": "Walmart U.S. slide, comparable sales"
+        }
+      ]
+    ],
+    "hero_alt": "Conceptual illustration of Walmart retail shelves and online order fulfillment."
+  },
+  "HPQ": {
+    "company": "HP Inc.",
+    "angle": "PC_MIX_AND_OCTOBER_PRODUCT_LAUNCH",
+    "category": "Stocks / PC hardware and seasonal timing",
+    "question": "Will HP's PC revenue strength and planned October laptop launch matter as its October-to-February seasonal window approaches?",
+    "brief": "HP's October 11 start to a 125-day historical seasonal window follows its August fiscal Q3 report and a September 21 laptop announcement. Q3 Personal Systems revenue rose 18% to $11.8 billion despite a 16% decline in units, while Printing revenue fell 2% to $3.9 billion. HP raised fiscal 2026 non-GAAP EPS guidance to $3.19-$3.29, including an estimated $0.19 favorable impact from tariff refunds. The HP Googlebook 14 is expected in October, a product-timing checkpoint rather than a sales forecast. Watch the actual launch and fiscal Q4 results versus the company's $0.69-$0.79 non-GAAP EPS estimate, which includes an estimated $0.08 tariff-refund benefit. The seasonal record does not predict the next return.",
+    "sources": [
+      {
+        "id": "hp-q3-fy26",
+        "title": "HP Inc. reports fiscal 2026 third-quarter results",
+        "url": "https://investor.hp.com/news-events/news/news-details/2026/HP-Inc--Reports-Fiscal-2026-Third-Quarter-Results/default.aspx",
+        "date": "2026-08-26",
+        "excerpt": "Q3 net revenue was $15.7 billion, up 12.5%. Personal Systems revenue was $11.8 billion, up 18%, while units declined 16%. Printing revenue was $3.9 billion, down 2%. HP raised FY26 non-GAAP diluted EPS guidance to $3.19-$3.29, including an estimated $0.19 tariff-refund benefit. Q4 non-GAAP EPS guidance is $0.69-$0.79, including an estimated $0.08 tariff-refund benefit.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "hp-googlebook-sep",
+        "title": "HP Googlebook 14 brings premium craftsmanship to Google's newest connected platform",
+        "url": "https://www.hp.com/us-en/newsroom/press-releases/2026/hp-googlebook-14-brings-premium-craftsmanship-to-googles-newest-connected-platform.html",
+        "date": "2026-09-21",
+        "excerpt": "HP announced the Googlebook 14, a premium laptop with Snapdragon X Elite, Gemini features and Android-phone integration. HP said availability at HP.com and Best Buy is expected in October at a starting price of $1,199.99. Availability and pricing are forward-looking and subject to change; the release does not report sales.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      },
+      {
+        "id": "hp-edge-ai-sep",
+        "title": "HP extends data-center AI architecture to the edge",
+        "url": "https://www.hp.com/us-en/newsroom/press-releases/2026/hp-extends-data-center-ai-architecture-to-the-edge.html",
+        "date": "2026-09-09",
+        "excerpt": "HP announced a Red Hat collaboration around a planned enterprise AI platform using HP ZGX Fury and Red Hat AI Factory with NVIDIA. This is a product-development initiative, distinct from current revenue or a committed sales outlook.",
+        "max_derived_words": 200,
+        "excerpt_kind": "verified_factual_summary"
+      }
+    ],
+    "chart": [
+      {
+        "id": "business-context",
+        "kind": "bars",
+        "title": "PCs drove most of HP's Q3 revenue",
+        "subtitle": "Fiscal Q3 2026 reported segment revenue",
+        "question": "How large were HP's two operating segments in the latest quarter?",
+        "note": "Reported segment net revenue, rounded by HP to one decimal place.",
+        "unit": "USD billions",
+        "rows": [
+          {
+            "record_id": "biz-0",
+            "label": "Personal Systems"
+          },
+          {
+            "record_id": "biz-1",
+            "label": "Printing"
+          }
+        ]
+      },
+      [
+        {
+          "id": "biz-0",
+          "value": 11.8,
+          "unit": "USD billions",
+          "period": "Q3 FY26",
+          "status": "reported",
+          "source_id": "hp-q3-fy26",
+          "locator": "Fiscal 2026 third quarter segment results, Personal Systems"
+        },
+        {
+          "id": "biz-1",
+          "value": 3.9,
+          "unit": "USD billions",
+          "period": "Q3 FY26",
+          "status": "reported",
+          "source_id": "hp-q3-fy26",
+          "locator": "Fiscal 2026 third quarter segment results, Printing"
+        }
+      ]
+    ],
+    "hero_alt": "Conceptual illustration of a modern laptop and printer workspace."
+  }
+}
