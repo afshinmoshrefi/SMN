@@ -57,6 +57,15 @@ class Semantics(unittest.TestCase):
         self.assertEqual(s["n"], 20)  # zeroed row dropped, not counted
         self.assertIn("2006–2025", s["source"])
 
+    def test_verified_flat_completed_year_is_kept(self):
+        # AAPL 1986: a real 0.0% year. The plain bars chart must count it (9 of 10),
+        # matching the range charts, once placeholder rows are already removed.
+        years = [1986, 1990, 1994, 1998, 2002, 2006, 2010, 2014, 2018, 2022]
+        nets = [0.0, 10.78, 8.97, 0.46, 10.78, 10.72, 2.99, 8.21, 2.06, 10.33]
+        s = ck.record_bars(years, nets, dict(BARS_META, verified_completed=True), self._p("b.png"))
+        self.assertEqual(s["n"], 10)
+        self.assertIn("higher in 9 of the past 10 years", s["title"])
+
     def test_zeroed_row_dropped_with_excursion(self):
         s = ck.record_bars(YEARS + [2026], NETS + [0.0], dict(BARS_META),
                            self._p("b.png"), mfe=MFE + [0.0], mae=MAE + [0.0])
