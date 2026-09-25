@@ -1,0 +1,8 @@
+{
+  "_comment": "Which subscription model does each SMN step. provider: claude or codex. Only 'write' should use the high-end model.",
+  "write":      {"provider": "claude", "model": "claude-opus-5-5",           "effort": "medium"},
+  "review":     {"provider": "claude", "model": "claude-sonnet-5",           "effort": "low"},
+  "research":   {"provider": "claude", "model": "claude-sonnet-5",           "effort": "low"},
+  "visual":     {"provider": "claude", "model": "claude-haiku-4-5-20251001", "effort": "low"},
+  "hero_check": {"provider": "claude", "model": "claude-haiku-4-5-20251001", "effort": "low"}
+}
