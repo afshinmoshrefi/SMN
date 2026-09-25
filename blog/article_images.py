@@ -662,7 +662,11 @@ def create_article_images(size_key,
 
     # ---------- Bars (plain) ----------
     fpath = _fname("bars")
-    sem = ck.record_bars(bar_years, bar_ret, dict(base_meta, variant="bars"),
+    # Placeholder '0,0,0' rows were already removed above using mfe/mae. Without
+    # verified_completed, record_bars would also drop a genuine flat completed
+    # year (net 0.0 with a real intra-window range, e.g. AAPL 1986), making this
+    # chart say "9 of the past 9" while every other chart says "9 of 10".
+    sem = ck.record_bars(bar_years, bar_ret, dict(base_meta, variant="bars", verified_completed=True),
                          fpath, palette=palette)
     results.append(_result_dict("bars", fpath, sem))
 
