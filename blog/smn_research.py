@@ -50,7 +50,7 @@ SCHEMA = {
     }}
 
 RULES = '''You prepare the research brief for one Seasonal Market News article. You do not write the article.
-Use ONLY the saved news text below. Never invent a source, URL, date or number. Copy each URL exactly as it
+Use ONLY the saved text below. Prefer the fresh primary sources at its start. Never invent a source, URL, date or number. Copy each URL exactly as it
 appears after "URL:" in the saved text. Prefer primary sources (company releases, filings, official statistics)
 and recent, dated news. Pick 2-4 sources.
 - angle: a short UPPER_SNAKE_CASE identifier for today's story angle.
@@ -72,6 +72,12 @@ def _text(path, limit=40000):
     return Path(path).read_text(encoding='utf-8', errors='replace')[:limit] if Path(path).exists() else ''
 
 
+def saved_text(root, sym, limit=40000):
+    """Fresh primary-source pages (root/primary/SYM.txt) first, then production's saved news."""
+    primary = Path(root)/'primary'/(sym + '.txt')
+    return (_text(primary, limit) + '\n' + _text(Path(root)/'production'/sym/'audit/research_context.txt', limit))
+
+
 def _post(root, sym):
     return next(p for p in load_json(Path(root)/'production/posts.json') if p['symbol'] == sym)
 
@@ -86,7 +92,7 @@ def evidence(root, date, sym, example):
             '\nTRADEWAVE STUDY SUMMARY (context only):\n' + json.dumps(study)[:6000] +
             '\nEXAMPLE OF THE OUTPUT SHAPE (another subject, another day; do not reuse its facts):\n' +
             json.dumps(example)[:5000] +
-            '\nSAVED NEWS TEXT:\n' + _text(src/'audit/research_context.txt'))
+            '\nSAVED NEWS TEXT (fresh primary sources first, then production news):\n' + saved_text(root, sym))
 
 
 def _variants(value):
@@ -120,7 +126,7 @@ def direction_problem(record):
 def check(entry, root, date, sym):
     """Return a list of concrete problems (empty when the entry is usable)."""
     problems = []
-    text = _text(Path(root)/'production'/sym/'audit/research_context.txt', 10**7)
+    text = saved_text(root, sym, 10**7)
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{4,80}', entry['angle']):
         problems.append('angle must be UPPER_SNAKE_CASE')
     ids = [s['id'] for s in entry['sources']]
