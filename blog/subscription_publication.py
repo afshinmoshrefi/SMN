@@ -130,7 +130,7 @@ def package(edition_root,date,source_commit,review_stages):
             entry['generation']=generation['summary']
         entries.append(entry)
         prepared.append((rel,htmltext,assets))
-    if len(entries)!=6:raise ValueError('This requested daily edition must contain all six reviewed subjects')
+    if not 1<=len(entries)<=6:raise ValueError('An edition publishes one to six reviewed subjects')
     if not target.exists(): target.mkdir()
     for rel,htmltext,assets in prepared:
         dest=target/rel;dest.mkdir(parents=True)

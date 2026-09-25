@@ -35,11 +35,12 @@ def clean_main(repo):
 def review_stages(root):
     stages={}
     for result in sorted((root/'results').iterdir()):
-        if not result.is_dir(): continue
+        # Publish the articles that passed; a held article has no final review binding.
+        if not result.is_dir() or not (result/'review-binding.json').exists(): continue
         binding=read(result/'review-binding.json'); stage=binding.get('review_stage')
         if not re.fullmatch(r'[a-z-]+',str(stage or '')): raise ValueError('Final review binding has no valid stage')
         stages[result.name]=stage
-    if len(stages)!=6: raise ValueError('Exactly six final review bindings required')
+    if not 1<=len(stages)<=6: raise ValueError('One to six final review bindings required')
     return stages
 
 def edition_date(root):

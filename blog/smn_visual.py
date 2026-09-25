@@ -29,7 +29,7 @@ PAGE_RULES = ('You check screenshots of one news article page (desktop 1440px an
     'should be, unreadable text. Do not judge writing quality or financial content. A major defect is one a '
     'reader would notice. passed is true only when there is no major defect.')
 LANDING_RULES = ('You check screenshots of a news site edition landing page (desktop and mobile): {names}. '
-    'It should show a header and six article cards, each with an image, a symbol label, a headline and a '
+    'It should show a header and {count} article cards, each with an image, a symbol label, a headline and a '
     'summary. Report broken or missing images, overlapping or cut-off text, missing cards, or layout that '
     'runs off the screen. passed is true only when there is no major defect.')
 HERO_RULES = ('This is the hero illustration for a financial news article about {company} ({symbol}). List all '
@@ -115,7 +115,8 @@ def landing(root, date, roles, clis):
     images = [root/'live-edition-desktop.png', root/'live-edition-mobile.png']
     seen = [t for i in images for t in _tiles(i, root/'vision-tiles')]
     answer, receipt, _ = _job(root, date, 'EDITION', 'landing-visual',
-                              LANDING_RULES.format(names=', '.join(i.name for i in seen)), PAGE_SCHEMA,
+                              LANDING_RULES.format(names=', '.join(i.name for i in seen),
+                              count=len(load_json(root/'publication-package/entries.json'))), PAGE_SCHEMA,
                               seen, roles, clis, 'visual')
     major = [d for d in answer['defects'] if d['severity'] == 'major']
     record = {'passed': bool(answer['passed']) and not major,

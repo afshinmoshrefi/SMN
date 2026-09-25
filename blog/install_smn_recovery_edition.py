@@ -99,8 +99,8 @@ def validate_package(package):
         raise ValueError('Exact date and source commit required')
     prefix='editions/'+date+'/'
     entries=read(package/'entries.json')
-    if len(entries)!=6 or len({e['symbol'] for e in entries})!=6:
-        raise ValueError('Six distinct reviewed articles required')
+    if not 1<=len(entries)<=6 or len({e['symbol'] for e in entries})!=len(entries):
+        raise ValueError('One to six distinct reviewed articles required')
     for e in entries:
         if e['url']!=ORIGIN+'/'+prefix+e['symbol']+'/article.html' or e['source_commit']!=commit:
             raise ValueError('Article destination/provenance mismatch')

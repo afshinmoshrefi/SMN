@@ -153,7 +153,19 @@ class Day:
         ed = Edition(self.root, self.date, provider='config', claude=CLIS['claude'], models=self.models)
         ed.clis = CLIS
         for sym in self.symbols:
-            self._article(ed, sym)
+            s = self.state['articles'].setdefault(sym, {})
+            if s.get('held'):
+                continue
+            try:
+                self._article(ed, sym)
+            except Exception as exc:
+                # Hold only this article; the ones that pass are still published.
+                s['held'] = {'utc': now(), 'reason': str(exc)[:500]}
+                self.save()
+                log(step='article_held', symbol=sym, reason=str(exc)[:300])
+        self.done = [s for s in self.symbols if self.state['articles'].get(s, {}).get('finalized')]
+        if not self.done:
+            raise Hold('no article passed')
 
     def _issues(self, name, lines):
         path = self.root/'issues'/name
@@ -215,11 +227,12 @@ class Day:
         log(step='article', symbol=sym, review_stage=stage)
 
     def visual(self):
-        missing = [s for s in self.symbols if not (self.root/'results'/s/'layout-checks.json').exists()]
+        done = [s for s in self.symbols if self.state['articles'].get(s, {}).get('finalized')]
+        missing = [s for s in done if not (self.root/'results'/s/'layout-checks.json').exists()]
         if missing:
             retry('layout', lambda: subprocess.run(['node', str(BLOG/'subscription_layout.cjs'), str(self.root),
-                  *self.symbols], check=True, cwd=BLOG))
-        for sym in self.symbols:
+                  *missing], check=True, cwd=BLOG))
+        for sym in done:
             out = self.root/'results'/sym
             if not (out/'hero-check.json').exists():
                 smn_visual.hero(self.root, self.date, sym, self.roles, CLIS)
@@ -227,7 +240,13 @@ class Day:
                 continue
             record = smn_visual.article(self.root, self.date, sym, self.roles, CLIS)
             if not record['passed']:
-                raise Hold('%s screenshot check failed: %s' % (sym, record['defects']))
+                self.state['articles'][sym]['held'] = {'utc': now(), 'reason': 'screenshot check failed'}
+                self.state['articles'][sym]['finalized'] = False
+                # Remove the final binding so the publisher skips this article.
+                binding = out/'review-binding.json'
+                binding.rename(out/'review-binding.held.json')
+                self.save()
+                log(step='article_held', symbol=sym, reason='screenshot check failed')
 
     def publish(self, repo):
         import subscription_primary_publish as primary
@@ -278,7 +297,7 @@ def main():
     ap.add_argument('--root', type=Path, required=True)
     ap.add_argument('--date', required=True)
     ap.add_argument('--models', type=Path, help='role settings file (default blog/smn_models.json)')
-    ap.add_argument('--max-jobs', type=int, default=30, help='all model jobs for the day, retries included')
+    ap.add_argument('--max-jobs', type=int, default=40, help='all model jobs for the day, retries included')
     ap.add_argument('--publish', action='store_true', help='publish to primary Dev after all checks pass')
     ap.add_argument('--repo', type=Path, default=BLOG.parent, help='clean SMN checkout at origin/main (publish)')
     a = ap.parse_args()
@@ -298,7 +317,7 @@ def main():
         receipt = day.publish(a.repo)
         log(status=receipt.get('status'), jobs=day.jobs_used())
         return 0
-    except Hold as exc:
+    except Exception as exc:
         save_json(a.root/'HOLD.json', {'utc': now(), 'reason': str(exc), 'jobs_used': day.jobs_used(),
                                        'resume': 'fix the cause, then rerun the same command'})
         log(status='hold', reason=str(exc)[:500])
