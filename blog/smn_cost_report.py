@@ -115,6 +115,16 @@ def _run_metadata(root: Path):
     return {key: raw[key][:120] for key in allowed if isinstance(raw.get(key), str)}
 
 
+def _hold_reason(root: Path):
+    hold = _json_file(root / 'HOLD.json') or {}
+    reason = hold.get('reason')
+    if not isinstance(reason, str):
+        return None
+    reason = re.sub(r'(?i)\b(?:sk-[A-Za-z0-9_-]+|bearer\s+\S+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})',
+                    '[redacted]', reason)
+    return ' '.join(reason.split())[:300] or None
+
+
 def _job(job_dir: Path, *, parent_manifest=None, parent_receipt=None):
     archived = parent_manifest is not None
     manifest = _json_file(job_dir / 'job.json') or parent_manifest or {}
@@ -160,7 +170,8 @@ def _job(job_dir: Path, *, parent_manifest=None, parent_receipt=None):
     row = {
         'job_id': job_id, 'article': article if scope == 'article' else None,
         'scope': scope, 'stage': stage, 'status': status,
-        'retry': archived or stage.startswith(('repair', 'rereview', 'retry')) or stage.endswith('-two'),
+        'retry': archived or stage.startswith(('repair', 'rereview', 'retry')) or
+                 stage.endswith('-two') or base_id.endswith('-two'),
         'archived_attempt': archived, 'seconds': duration,
         'model_requested': manifest.get('model') or receipt.get('model_requested'),
         'models': breakdown,
@@ -196,7 +207,8 @@ def summarize_run(root: Path) -> dict:
             by_article.setdefault(job['article'], []).append(job)
         for model, usage in job['models'].items():
             by_model.setdefault(model, []).append({'status': job['status'], 'retry': job['retry'],
-                                                     'seconds': job['seconds'], **usage,
+                                                     'seconds': job['seconds'] if len(job['models']) == 1 else None,
+                                                     **usage,
                                                      'missing_fields': [k for k in USAGE_FIELDS if usage[k] is None]})
     active = [job for job in jobs if not job['archived_attempt']]
     job_status = ('unavailable' if not _safe_dir(jobs_dir) else
@@ -213,13 +225,15 @@ def summarize_run(root: Path) -> dict:
                                             for value in article_state.values()) else
                               'finalized' if all(isinstance(value, dict) and value.get('finalized')
                                                  for value in article_state.values()) else 'in_progress')
+    status = metadata.get('status', publication_status or 'unknown')
     return {
         'run_id': root.name, 'label': metadata.get('label', root.name),
         'source_date': metadata.get('source_date') or daily.get('date'),
         'started_utc': metadata.get('started_utc'), 'finished_utc': metadata.get('finished_utc'),
         'publication_mode': metadata.get('publication_mode'),
         'source_commit': metadata.get('source_commit'),
-        'status': metadata.get('status', publication_status or 'unknown'), 'job_status': job_status,
+        'status': status, 'job_status': job_status,
+        'hold_reason': _hold_reason(root) if status == 'hold' else None,
         'publication_status': publication_status,
         'jobs': jobs, 'totals': _aggregate(jobs),
         'article_totals': _aggregate([job for job in jobs if job['scope'] == 'article']),
