@@ -121,11 +121,13 @@
   .gen-option input{width:auto;margin:4px 0 0}
   .gen-option small{display:block;color:var(--muted)}
   .gen-option.unavailable{opacity:.65}
-  .gen-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));margin-top:12px}
+  .gen-grid{display:grid;gap:12px;grid-template-columns:minmax(0,1fr);margin-top:12px}
   .gen-table{overflow-x:auto;max-width:100%}
-  .gen-table table{width:100%;min-width:0}
-  .gen-table th,.gen-table td{white-space:normal;overflow-wrap:anywhere;position:static}
-  .gen-table th{cursor:default}
+  .gen-table table{width:100%;min-width:850px}
+  .gen-table th,.gen-table td{position:static}
+  .gen-table th{white-space:nowrap;cursor:default}
+  .gen-table td{white-space:normal;overflow-wrap:break-word}
+  #gen-report a{color:var(--accent);text-decoration:underline}
   .gen-note{font-size:12px;color:var(--muted)}
 </style>
 </head>
