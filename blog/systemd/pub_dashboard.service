@@ -1,0 +1,16 @@
+# SMN publishing dashboard (UI + agent API). LAN/loopback only: no login yet.
+[Unit]
+Description=SMN publishing dashboard (pub_dashboard.py)
+After=network.target redis-server.service
+
+[Service]
+User=root
+WorkingDirectory=/home/flask/blog
+EnvironmentFile=/etc/tradewave/secrets.env
+Environment=SMN_DASHBOARD_STATE=/var/lib/smn-dashboard
+EnvironmentFile=-/etc/SMN/dashboard.env
+ExecStart=/home/flask/venv-smn-integrity-20260711T205457Z/bin/gunicorn --workers 2 --timeout 900 --bind 127.0.0.1:7172 --bind 192.168.1.180:7172 pub_dashboard:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

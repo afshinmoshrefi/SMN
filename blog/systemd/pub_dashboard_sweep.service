@@ -1,0 +1,10 @@
+[Unit]
+Description=SMN dashboard: run due schedules, end expired pins, rebuild home
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/flask/blog
+EnvironmentFile=/etc/tradewave/secrets.env
+Environment=SMN_DASHBOARD_STATE=/var/lib/smn-dashboard
+EnvironmentFile=-/etc/SMN/dashboard.env
+ExecStart=/home/flask/venv-smn-integrity-20260711T205457Z/bin/python /home/flask/blog/pin_sweeper.py
