@@ -116,6 +116,17 @@
   #toast.bad{border-color:var(--danger);color:var(--danger)}
   #toast.good{border-color:var(--ok)}
   @media (max-width:640px){main{padding:12px}.two{grid-template-columns:1fr}}
+  .gen-options{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+  .gen-option{display:flex;gap:8px;align-items:start;border:1px solid var(--line);border-radius:7px;padding:10px;margin:0;color:var(--ink)}
+  .gen-option input{width:auto;margin:4px 0 0}
+  .gen-option small{display:block;color:var(--muted)}
+  .gen-option.unavailable{opacity:.65}
+  .gen-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));margin-top:12px}
+  .gen-table{overflow-x:auto;max-width:100%}
+  .gen-table table{width:100%;min-width:0}
+  .gen-table th,.gen-table td{white-space:normal;overflow-wrap:anywhere;position:static}
+  .gen-table th{cursor:default}
+  .gen-note{font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -137,6 +148,21 @@
 </header>
 
 <main>
+  <section class="panel" id="generation">
+    <h2 style="font-size:17px;margin:0 0 8px">Generation</h2>
+    <div class="gen-note">Choose the subscription for new editions. A run already in progress keeps its saved profile. The selected provider must be signed in on the runner before a run starts; ChatGPT/Codex runner sign-in is pending verification.</div>
+    <div class="gen-options" id="gen-options" style="margin-top:10px">Loading generation settings…</div>
+    <div class="row"><button class="primary" id="gen-save" disabled>Save selection</button><span class="gen-note" id="gen-selection-note"></span></div>
+    <div class="row" style="border-top:1px solid var(--line);padding-top:12px;margin-top:16px">
+      <label for="gen-run" style="margin:0">Run</label>
+      <select id="gen-run" style="width:min(100%,340px)"><option value="">Loading runs…</option></select>
+      <button id="gen-refresh">Refresh</button>
+      <a id="gen-json" href="#" style="display:none">View run JSON</a>
+      <button id="gen-csv" style="display:none">Download job CSV</button>
+    </div>
+    <div class="gen-note" id="gen-run-note" style="margin-top:8px"></div>
+    <div id="gen-report"></div>
+  </section>
   <section class="panel">
     <div class="filters">
       <div><label for="f-q">Search</label><input id="f-q" placeholder="title, dek, symbol"></div>
@@ -379,6 +405,136 @@ function toast(message, bad) {
 }
 
 const BASE = "{{ base }}";
+
+let generationReport = null;
+function genValue(value) { return value === null || value === undefined || value === "" ? "Unknown" : String(value); }
+function genNumber(value) { return value === null || value === undefined ? "Unknown" : Number(value).toLocaleString(); }
+function genMoney(value) { return value === null || value === undefined ? "Unknown" : "$" + Number(value).toFixed(4); }
+function genTable(title, rows, columns) {
+  const head = columns.map(([key, label]) => "<th>" + escapeHtml(label) + "</th>").join("");
+  const body = rows.length ? rows.map(row => "<tr>" + columns.map(([key,,format]) =>
+    "<td>" + escapeHtml(format ? format(row[key]) : genValue(row[key])) + "</td>").join("") + "</tr>").join("")
+    : "<tr><td colspan='" + columns.length + "' class='muted'>No data recorded</td></tr>";
+  return "<div class='gen-table'><h3 style='font-size:14px'>" + escapeHtml(title) + "</h3><table><thead><tr>" + head +
+    "</tr></thead><tbody>" + body + "</tbody></table></div>";
+}
+function genRows(value, label) {
+  if (Array.isArray(value)) return value;
+  return Object.entries(value || {}).map(([name, details]) => Object.assign({[label]: name}, details || {}));
+}
+function renderGeneration(report) {
+  generationReport = report;
+  const totals = report.totals || {}, billing = report.billing || {};
+  const coordination = report.overhead?.coordination_usage;
+  const missing = report.missing_fields || [];
+  const previews = Object.entries(report.previews || {});
+  const previewLinks = previews.length ? "<p><b>Reviewed article previews:</b> " + previews.map(([symbol,url]) =>
+    "<a href='" + escapeHtml(url) + "' target='_blank' rel='noopener'>" + escapeHtml(symbol) + "</a>").join(" · ") + "</p>" :
+    "<p class='gen-note'>Article previews appear after final review and visual checks pass.</p>";
+  const summary = "<p><b>Run:</b> " + escapeHtml(genValue(report.label || report.run_id)) +
+    " · <b>Source date:</b> " + escapeHtml(genValue(report.source_date)) +
+    " · <b>Publication mode:</b> " + escapeHtml(genValue(report.publication_mode)) + "</p>" +
+    "<p><b>Status:</b> " + escapeHtml(genValue(report.status)) +
+    " · <b>Jobs:</b> " + escapeHtml(genNumber(totals.jobs)) +
+    " · <b>Completed:</b> " + escapeHtml(genNumber(totals.completed)) +
+    " · <b>Failed:</b> " + escapeHtml(genNumber(totals.failed)) + "</p>" +
+    "<p><b>Tokens:</b> input " + escapeHtml(genNumber(totals.input_tokens)) +
+    ", cache read " + escapeHtml(genNumber(totals.cache_read_tokens)) +
+    ", cache write " + escapeHtml(genNumber(totals.cache_write_tokens)) +
+    ", output " + escapeHtml(genNumber(totals.output_tokens)) + "</p>" +
+    "<p><b>Reported API equivalent:</b> " + escapeHtml(genMoney(totals.reported_api_equivalent_usd)) +
+    ". Subscription cash charge and per-run allocation: " + escapeHtml(genValue(billing.actual_cash_charged_usd)) +
+    " / " + escapeHtml(genValue(billing.subscription_allocation_usd)) +
+    ". These estimates come from CLI receipts; they are not a subscription invoice.</p>" +
+    "<p class='gen-note'><b>Missing usage:</b> " + escapeHtml(missing.length ? missing.join(", ") : "None reported") +
+    ". Values with missing receipts are partial, not complete totals.</p>" +
+    "<p><b>Shared batch jobs:</b> " + escapeHtml(genNumber(report.overhead?.batch?.jobs)) +
+    "; API equivalent " + escapeHtml(genMoney(report.overhead?.batch?.reported_api_equivalent_usd)) +
+    ". Coordination usage is separate from generation totals.</p>" +
+    (coordination ? "<p><b>Coordination usage:</b> input " + escapeHtml(genNumber(coordination.input_tokens)) +
+      ", cached input " + escapeHtml(genNumber(coordination.cached_input_tokens)) +
+      ", output " + escapeHtml(genNumber(coordination.output_tokens)) +
+      ", reasoning output " + escapeHtml(genNumber(coordination.reasoning_output_tokens)) +
+      ", API equivalent " + escapeHtml(genMoney(coordination.api_equivalent_usd)) +
+      ". This is separate evidence and is excluded from the article total.</p>" : "") + previewLinks;
+  const dimensions = [
+    ["Article totals", genRows(report.by_article, "article"), [["article", "Article"], ["jobs", "Attempts", genNumber], ["retries", "Retry / repair attempts", genNumber], ["seconds", "Model seconds", genNumber], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney]]],
+    ["By article and stage", report.jobs || [], [["article", "Article"], ["stage", "Stage"], ["status", "Status"], ["models", "Model(s)", value => Object.keys(value || {}).join(", ") || "Unknown"], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney], ["missing_fields", "Missing"]]],
+    ["By model", genRows(report.by_model, "model"), [["model", "Model"], ["jobs", "Jobs", genNumber], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney]]],
+    ["By stage", genRows(report.by_stage, "stage"), [["stage", "Stage"], ["jobs", "Jobs", genNumber], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney]]]
+  ];
+  $("gen-report").innerHTML = summary + "<div class='gen-grid'>" + dimensions.map(([title,rows,columns]) => genTable(title, rows, columns)).join("") + "</div>";
+  $("gen-csv").style.display = "";
+}
+async function loadGenerationSettings() {
+  try {
+    const data = (await api("/api/generation/settings")).data;
+    $("gen-options").innerHTML = data.options.map(option =>
+      "<label class='gen-option" + (option.available ? "" : " unavailable") + "'><input type='radio' name='gen-profile' value='" +
+      escapeHtml(option.id) + "' " + (option.available ? "" : "disabled ") +
+      (data.selection.profile === option.id ? "checked" : "") + "><span>" + escapeHtml(option.label) +
+      "<small>" + escapeHtml(option.available ? "Subscription profile; login checked before running" : option.reason) + "</small></span></label>").join("");
+    $("gen-save").disabled = false;
+    $("gen-selection-note").textContent = "Current: " + (data.options.find(x => x.id === data.selection.profile)?.label || data.selection.profile);
+  } catch (error) { $("gen-options").textContent = error.message; }
+}
+$("gen-save").onclick = async () => {
+  const choice = document.querySelector("input[name='gen-profile']:checked");
+  if (!choice) return;
+  $("gen-save").disabled = true;
+  try {
+    await api("/api/generation/settings", {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({profile: choice.value})});
+    toast("Generation profile saved for new editions.");
+    await loadGenerationSettings();
+  } catch (error) { toast(error.message, true); $("gen-save").disabled = false; }
+};
+async function loadGenerationRuns() {
+  const selected = $("gen-run").value;
+  $("gen-run-note").textContent = "Loading runs…";
+  try {
+    const runs = (await api("/api/generation/runs")).data;
+    $("gen-run").innerHTML = "<option value=''>Choose a run</option>" + runs.map(run =>
+      "<option value='" + escapeHtml(run.kind + ":" + run.run_id) + "'>" +
+      escapeHtml((run.label || run.run_id) + " · " + run.kind + " · " + genValue(run.status)) + "</option>").join("");
+    $("gen-run").value = Array.from($("gen-run").options).some(x => x.value === selected) ? selected : (runs[0] ? runs[0].kind + ":" + runs[0].run_id : "");
+    $("gen-run-note").textContent = runs.length ? "Select a run to see its latest receipts." : "No generation runs found.";
+    await loadGenerationDetail();
+  } catch (error) { $("gen-run-note").textContent = error.message; }
+}
+async function loadGenerationDetail() {
+  const selected = $("gen-run").value;
+  $("gen-report").innerHTML = "";
+  $("gen-json").style.display = "none";
+  $("gen-csv").style.display = "none";
+  generationReport = null;
+  if (!selected) return;
+  const [kind, runId] = selected.split(":");
+  const path = "/api/generation/runs/" + encodeURIComponent(runId) + "?kind=" + encodeURIComponent(kind);
+  $("gen-run-note").textContent = "Refreshing run detail…";
+  try {
+    const report = (await api(path)).data;
+    $("gen-run-note").textContent = "Latest receipt summary for " + runId + ".";
+    $("gen-json").href = BASE + path;
+    $("gen-json").style.display = "";
+    renderGeneration(report);
+  } catch (error) { $("gen-run-note").textContent = error.message; }
+}
+$("gen-run").onchange = loadGenerationDetail;
+$("gen-refresh").onclick = loadGenerationRuns;
+$("gen-csv").onclick = () => {
+  if (!generationReport) return;
+  const keys = ["article", "stage", "status", "models", "input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens", "reported_api_equivalent_usd", "missing_fields"];
+  const csv = [keys.join(","), ...(generationReport.jobs || []).map(job => keys.map(key => {
+    let value = key === "models" ? Object.keys(job.models || {}).join("; ") : String(job[key] ?? "");
+    if (/^[=+@-]/.test(value)) value = "'" + value;
+    return '"' + value.replaceAll('"', '""') + '"';
+  }).join(","))].join("\r\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+  link.download = "smn-generation-" + generationReport.run_id + ".csv";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+};
 let IDENTITY = { kind: "open" };
 const WHO_KEY = "smn_dashboard_user";
 function who() { return ($("who").value || "").trim(); }
@@ -1173,6 +1329,8 @@ $("btn-rebuild").onclick = async () => {
 };
 
 load();
+loadGenerationSettings();
+loadGenerationRuns();
 </script>
 </body>
 </html>

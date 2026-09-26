@@ -50,3 +50,26 @@ Historical editions with already approved `sources.json` reuse it on resume.
 
 Hero images are reused from production. `hero-check.json` reports misspelled
 text but does not block; regeneration is a later step (TW-TASK-0009).
+
+## Dashboard generation and usage
+
+The publishing dashboard reads the same persistent provider setting. Its
+Generation view reports saved job usage by article, stage and model, including
+failed attempts. Claude CLI dollar estimates are API-equivalent values, not
+subscription charges. Missing usage and unpriced coordination are identified
+separately. API provider options remain unavailable until their adapters and
+credentials are configured; selecting a subscription never enables API fallback.
+
+On primary Dev, the `pub_dashboard-generation.conf` systemd drop-in points
+the existing dashboard service at `/opt/smn-daily/current/blog`. Keep its
+existing environment files, LAN bindings, authentication policy and dashboard
+state. Change the source pointer only under the Dev activation lock after
+testing the complete release. Roll back both pointer and service drop-in if
+the live generation and retained-article checks fail.
+
+A manual historical comparison uses a fresh directory under
+`/var/lib/tradewave/smn-daily/comparisons/`, the original production source date,
+and no `--publish`. Copy only hash-bound production and engine input captures,
+never prior model jobs or generated prose. Label its execution date separately
+from its source date in `run-metadata.json`. This does not complete a future
+scheduled edition or replace an already published edition.
