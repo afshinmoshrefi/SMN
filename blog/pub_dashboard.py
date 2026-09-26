@@ -581,8 +581,8 @@ def api_generation_run(run_id):
         return fail("run_not_found", "Generation run was not found", 404)
     try:
         summary = smn_cost_report.summarize_run(root)
-        summary["previews"] = {symbol: request.script_root + "/api/generation/runs/" + run_id +
-                               "/preview/" + symbol + "/article.html?kind=" + kind
+        summary["previews"] = {symbol: request.script_root + "/api/generation/previews/" + kind + "/" + run_id +
+                               "/" + symbol + "/article.html"
                                for symbol in _preview_symbols(root)}
         return ok(summary)
     except OSError:
@@ -635,9 +635,9 @@ def _preview_symbols(root):
     return [child.name for child in sorted(results.iterdir()) if _preview_ready(root, child.name)]
 
 
-@app.route("/api/generation/runs/<run_id>/preview/<symbol>/<path:asset>", methods=["GET"])
-def api_generation_preview(run_id, symbol, asset):
-    root = _generation_run_root(run_id, request.args.get("kind", ""))
+@app.route("/api/generation/previews/<kind>/<run_id>/<symbol>/<path:asset>", methods=["GET"])
+def api_generation_preview(kind, run_id, symbol, asset):
+    root = _generation_run_root(run_id, kind)
     if root is False:
         return fail("invalid_run", "Choose a run from the list", 400)
     if root is None:

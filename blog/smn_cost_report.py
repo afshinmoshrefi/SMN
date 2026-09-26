@@ -167,7 +167,8 @@ def _job(job_dir: Path, *, parent_manifest=None, parent_receipt=None):
         'usage_source': usage_source,
         'billing_source': receipt.get('billing_source') or ((parent_receipt or {}).get('billing_source') if archived else None),
         **usage,
-        'missing_fields': [key for key in USAGE_FIELDS if usage[key] is None],
+        'missing_fields': [key for key in USAGE_FIELDS if usage[key] is None or
+                           any(model[key] is None for model in breakdown.values())],
     }
     return row
 
@@ -214,7 +215,7 @@ def summarize_run(root: Path) -> dict:
                                                  for value in article_state.values()) else 'in_progress')
     return {
         'run_id': root.name, 'label': metadata.get('label', root.name),
-        'source_date': metadata.get('source_date'),
+        'source_date': metadata.get('source_date') or daily.get('date'),
         'started_utc': metadata.get('started_utc'), 'finished_utc': metadata.get('finished_utc'),
         'publication_mode': metadata.get('publication_mode'),
         'source_commit': metadata.get('source_commit'),

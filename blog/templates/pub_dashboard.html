@@ -447,7 +447,10 @@ function renderGeneration(report) {
     " / " + escapeHtml(genValue(billing.subscription_allocation_usd)) +
     ". These estimates come from CLI receipts; they are not a subscription invoice.</p>" +
     "<p class='gen-note'><b>Missing usage:</b> " + escapeHtml(missing.length ? missing.join(", ") : "None reported") +
-    ". Batch overhead: unknown; any recorded coordination usage is separate from article totals.</p>" +
+    ". Values with missing receipts are partial, not complete totals.</p>" +
+    "<p><b>Shared batch jobs:</b> " + escapeHtml(genNumber(report.overhead?.batch?.jobs)) +
+    "; API equivalent " + escapeHtml(genMoney(report.overhead?.batch?.reported_api_equivalent_usd)) +
+    ". Coordination usage is separate from generation totals.</p>" +
     (coordination ? "<p><b>Coordination usage:</b> input " + escapeHtml(genNumber(coordination.input_tokens)) +
       ", cached input " + escapeHtml(genNumber(coordination.cached_input_tokens)) +
       ", output " + escapeHtml(genNumber(coordination.output_tokens)) +
@@ -455,6 +458,7 @@ function renderGeneration(report) {
       ", API equivalent " + escapeHtml(genMoney(coordination.api_equivalent_usd)) +
       ". This is separate evidence and is excluded from the article total.</p>" : "") + previewLinks;
   const dimensions = [
+    ["Article totals", genRows(report.by_article, "article"), [["article", "Article"], ["jobs", "Attempts", genNumber], ["retries", "Retry / repair attempts", genNumber], ["seconds", "Model seconds", genNumber], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney]]],
     ["By article and stage", report.jobs || [], [["article", "Article"], ["stage", "Stage"], ["status", "Status"], ["models", "Model(s)", value => Object.keys(value || {}).join(", ") || "Unknown"], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney], ["missing_fields", "Missing"]]],
     ["By model", genRows(report.by_model, "model"), [["model", "Model"], ["jobs", "Jobs", genNumber], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney]]],
     ["By stage", genRows(report.by_stage, "stage"), [["stage", "Stage"], ["jobs", "Jobs", genNumber], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney]]]
@@ -469,7 +473,7 @@ async function loadGenerationSettings() {
       "<label class='gen-option" + (option.available ? "" : " unavailable") + "'><input type='radio' name='gen-profile' value='" +
       escapeHtml(option.id) + "' " + (option.available ? "" : "disabled ") +
       (data.selection.profile === option.id ? "checked" : "") + "><span>" + escapeHtml(option.label) +
-      "<small>" + escapeHtml(option.available ? "Available" : option.reason) + "</small></span></label>").join("");
+      "<small>" + escapeHtml(option.available ? "Subscription profile; login checked before running" : option.reason) + "</small></span></label>").join("");
     $("gen-save").disabled = false;
     $("gen-selection-note").textContent = "Current: " + (data.options.find(x => x.id === data.selection.profile)?.label || data.selection.profile);
   } catch (error) { $("gen-options").textContent = error.message; }

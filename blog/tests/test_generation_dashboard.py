@@ -65,22 +65,22 @@ class GenerationDashboardTest(DashboardFixture):
         (root / 'jobs').mkdir()
         discovery = [{'run_id': '2026-09-26', 'kind': 'daily'}]
         with patch.object(pub_dashboard.smn_cost_report, 'discover_runs', return_value=discovery):
-            path = '/api/generation/runs/2026-09-26/preview/AAPL/'
-            self.assertEqual(self.client.get(path + 'article.html?kind=daily').status_code, 404)
+            path = '/api/generation/previews/daily/2026-09-26/AAPL/'
+            self.assertEqual(self.client.get(path + 'article.html').status_code, 404)
             (root / 'smn-daily-state.json').write_text('{"date":"2026-09-26","articles":{"AAPL":{"finalized":true,"review_stage":"review"}}}')
             review = root / 'jobs' / 'AAPL-20260926-review'
             review.mkdir()
             (review / 'output.json').write_text('{}')
             with patch.object(pub_dashboard.subscription_publication, 'reviewed', return_value={}):
-                response = self.client.get(path + 'article.html?kind=daily')
+                response = self.client.get(path + 'article.html')
                 self.assertEqual(response.status_code, 200)
                 self.assertIn('sandbox allow-scripts', response.headers['Content-Security-Policy'])
                 self.assertNotIn('allow-same-origin', response.headers['Content-Security-Policy'])
                 self.assertEqual(response.headers['X-Content-Type-Options'], 'nosniff')
-                self.assertEqual(self.client.get(path + 'assets/chart.svg?kind=daily').status_code, 200)
-                self.assertEqual(self.client.get(path + 'review-binding.json?kind=daily').status_code, 404)
-                self.assertEqual(self.client.get(path + 'assets/secret.json?kind=daily').status_code, 404)
-                self.assertEqual(self.client.get(path + 'article.html?kind=comparison').status_code, 404)
+                self.assertEqual(self.client.get(path + 'assets/chart.svg').status_code, 200)
+                self.assertEqual(self.client.get(path + 'review-binding.json').status_code, 404)
+                self.assertEqual(self.client.get(path + 'assets/secret.json').status_code, 404)
+                self.assertEqual(self.client.get(path.replace('/daily/', '/comparison/') + 'article.html').status_code, 404)
 
 
 if __name__ == '__main__':
