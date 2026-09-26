@@ -413,7 +413,20 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     if not engine and not meta.get('verified_completed'):
         years, nets, mfe, mae = _drop_zeroed(years, nets, mfe, mae)
     n = len(nets)
-    wins = None if engine else sum(1 for v in nets if v > 0)
+    reported_wins = meta.get('engine_winners')
+    reported_losses = meta.get('engine_losers')
+    if not engine and reported_wins is not None and reported_losses is not None:
+        if int(reported_wins) + int(reported_losses) != n:
+            raise ValueError('TradeWave winner/loser count differs from completed chart sample')
+    if engine:
+        wins = losses = None
+    elif reported_wins is not None:
+        # TradeWave counts are authoritative for article charts. The renderer
+        # only selects the direction's displayed count; it does not recalculate it.
+        wins = losses = int(reported_wins)
+    else:
+        wins = sum(1 for v in nets if v > 0)
+        losses = sum(1 for v in nets if v < 0)
     direction = meta.get("direction", "long")
     med = engine.get('price_median') if engine else _median(nets)
     if engine:
@@ -433,8 +446,13 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         f"{symbol}"
         + (f" · {company}" if company else "")
         + (f" · {days}-day seasonal window" if days else " · seasonal window"))
-    losses = None if engine else sum(1 for v in nets if v < 0)
     title = engine['title'] if engine else _bars_title(symbol, direction, wins, n, win_lbl, losses)
+    if not engine and reported_wins is not None and any(abs(float(v)) < 1e-12 for v in nets):
+        # A flat result may or may not be classified as a win by the engine.
+        # State its supplied count without calling an unchanged year "higher".
+        title = f"{symbol}: TradeWave reports {wins} winning years among {n} completed years"
+        if win_lbl:
+            title += f" ({win_lbl})"
 
     mmm1, mmm2 = (_fmt_mmm_d(d1) if d1 else ""), (_fmt_mmm_d(d2) if d2 else "")
     # `overlay` names what the needles add; it is what separates this chart

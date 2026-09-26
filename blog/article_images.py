@@ -622,7 +622,9 @@ def create_article_images(size_key,
 
     base_meta = dict(symbol=symbol, company=company, direction=direction,
                      window_start=d1, window_end=end_date, days=int(days),
-                     lookback_label=lookback_label)
+                     lookback_label=lookback_label,
+                     engine_winners=p.get("engine_winners"),
+                     engine_losers=p.get("engine_losers"))
 
     # Social mode: only the price chart with a 60-day projection.
     if mode == "social":
@@ -876,6 +878,8 @@ def build_article_images_payload(financial_group_id, symbol, date1, days_hold, y
         "years": years,
         "avg_gain_txt": avg_gain_txt,
         "success_text": success_text,
+        "engine_winners": w,
+        "engine_losers": l,
         "window_text": window_text,
         "bar_years": bar_years,
         "bar_returns": bar_returns,

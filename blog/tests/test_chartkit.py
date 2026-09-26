@@ -58,13 +58,24 @@ class Semantics(unittest.TestCase):
         self.assertIn("2006–2025", s["source"])
 
     def test_verified_flat_completed_year_is_kept(self):
-        # AAPL 1986: a real 0.0% year. The plain bars chart must count it (9 of 10),
-        # matching the range charts, once placeholder rows are already removed.
+        # AAPL 1986: a real 0.0% year. Keep it in the ten-year chart and
+        # display the retained engine's reported count, not a renderer count.
         years = [1986, 1990, 1994, 1998, 2002, 2006, 2010, 2014, 2018, 2022]
         nets = [0.0, 10.78, 8.97, 0.46, 10.78, 10.72, 2.99, 8.21, 2.06, 10.33]
-        s = ck.record_bars(years, nets, dict(BARS_META, verified_completed=True), self._p("b.png"))
+        meta = dict(BARS_META, verified_completed=True, engine_winners=9, engine_losers=1)
+        s = ck.record_bars(years, nets, meta, self._p("b.png"))
         self.assertEqual(s["n"], 10)
-        self.assertIn("higher in 9 of the past 10 years", s["title"])
+        self.assertIn("TradeWave reports 9 winning years among 10 completed years", s["title"])
+
+        # If the engine reports a different classification for a flat year,
+        # that supplied result controls the label without changing the row.
+        meta.update(engine_winners=10, engine_losers=0)
+        s = ck.record_bars(years, nets, meta, self._p("engine-count.png"))
+        self.assertEqual(s["n"], 10)
+        self.assertIn("TradeWave reports 10 winning years among 10 completed years", s["title"])
+        meta['engine_losers'] = 1
+        with self.assertRaisesRegex(ValueError, 'differs from completed chart sample'):
+            ck.record_bars(years, nets, meta, self._p("mismatch.png"))
 
     def test_zeroed_row_dropped_with_excursion(self):
         s = ck.record_bars(YEARS + [2026], NETS + [0.0], dict(BARS_META),
