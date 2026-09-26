@@ -37,6 +37,9 @@ class CostReportTests(unittest.TestCase):
             self.assertEqual(report['billing']['source'], 'unknown')
             self.assertEqual(report['by_stage']['write']['jobs'], 1)
             self.assertEqual(report['by_model']['claude-opus-5-5']['jobs'], 1)
+            self.assertEqual(report['by_article']['ABC']['jobs'], 2)
+            self.assertEqual(report['totals']['coverage']['input_tokens'],
+                             {'reported_jobs': 1, 'total_jobs': 2})
             saved(root / 'coordination-usage.json', {'provider': 'codex', 'model': 'gpt-6-astra',
                   'input_tokens': 100, 'cached_input_tokens': 50, 'output_tokens': 30,
                   'reasoning_output_tokens': 10, 'api_equivalent_usd': None,
@@ -80,9 +83,19 @@ class CostReportTests(unittest.TestCase):
             ready = root / 'jobs' / 'XYZ-20260926-review'
             saved(ready / 'job.json', {'job_id': ready.name, 'stage': 'review', 'model': 'claude-sonnet-5'})
             saved(ready / 'state.json', {'status': 'ready'})
+            shared = root / 'jobs' / 'EDITION-20260926-landing-visual'
+            saved(shared / 'job.json', {'job_id': shared.name, 'stage': 'landing-visual',
+                                       'model': 'claude-haiku-4-5'})
+            saved(shared / 'state.json', {'status': 'output_ready_for_smn_validation'})
+            saved(shared / 'turn-usage.json', {'modelUsage': {'claude-haiku-4-5':
+                  {'inputTokens': 4, 'costUSD': 0.02}}})
             report = summarize_run(root)
-            self.assertEqual(report['status'], 'incomplete')
-            self.assertEqual(report['totals']['reported_api_equivalent_usd'], 0.03)
+            self.assertEqual(report['status'], 'unknown')
+            self.assertEqual(report['job_status'], 'incomplete')
+            self.assertEqual(report['totals']['reported_api_equivalent_usd'], 0.05)
+            self.assertEqual(report['article_totals']['reported_api_equivalent_usd'], 0.03)
+            self.assertEqual(report['overhead']['batch']['reported_api_equivalent_usd'], 0.02)
+            self.assertIsNone(next(job for job in report['jobs'] if job['scope'] == 'batch')['article'])
             self.assertEqual(next(job for job in report['jobs'] if job['stage'] == 'write')['usage_source'],
                              'result.json')
 
@@ -98,6 +111,45 @@ class CostReportTests(unittest.TestCase):
             except (OSError, NotImplementedError):
                 self.skipTest('symlinks unavailable')
             self.assertEqual(summarize_run(jobs.parent)['totals']['jobs'], 0)
+
+    def test_archived_failed_attempt_and_codex_usage_are_counted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / '2026-09-25'
+            job = root / 'jobs' / 'F-20260925-research'
+            saved(job / 'job.json', {'job_id': job.name, 'stage': 'research', 'model': 'gpt-6-astra'})
+            saved(job / 'state.json', {'status': 'output_ready_for_smn_validation'})
+            saved(job / 'receipt.json', {'billing_source': 'subscription', 'seconds': 12,
+                                        'usage': {'input_tokens': 100, 'cached_input_tokens': 40,
+                                                  'output_tokens': 20}})
+            saved(job / 'turn-usage.json', [{'input_tokens': 100, 'cached_input_tokens': 40,
+                                             'output_tokens': 20}])
+            failed = job / 'failed-attempt-1'
+            saved(failed / 'state.json', {'status': 'failed_needs_review'})
+            saved(failed / 'turn-usage.json', {'usage': {'input_tokens': 2, 'output_tokens': 1},
+                                              'modelUsage': {}, 'duration_ms': 1000})
+            saved(root / 'dev-publication-receipt.json', {'status': 'live_verified'})
+            report = summarize_run(root)
+            self.assertEqual(report['status'], 'live_verified')
+            self.assertEqual(report['job_status'], 'complete_with_failed_attempts')
+            self.assertEqual(report['totals']['jobs'], 2)
+            self.assertEqual(report['totals']['failed'], 1)
+            self.assertEqual(report['totals']['input_tokens'], 102)
+            self.assertEqual(report['totals']['cache_read_tokens'], 40)
+            self.assertEqual(report['totals']['seconds'], 13)
+            self.assertEqual(report['by_article']['F']['jobs'], 2)
+            self.assertEqual(report['totals']['coverage']['reported_api_equivalent_usd']['reported_jobs'], 0)
+            self.assertEqual(report['billing']['source'], 'subscription')
+
+    def test_retry_suffix_and_daily_hold_without_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / '2026-09-25'
+            job = root / 'jobs' / 'F-20260925-research-two'
+            saved(job / 'job.json', {'job_id': job.name, 'stage': 'research-two', 'model': 'claude-sonnet-5'})
+            saved(job / 'state.json', {'status': 'output_ready_for_smn_validation'})
+            saved(root / 'smn-daily-state.json', {'articles': {'F': {'held': 'review'}}})
+            report = summarize_run(root)
+            self.assertEqual(report['status'], 'held')
+            self.assertEqual(report['totals']['retries'], 1)
 
 
 if __name__ == '__main__':
