@@ -56,13 +56,16 @@ class CostReportTests(unittest.TestCase):
             job = run / 'jobs' / 'XYZ-20260926-review'
             saved(job / 'job.json', {'job_id': job.name, 'stage': 'review', 'model': 'claude-sonnet-5'})
             saved(job / 'state.json', {'status': 'output_ready_for_smn_validation'})
-            saved(job / 'receipt.json', {'billing_source': 'subscription'})
+            saved(job / 'receipt.json', {'billing_source': 'subscription', 'seconds': 9})
             saved(job / 'turn-usage.json', {'modelUsage': {
                 'claude-sonnet-5': {'inputTokens': 10, 'outputTokens': 2, 'costUSD': 0.1},
                 'claude-haiku-4-5': {'inputTokens': 3, 'outputTokens': 1, 'costUSD': 0.02}}})
             report = summarize_run(run)
             self.assertEqual(report['totals']['input_tokens'], 13)
             self.assertEqual(report['totals']['reported_api_equivalent_usd'], 0.12)
+            self.assertEqual(report['totals']['seconds'], 9)
+            self.assertIsNone(report['by_model']['claude-sonnet-5']['seconds'])
+            self.assertEqual(report['by_model']['claude-sonnet-5']['coverage']['seconds']['reported_jobs'], 0)
             saved(run / 'run-metadata.json', {'label': 'Claude comparison run today',
                   'source_date': '2026-09-25', 'started_utc': '2026-09-26T14:00:00Z',
                   'status': 'running', 'publication_mode': 'private_preview'})
@@ -150,6 +153,19 @@ class CostReportTests(unittest.TestCase):
             report = summarize_run(root)
             self.assertEqual(report['status'], 'held')
             self.assertEqual(report['totals']['retries'], 1)
+
+    def test_discovery_retry_id_and_safe_hold_reason(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'comparisons' / '2026-09-26-claude'
+            job = root / 'jobs' / 'F-20260925-primary-discovery-two'
+            saved(job / 'job.json', {'job_id': job.name, 'stage': 'primary-discovery',
+                                    'model': 'claude-sonnet-5'})
+            saved(job / 'state.json', {'status': 'output_ready_for_smn_validation'})
+            saved(root / 'run-metadata.json', {'status': 'hold'})
+            saved(root / 'HOLD.json', {'reason': 'Quote failed; bearer secret-token; contact x@y.com'})
+            report = summarize_run(root)
+            self.assertEqual(report['totals']['retries'], 1)
+            self.assertEqual(report['hold_reason'], 'Quote failed; [redacted] contact [redacted]')
 
 
 if __name__ == '__main__':
