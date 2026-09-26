@@ -1,0 +1,19 @@
+[Unit]
+Description=SMN Dev subscription edition (selected Claude or ChatGPT profile)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/smn-daily/current/blog
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SMN_CODEX=/opt/smn-codex-0.155.0-alpha.16/node_modules/.bin/codex
+Environment=SMN_CLAUDE=/root/.local/bin/claude
+Environment=SMN_PLAYWRIGHT=/opt/smn-playwright/node_modules/playwright
+Environment=SMN_BROWSER_CHANNEL=bundled
+Environment=PATH=/opt/smn-daily/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/flask/venv-smn-integrity-20260711T205457Z/bin/python /opt/smn-daily/current/blog/smn_daily_control.py run
+TimeoutStartSec=2h
+UMask=0077
+

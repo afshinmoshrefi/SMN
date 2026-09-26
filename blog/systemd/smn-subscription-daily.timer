@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the SMN Dev edition at 7 AM New York
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 America/New_York
+Persistent=true
+Unit=smn-subscription-daily.service
+
+[Install]
+WantedBy=timers.target

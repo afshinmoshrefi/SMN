@@ -64,9 +64,15 @@ class ModelSettingsTests(unittest.TestCase):
         roles = smn_models.load(self.write(write={'provider': 'codex', 'model': 'gpt-6-astra', 'effort': 'xhigh'}))
         self.assertEqual(roles['write']['provider'], 'codex')
 
+    def test_named_chatgpt_profile_uses_three_model_tiers(self):
+        roles = smn_models.load(profile='chatgpt')
+        self.assertEqual((roles['write']['model'], roles['write']['effort']), ('gpt-6-astra', 'high'))
+        self.assertEqual((roles['review']['model'], roles['research']['model']), ('gpt-6-sol', 'gpt-6-sol'))
+        self.assertEqual((roles['visual']['model'], roles['hero_check']['model']), ('gpt-6-luna', 'gpt-6-luna'))
+
     def test_invalid_settings_are_rejected(self):
         for bad in ({'write': {'provider': 'grok', 'model': 'x', 'effort': 'low'}},
-                    {'visual': {'provider': 'codex', 'model': 'gpt-6-astra', 'effort': 'low'}},
+                    {'visual': {'provider': 'codex', 'model': 'gpt-unknown', 'effort': 'low'}},
                     {'review': {'provider': 'claude', 'model': 'claude-unknown', 'effort': 'low'}}):
             with self.assertRaises(ValueError):
                 smn_models.load(self.write(**bad))

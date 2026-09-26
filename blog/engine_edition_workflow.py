@@ -65,10 +65,10 @@ WRITERS=('astra','config','claude')
 
 
 class Edition:
-    def __init__(self,root,date,codex=None,provider='astra',claude=None,models=None):
+    def __init__(self,root,date,codex=None,provider='astra',claude=None,models=None,roles=None):
         self.root=Path(root).resolve(); self.date=date;self.codex=codex
         if provider not in WRITERS:raise ValueError('Unknown writer provider')
-        self.provider=provider;self.roles=smn_models.ASTRA if provider=='astra' else smn_models.load(models)
+        self.provider=provider;self.roles=roles if roles is not None else (smn_models.ASTRA if provider=='astra' else smn_models.load(models))
         self.clis={'codex':codex,'claude':claude}
         w=self.roles['write'];self.account=('ChatGPT' if w['provider']=='codex' else 'Claude')+' subscription; '+w['model']+' '+w['effort']
         self.specs=load_json(self.root/'sources.json')
@@ -76,7 +76,7 @@ class Edition:
 
     def _job_options(self,stage):
         cfg=self.roles[smn_models.role_of(stage)]
-        return {'effort':cfg['effort']} if cfg['provider']=='codex' else {'effort':cfg['effort'],'model':cfg['model']}
+        return {'effort':cfg['effort'],'model':cfg['model']} if cfg['provider']=='claude' else {'effort':cfg['effort']}
 
     def _prepare(self,stage,*args,**kwargs):
         return smn_models.prepare(self.roles,smn_models.role_of(stage),*args,stage=stage,**kwargs)

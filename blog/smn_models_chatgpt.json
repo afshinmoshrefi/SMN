@@ -1,0 +1,8 @@
+{
+  "_comment": "Subscription ChatGPT profile. Astra writes at high effort; Sol checks research and reviews; Luna inspects images.",
+  "write":      {"provider": "codex", "model": "gpt-6-astra", "effort": "high"},
+  "review":     {"provider": "codex", "model": "gpt-6-sol",   "effort": "medium"},
+  "research":   {"provider": "codex", "model": "gpt-6-sol",   "effort": "medium"},
+  "visual":     {"provider": "codex", "model": "gpt-6-luna",  "effort": "low"},
+  "hero_check": {"provider": "codex", "model": "gpt-6-luna",  "effort": "low"}
+}

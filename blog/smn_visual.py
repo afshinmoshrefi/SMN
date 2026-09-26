@@ -57,18 +57,18 @@ def _tiles(image, folder, height=2000):
     return pieces
 
 
-def _job(root, date, name, stage, prompt, schema, images, roles, clis, role):
+def _job(root, date, name, stage, prompt, schema, images, roles, clis, role, run_job=None):
     job = Path(root)/'jobs'/(name + '-' + date.replace('-', '') + '-' + stage)
     if not job.exists():
         until = (datetime.now(timezone.utc) + timedelta(hours=20)).isoformat()
         digest = sha256((prompt + ''.join(_sha(i) for i in images)).encode())
         smn_models.prepare(roles, role, Path(root)/'jobs', job.name, prompt, schema, as_of=date,
                            valid_until=until, evidence_sha256=digest, stage=stage, images=images)
-    receipt = smn_models.run(job, clis)
+    receipt = run_job(job) if run_job is not None else smn_models.run(job, clis)
     return load_json(job/'output.json'), receipt, job
 
 
-def article(root, date, sym, roles, clis):
+def article(root, date, sym, roles, clis, run_job=None):
     out = Path(root)/'results'/sym
     layout = load_json(out/'layout-checks.json')
     images = sorted(out.glob('qa-*.png'))
@@ -78,7 +78,7 @@ def article(root, date, sym, roles, clis):
     seen = [t for i in images for t in _tiles(i, out/'vision-tiles')]
     names = ', '.join(i.name for i in seen)
     answer, receipt, job = _job(root, date, sym, 'visual', PAGE_RULES.format(names=names), PAGE_SCHEMA,
-                                seen, roles, clis, 'visual')
+                                seen, roles, clis, 'visual', run_job)
     major = [d for d in answer['defects'] if d['severity'] == 'major']
     passed = bool(answer['passed']) and not major and layout.get('layout_passed', True) is not False
     record = {'passed': passed, 'article_html_sha256': html_sha,
@@ -93,7 +93,7 @@ def article(root, date, sym, roles, clis):
     return record
 
 
-def hero(root, date, sym, roles, clis):
+def hero(root, date, sym, roles, clis, run_job=None):
     """Report-only hero text check. Never blocks publication (owner: regenerate later)."""
     out = Path(root)/'results'/sym
     asset = load_json(out/'hero-asset.json')
@@ -101,23 +101,25 @@ def hero(root, date, sym, roles, clis):
     company = load_json(Path(root)/'sources.json')[sym]['company']
     try:
         answer, receipt, _ = _job(root, date, sym, 'hero-check', HERO_RULES.format(company=company, symbol=sym),
-                                  HERO_SCHEMA, [image], roles, clis, 'hero_check')
+                                  HERO_SCHEMA, [image], roles, clis, 'hero_check', run_job)
         record = {'report_only': True, 'image_sha256': _sha(image), **answer,
                   'model': receipt['model_requested']}
     except Exception as exc:
+        if exc.__class__.__name__ == 'Hold':
+            raise
         record = {'report_only': True, 'image_sha256': _sha(image), 'error': str(exc)[:300]}
     save_json(out/'hero-check.json', record)
     return record
 
 
-def landing(root, date, roles, clis):
+def landing(root, date, roles, clis, run_job=None):
     root = Path(root)
     images = [root/'live-edition-desktop.png', root/'live-edition-mobile.png']
     seen = [t for i in images for t in _tiles(i, root/'vision-tiles')]
     answer, receipt, _ = _job(root, date, 'EDITION', 'landing-visual',
                               LANDING_RULES.format(names=', '.join(i.name for i in seen),
                               count=len(load_json(root/'publication-package/entries.json'))), PAGE_SCHEMA,
-                              seen, roles, clis, 'visual')
+                              seen, roles, clis, 'visual', run_job)
     major = [d for d in answer['defects'] if d['severity'] == 'major']
     record = {'passed': bool(answer['passed']) and not major,
               'inspected_images': {i.name: _sha(i) for i in images},

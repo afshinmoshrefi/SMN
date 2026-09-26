@@ -1,8 +1,4 @@
-"""Role -> subscription provider/model/effort, read from smn_models.json.
-
-Switch a step between Claude and Codex by editing one line of that file.
-Jobs remember their own provider, so running/verifying dispatches by job.json.
-"""
+"""Named subscription model profiles and immutable per-job dispatch."""
 from pathlib import Path
 import json
 
@@ -14,22 +10,28 @@ ROLES = ('write', 'review', 'research', 'visual', 'hero_check')
 MODULES = {'claude': claude_subscription_writer, 'codex': subscription_writer}
 ASTRA = {role: {'provider': 'codex', 'model': 'gpt-6-astra', 'effort': 'xhigh'} for role in ROLES}
 IMAGE_ROLES = {'visual', 'hero_check'}
+PROFILES = {
+    'claude': DEFAULT,
+    'chatgpt': Path(__file__).with_name('smn_models_chatgpt.json'),
+}
 
 
-def load(path=None):
-    data = json.loads(Path(path or DEFAULT).read_text(encoding='utf-8'))
+def load(path=None, profile='claude'):
+    if path is not None and profile != 'claude':
+        raise ValueError('Use a named profile or a custom --models file, not both')
+    if profile not in PROFILES:
+        raise ValueError('Unknown SMN model profile: ' + str(profile))
+    data = json.loads(Path(path or PROFILES[profile]).read_text(encoding='utf-8'))
     roles = {}
     for role in ROLES:
         cfg = data.get(role)
         if not isinstance(cfg, dict) or cfg.get('provider') not in MODULES:
             raise ValueError('smn_models: role %s needs provider claude or codex' % role)
         module = MODULES[cfg['provider']]
-        if cfg['provider'] == 'codex' and cfg.get('model') != 'gpt-6-astra':
-            raise ValueError('smn_models: the Codex adapter supports gpt-6-astra only')
+        if cfg['provider'] == 'codex' and cfg.get('model') not in subscription_writer.SUPPORTED_MODELS:
+            raise ValueError('smn_models: unsupported Codex model for ' + role)
         if cfg['provider'] == 'claude' and cfg.get('model') not in claude_subscription_writer.MODELS:
             raise ValueError('smn_models: unsupported Claude model for ' + role)
-        if cfg['provider'] == 'codex' and role in IMAGE_ROLES:
-            raise ValueError('smn_models: image roles need the claude provider')
         if cfg.get('effort') not in claude_subscription_writer.EFFORTS:
             raise ValueError('smn_models: bad effort for ' + role)
         roles[role] = {k: cfg[k] for k in ('provider', 'model', 'effort')}
@@ -42,9 +44,7 @@ def role_of(stage):
 
 def prepare(roles, role, *args, **kwargs):
     cfg = roles[role]
-    extra = {'effort': cfg['effort']}
-    if cfg['provider'] == 'claude':
-        extra['model'] = cfg['model']
+    extra = {'effort': cfg['effort'], 'model': cfg['model']}
     return MODULES[cfg['provider']].prepare_job(*args, **kwargs, **extra)
 
 

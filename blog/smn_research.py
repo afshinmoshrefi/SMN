@@ -127,6 +127,24 @@ def check(entry, root, date, sym):
     """Return a list of concrete problems (empty when the entry is usable)."""
     problems = []
     text = saved_text(root, sym, 10**7)
+    primary = Path(root)/'primary'/(sym + '.txt')
+    receipt = Path(root)/'primary'/(sym + '.receipt.json')
+    if primary.exists() or receipt.exists():
+        try:
+            proof = load_json(receipt)
+            if (primary.is_symlink() or receipt.is_symlink() or
+                    proof['edition_date'] != date or proof['symbol'] != sym or
+                    proof['text_sha256'] != sha256(primary.read_bytes())):
+                raise ValueError('receipt mismatch')
+            primary_urls = [{item['url'], item['final_url']} for item in proof['sources']]
+            if len(primary_urls) < 2:
+                raise ValueError('too few captured sources')
+        except (OSError, KeyError, TypeError, ValueError):
+            problems.append('primary evidence receipt is missing or changed')
+        else:
+            cited = {s['url'] for s in entry['sources']}
+            if sum(bool(cited & urls) for urls in primary_urls) < 2:
+                problems.append('cite at least two captured primary sources')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{4,80}', entry['angle']):
         problems.append('angle must be UPPER_SNAKE_CASE')
     ids = [s['id'] for s in entry['sources']]

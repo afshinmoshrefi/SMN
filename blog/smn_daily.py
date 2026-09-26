@@ -3,8 +3,7 @@
     capture -> research -> write -> checks -> (repair) -> review -> (repair, re-review)
     -> finalize -> layout -> screenshot check + hero check -> publish -> live check
 
-Models come from smn_models.json (edit one line to switch a step between Claude
-and Codex). Every step is resumable from files in the edition root; rerunning the
+Models come from named Claude or ChatGPT profiles. Every step is resumable from files in the edition root; rerunning the
 same command continues where it stopped. Transient failures retry a bounded number
 of times; anything else writes HOLD.json with the exact step and exits 2.
 
@@ -21,6 +20,7 @@ import sys
 import time
 
 import smn_models
+import smn_primary_sources
 import smn_research
 import smn_visual
 import subscription_capture as capture
@@ -59,15 +59,19 @@ def retry(step, fn, tries=3, wait=30):
 
 
 class Day:
-    def __init__(self, root, date, models=None, max_jobs=30):
+    def __init__(self, root, date, models=None, max_jobs=40, profile='claude'):
         self.root = Path(root).resolve()
         self.date = date
         self.models = models
-        self.roles = smn_models.load(models)
+        self.profile = profile
+        self.roles = smn_models.load(models, profile)
         self.max_jobs = max_jobs
         self.state_path = self.root/'smn-daily-state.json'
         self.state = load_json(self.state_path) if self.state_path.exists() else {
-            'date': date, 'created': now(), 'roles': self.roles, 'articles': {}}
+            'date': date, 'created': now(), 'profile': profile if models is None else 'custom',
+            'roles': self.roles, 'articles': {}}
+        if self.state.get('date') != date or self.state.get('roles') != self.roles:
+            raise Hold('Edition date or model roles changed; resume with the original profile/settings')
 
     def save(self):
         save_json(self.state_path, self.state)
@@ -97,6 +101,8 @@ class Day:
                     shutil.move(str(job/name), archive/name)
             save_json(job/'state.json', {'status': 'ready', 'utc': now(), 'requeued_after': str(exc)[:300]})
             log(step='requeue', job=job.name, error=str(exc)[:300])
+            if self.jobs_used() > self.max_jobs:
+                raise Hold('model-job budget of %d exhausted before retry' % self.max_jobs)
             time.sleep(60)
             return smn_models.run(job, CLIS)
 
@@ -113,6 +119,7 @@ class Day:
         target = self.root/'sources.json'
         if target.exists():
             return
+        smn_primary_sources.collect(self.root, self.date, self.symbols, self.roles, CLIS, self.run_job)
         example = load_json(BLOG/'examples/subscription-sources-20260923.json')
         folder = self.root/'research'
         folder.mkdir(exist_ok=True)
@@ -150,7 +157,8 @@ class Day:
 
     def articles(self):
         from engine_edition_workflow import Edition
-        ed = Edition(self.root, self.date, provider='config', claude=CLIS['claude'], models=self.models)
+        ed = Edition(self.root, self.date, provider='config', claude=CLIS['claude'],
+                     roles=self.roles)
         ed.clis = CLIS
         for sym in self.symbols:
             s = self.state['articles'].setdefault(sym, {})
@@ -235,10 +243,10 @@ class Day:
         for sym in done:
             out = self.root/'results'/sym
             if not (out/'hero-check.json').exists():
-                smn_visual.hero(self.root, self.date, sym, self.roles, CLIS)
+                smn_visual.hero(self.root, self.date, sym, self.roles, CLIS, self.run_job)
             if (out/'visual-checks.json').exists():
                 continue
-            record = smn_visual.article(self.root, self.date, sym, self.roles, CLIS)
+            record = smn_visual.article(self.root, self.date, sym, self.roles, CLIS, self.run_job)
             if not record['passed']:
                 self.state['articles'][sym]['held'] = {'utc': now(), 'reason': 'screenshot check failed'}
                 self.state['articles'][sym]['finalized'] = False
@@ -257,7 +265,7 @@ class Day:
         if not (self.root/'live-verification.json').exists():
             primary.activate(self.root, Path(repo), 'node', PLAYWRIGHT)
         if not (self.root/'live-landing-visual-checks.json').exists():
-            record = smn_visual.landing(self.root, self.date, self.roles, CLIS)
+            record = smn_visual.landing(self.root, self.date, self.roles, CLIS, self.run_job)
             if not record['passed']:
                 primary.call(load_json(self.root/'primary-stage.json'), 'rollback')
                 raise Hold('live landing check failed; rolled back: %s' % record['defects'])
@@ -296,14 +304,17 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--root', type=Path, required=True)
     ap.add_argument('--date', required=True)
-    ap.add_argument('--models', type=Path, help='role settings file (default blog/smn_models.json)')
+    model_group = ap.add_mutually_exclusive_group()
+    model_group.add_argument('--profile', choices=smn_models.PROFILES, default='claude',
+                             help='subscription provider profile (default claude)')
+    model_group.add_argument('--models', type=Path, help='custom role settings file')
     ap.add_argument('--max-jobs', type=int, default=40, help='all model jobs for the day, retries included')
     ap.add_argument('--publish', action='store_true', help='publish to primary Dev after all checks pass')
     ap.add_argument('--repo', type=Path, default=BLOG.parent, help='clean SMN checkout at origin/main (publish)')
     a = ap.parse_args()
     a.root.mkdir(parents=True, exist_ok=True)
-    day = Day(a.root, a.date, a.models, a.max_jobs)
     try:
+        day = Day(a.root, a.date, a.models, a.max_jobs, a.profile)
         if not day.capture():
             log(status='waiting_for_production')
             return 0
@@ -318,7 +329,8 @@ def main():
         log(status=receipt.get('status'), jobs=day.jobs_used())
         return 0
     except Exception as exc:
-        save_json(a.root/'HOLD.json', {'utc': now(), 'reason': str(exc), 'jobs_used': day.jobs_used(),
+        save_json(a.root/'HOLD.json', {'utc': now(), 'reason': str(exc),
+                                       'jobs_used': day.jobs_used() if 'day' in locals() else None,
                                        'resume': 'fix the cause, then rerun the same command'})
         log(status='hold', reason=str(exc)[:500])
         return 2

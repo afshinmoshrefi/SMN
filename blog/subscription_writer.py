@@ -13,11 +13,15 @@ import os
 from pathlib import Path
 import queue
 import re
+import shutil
 import socket
 import subprocess
 import threading
 import time
 import uuid
+
+SUPPORTED_MODELS = {'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'}
+MEDIA = {'.png', '.jpg', '.jpeg', '.webp'}
 
 
 def utc_now():
@@ -112,15 +116,15 @@ def account_snapshot(codex, cwd, timeout=45):
             raise RuntimeError('A saved ChatGPT login is required; no API fallback')
         limits = request('account/rateLimits/read', 3)
         models = request('model/list', 4, {'includeHidden': False})
-        astra = [{k: m.get(k) for k in ('id','model','supportedReasoningEfforts',
+        catalog = [{k: m.get(k) for k in ('id','model','supportedReasoningEfforts',
                   'defaultReasoningEffort','defaultServiceTier')}
-                 for m in models.get('data', []) if m.get('model') == 'gpt-6-astra'
-                 or m.get('id') == 'gpt-6-astra']
+                 for m in models.get('data', []) if m.get('model') in SUPPORTED_MODELS
+                 or m.get('id') in SUPPORTED_MODELS]
         # Keep usage evidence without account IDs, email, or earned-reset IDs.
         limits = {k: limits[k] for k in ('rateLimits','rateLimitsByLimitId') if k in limits}
         return {'utc': utc_now(), 'auth_type': account.get('type'),
                 'plan_type': account.get('planType'), 'rate_limits': limits,
-                'astra_catalog': astra, 'probe_generated_model_turns': 0}
+                'model_catalog': catalog, 'probe_generated_model_turns': 0}
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -132,22 +136,37 @@ def account_snapshot(codex, cwd, timeout=45):
 
 
 def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
-                evidence_sha256, stage='write', effort='xhigh'):
+                evidence_sha256, stage='write', effort='xhigh', model='gpt-6-astra',
+                images=(), web_search=False):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,100}', job_id):
         raise ValueError('Invalid job ID')
     if effort not in {'low', 'medium', 'high', 'xhigh', 'max'}:
         raise ValueError('Unsupported explicit effort')
+    if model not in SUPPORTED_MODELS:
+        raise ValueError('Unsupported explicit model')
+    if web_search and (stage != 'primary-discovery' or images):
+        raise ValueError('Web search is only enabled for text-only primary-discovery jobs')
     job = Path(root).resolve() / job_id
     job.mkdir(parents=True, exist_ok=False)
     (job / 'prompt.txt').write_text(prompt, encoding='utf-8')
     save_json(job / 'schema.json', schema)
+    names = ['prompt.txt', 'schema.json']
+    for i, image in enumerate(images):
+        image = Path(image)
+        if image.suffix.lower() not in MEDIA:
+            raise ValueError('Unsupported image type')
+        (job/'images').mkdir(exist_ok=True)
+        name = 'images/' + str(i) + '-' + image.name
+        shutil.copyfile(image, job/name)
+        names.append(name)
     manifest = {'version': 1, 'job_id': job_id, 'stage': stage,
                 'created_utc': utc_now(), 'as_of': as_of,
-                'valid_until': valid_until, 'model': 'gpt-6-astra',
+                'valid_until': valid_until, 'provider': 'openai', 'model': model,
                 'effort': effort, 'evidence_sha256': evidence_sha256,
+                'web_search': bool(web_search),
                 'publish': False,
                 'input_hashes': {name: sha256((job/name).read_bytes())
-                    for name in ['prompt.txt', 'schema.json']}}
+                    for name in names}}
     save_json(job / 'job.json', manifest)
     save_json(job / 'state.json', {'status': 'ready', 'utc': utc_now()})
     return job
@@ -156,10 +175,16 @@ def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
 def verify_job(job):
     job = Path(job).resolve()
     manifest = load_json(job / 'job.json')
-    if manifest.get('publish') is not False or manifest.get('model') != 'gpt-6-astra':
-        raise ValueError('Only the private Astra handoff is enabled')
-    if set(manifest.get('input_hashes', {})) != {'prompt.txt', 'schema.json'}:
+    if manifest.get('publish') is not False or manifest.get('model') not in SUPPORTED_MODELS:
+        raise ValueError('Only supported private model handoffs are enabled')
+    if manifest.get('web_search', False) not in (True, False) or (manifest.get('web_search') and manifest.get('stage') != 'primary-discovery'):
+        raise ValueError('Invalid web search scope')
+    names = set(manifest.get('input_hashes', {}))
+    if not {'prompt.txt', 'schema.json'} <= names or any(
+            n not in {'prompt.txt', 'schema.json'} and not n.startswith('images/') for n in names):
         raise ValueError('Unexpected job inputs')
+    if manifest.get('web_search') and any(n.startswith('images/') for n in names):
+        raise ValueError('Discovery job cannot attach images')
     for name, expected in manifest['input_hashes'].items():
         if (job / name).is_symlink() or sha256((job/name).read_bytes()) != expected:
             raise ValueError('Prepared input changed after ready: ' + name)
@@ -229,19 +254,25 @@ def run_job(job, codex, *, timeout=900):
         running = True
         before = account_snapshot(codex, job)
         save_json(job / 'usage-before.json', before)
-        if not before['astra_catalog']:
-            raise RuntimeError('Astra is not listed for this account; no model substitution')
-        efforts = {e['reasoningEffort'] for m in before['astra_catalog']
+        matching = [m for m in before['model_catalog'] if m.get('model') == manifest['model']
+                    or m.get('id') == manifest['model']]
+        if not matching:
+            raise RuntimeError('Requested model is unavailable; no model substitution')
+        efforts = {e['reasoningEffort'] for m in matching
                    for e in m.get('supportedReasoningEfforts', [])}
         if manifest['effort'] not in efforts:
-            raise RuntimeError('Requested Astra effort is unavailable; no effort substitution')
+            raise RuntimeError('Requested model effort is unavailable; no effort substitution')
         cmd = [str(codex), 'exec', *codex_defaults(), '--ephemeral',
                '--skip-git-repo-check', '--sandbox', 'read-only',
                '-c', 'model_reasoning_effort="' + manifest['effort'] + '"',
                '--model', manifest['model'], '--json', '--color', 'never',
                '--output-schema', str(job/'schema.json'),
-               '--output-last-message', str(job/'output.json'),
-               '--cd', str(job), '-']
+               '--output-last-message', str(job/'output.json')]
+        if manifest.get('web_search'):
+            cmd.extend(['-c', 'web_search="live"'])
+        for name in sorted(n for n in manifest['input_hashes'] if n.startswith('images/')):
+            cmd.extend(['--image', str(job/name)])
+        cmd.extend(['--cd', str(job), '-'])
         save_json(job / 'invocation.json', {'argv': cmd,
             'auth': 'saved ChatGPT login, API overrides removed from child environment',
             'timeout_seconds': timeout})
@@ -272,16 +303,21 @@ def run_job(job, codex, *, timeout=900):
             raise RuntimeError('Codex did not complete exactly one turn; inspect saved diagnostics')
         tool_items = [e.get('item', {}).get('type') for e in events
                       if e.get('type') == 'item.completed' and
-                      e.get('item', {}).get('type') in
-                      {'command_execution','mcp_tool_call','web_search','collab_tool_call','file_change'}]
-        if tool_items:
+                      e.get('item', {}).get('type') not in {'agent_message', 'reasoning'}]
+        if any(t not in {'web_search', 'web_search_call'} or not manifest.get('web_search')
+               for t in tool_items):
             raise RuntimeError('Unexpected tools in a prepared-evidence writing job')
+        reported_models = {e.get('model') for e in events if isinstance(e.get('model'), str)}
+        if reported_models and reported_models != {manifest['model']}:
+            raise RuntimeError('Unexpected model in event stream; no model substitution')
         output = load_json(job/'output.json')
         validate_schema(output, load_json(job/'schema.json'))
         receipt = {'job_id': manifest['job_id'], 'stage': manifest['stage'],
             'status': 'output_ready_for_smn_validation', 'started_utc': before['utc'],
             'finished_utc': utc_now(), 'seconds': round(time.monotonic()-started, 3),
             'model_requested': manifest['model'], 'effort_requested': manifest['effort'],
+            'provider': 'openai', 'billing_source': 'subscription',
+            'model_used': sorted(reported_models) if reported_models else None,
             'auth_type': before['auth_type'], 'plan_type': before['plan_type'],
             'usage': usages[0], 'tool_calls': tool_items, 'api_fallback': False,
             'new_external_provider_calls': 0,

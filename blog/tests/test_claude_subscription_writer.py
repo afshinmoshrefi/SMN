@@ -50,6 +50,30 @@ class ClaudeWriterTests(unittest.TestCase):
         self.assertEqual((m['provider'], m['model'], m['effort']), ('anthropic', 'claude-opus-5-5', 'medium'))
         self.assertEqual(dispatch_verify(self.job)['model'], 'claude-opus-5-5')
 
+    def test_only_discovery_can_enable_bounded_web_tools(self):
+        until = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        with self.assertRaisesRegex(ValueError, 'primary-source discovery'):
+            cw.prepare_job(self.dir/'jobs', 'bad-web', 'p', SCHEMA, as_of='2026-09-25',
+                           valid_until=until, evidence_sha256='e'*64, web_search=True)
+        job = cw.prepare_job(self.dir/'jobs', 'discover', 'p', SCHEMA, as_of='2026-09-25',
+                             valid_until=until, evidence_sha256='e'*64, stage='primary-discovery',
+                             model=cw.REVIEW_MODEL, effort='low', web_search=True)
+        cmd = cw.command('claude', job, cw.verify_job(job))
+        self.assertEqual(cmd[cmd.index('--tools')+1], 'WebSearch,WebFetch')
+        self.assertEqual(cmd[cmd.index('--max-turns')+1], '8')
+        self.assertEqual(cw.command('claude', self.job, cw.verify_job(self.job))[
+            cw.command('claude', self.job, cw.verify_job(self.job)).index('--tools')+1], '')
+
+    def test_discovery_records_web_calls_but_not_structured_output(self):
+        def event(name):
+            return json.dumps({'message': {'content': [{'type': 'tool_use', 'name': name, 'id': 'test'}]}})
+        self.assertEqual(cw.discovery_tools(event('WebSearch')+'\n'+event('StructuredOutput')),
+                         [{'name': 'WebSearch', 'id': 'test'}])
+        with self.assertRaisesRegex(RuntimeError, 'Unexpected discovery tool'):
+            cw.discovery_tools(event('Bash'))
+        with self.assertRaisesRegex(RuntimeError, 'without web evidence'):
+            cw.discovery_tools(event('StructuredOutput'))
+
     def test_subscription_receipt_without_api_fallback_or_secrets(self):
         os.environ['ANTHROPIC_API_KEY'] = 'sk-test'
         try:
