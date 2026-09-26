@@ -16,4 +16,3 @@ Environment=PATH=/opt/smn-daily/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/us
 ExecStart=/home/flask/venv-smn-integrity-20260711T205457Z/bin/python /opt/smn-daily/current/blog/smn_daily_control.py run
 TimeoutStartSec=2h
 UMask=0077
-
