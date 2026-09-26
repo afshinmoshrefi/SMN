@@ -438,6 +438,7 @@ function renderGeneration(report) {
     " · <b>Jobs:</b> " + escapeHtml(genNumber(totals.jobs)) +
     " · <b>Completed:</b> " + escapeHtml(genNumber(totals.completed)) +
     " · <b>Failed:</b> " + escapeHtml(genNumber(totals.failed)) + "</p>" +
+    (report.hold_reason ? "<p><b>Hold reason:</b> " + escapeHtml(report.hold_reason) + "</p>" : "") +
     "<p><b>Tokens:</b> input " + escapeHtml(genNumber(totals.input_tokens)) +
     ", cache read " + escapeHtml(genNumber(totals.cache_read_tokens)) +
     ", cache write " + escapeHtml(genNumber(totals.cache_write_tokens)) +
@@ -445,7 +446,7 @@ function renderGeneration(report) {
     "<p><b>Reported API equivalent:</b> " + escapeHtml(genMoney(totals.reported_api_equivalent_usd)) +
     ". Subscription cash charge and per-run allocation: " + escapeHtml(genValue(billing.actual_cash_charged_usd)) +
     " / " + escapeHtml(genValue(billing.subscription_allocation_usd)) +
-    ". These estimates come from CLI receipts; they are not a subscription invoice.</p>" +
+    ". These estimates come from CLI receipts; they are not a subscription invoice. External tool fees are not independently itemized.</p>" +
     "<p class='gen-note'><b>Missing usage:</b> " + escapeHtml(missing.length ? missing.join(", ") : "None reported") +
     ". Values with missing receipts are partial, not complete totals.</p>" +
     "<p><b>Shared batch jobs:</b> " + escapeHtml(genNumber(report.overhead?.batch?.jobs)) +
@@ -456,6 +457,8 @@ function renderGeneration(report) {
       ", output " + escapeHtml(genNumber(coordination.output_tokens)) +
       ", reasoning output " + escapeHtml(genNumber(coordination.reasoning_output_tokens)) +
       ", API equivalent " + escapeHtml(genMoney(coordination.api_equivalent_usd)) +
+      ". Scope: " + escapeHtml(genValue(coordination.scope)) +
+      "; coverage: " + (coordination.complete === true ? "complete" : "partial") +
       ". This is separate evidence and is excluded from the article total.</p>" : "") + previewLinks;
   const dimensions = [
     ["Article totals", genRows(report.by_article, "article"), [["article", "Article"], ["jobs", "Attempts", genNumber], ["retries", "Retry / repair attempts", genNumber], ["seconds", "Model seconds", genNumber], ["input_tokens", "Input", genNumber], ["cache_read_tokens", "Cache read", genNumber], ["cache_write_tokens", "Cache write", genNumber], ["output_tokens", "Output", genNumber], ["reported_api_equivalent_usd", "API equivalent", genMoney]]],
