@@ -17,14 +17,14 @@ USAGE_FIELDS = (*TOKEN_FIELDS, 'reported_api_equivalent_usd')
 MAX_JSON_BYTES = 32 * 1024 * 1024
 
 
-def _json_file(path: Path):
+def _json_file(path: Path, *, allow_list=False):
     if not path.is_file() or path.is_symlink() or path.stat().st_size > MAX_JSON_BYTES:
         return None
     try:
         value = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    return value if isinstance(value, dict) else None
+    return value if isinstance(value, (dict, list) if allow_list else dict) else None
 
 
 def _result_usage(path: Path):
@@ -64,7 +64,11 @@ def _model_usage(raw):
     if not isinstance(raw, dict):
         return usage
     for key, source in TOKEN_FIELDS.items():
-        usage[key] = _number(raw.get(source))
+        alternate = {'input_tokens': 'input_tokens', 'cache_read_tokens': 'cache_read_input_tokens',
+                     'cache_write_tokens': 'cache_creation_input_tokens', 'output_tokens': 'output_tokens'}[key]
+        if key == 'cache_read_tokens' and 'cached_input_tokens' in raw:
+            alternate = 'cached_input_tokens'
+        usage[key] = _number(raw.get(source, raw.get(alternate)))
     usage['reported_api_equivalent_usd'] = _number(raw.get('costUSD'))
     usage['cost_basis'] = raw.get('costBasis') if raw.get('costBasis') in ('list',) else None
     return usage
@@ -77,6 +81,10 @@ def _aggregate(rows):
     for key in USAGE_FIELDS:
         values = [r[key] for r in rows if r[key] is not None]
         total[key] = round(sum(values), 8) if values else None
+    seconds = [r['seconds'] for r in rows if r['seconds'] is not None]
+    total['seconds'] = round(sum(seconds), 3) if seconds else None
+    total['coverage'] = {key: {'reported_jobs': sum(r[key] is not None for r in rows),
+                               'total_jobs': len(rows)} for key in (*USAGE_FIELDS, 'seconds')}
     total['missing_fields'] = sorted({key for r in rows for key in r['missing_fields']})
     return total
 
@@ -107,38 +115,57 @@ def _run_metadata(root: Path):
     return {key: raw[key][:120] for key in allowed if isinstance(raw.get(key), str)}
 
 
-def _job(job_dir: Path):
-    manifest = _json_file(job_dir / 'job.json') or {}
+def _job(job_dir: Path, *, parent_manifest=None, parent_receipt=None):
+    archived = parent_manifest is not None
+    manifest = _json_file(job_dir / 'job.json') or parent_manifest or {}
     state = _json_file(job_dir / 'state.json') or {}
     receipt = _json_file(job_dir / 'receipt.json') or {}
-    turn = _json_file(job_dir / 'turn-usage.json')
+    turn = _json_file(job_dir / 'turn-usage.json', allow_list=True)
     usage_source = 'turn-usage.json' if turn is not None else 'result.json'
     if turn is None:
         turn = _result_usage(job_dir / 'result.json') or {}
         if not turn:
             usage_source = 'receipt.json' if receipt.get('usage') or receipt.get('model_usage') else None
-    models = turn.get('modelUsage')
+    models = turn.get('modelUsage') if isinstance(turn, dict) else None
     if not isinstance(models, dict) or not models:
         models = receipt.get('model_usage')
     if not isinstance(models, dict) or not models:
         name = receipt.get('model_requested') or manifest.get('model')
-        models = {name: receipt['usage']} if isinstance(name, str) and isinstance(receipt.get('usage'), dict) else {}
+        if isinstance(turn, list):
+            pieces = [_model_usage(raw) for raw in turn if isinstance(raw, dict)]
+            raw_usage = {source: sum(piece[key] for piece in pieces if piece[key] is not None)
+                         for key, source in TOKEN_FIELDS.items() if any(piece[key] is not None for piece in pieces)}
+        elif isinstance(turn, dict):
+            raw_usage = turn.get('usage') or {}
+        else:
+            raw_usage = {}
+        if not raw_usage:
+            raw_usage = receipt.get('usage') or {}
+        models = {name: raw_usage} if isinstance(name, str) and isinstance(raw_usage, dict) and raw_usage else {}
     breakdown = {name: _model_usage(raw) for name, raw in models.items() if isinstance(name, str)}
     usage = _empty_usage()
     for key in USAGE_FIELDS:
         values = [m[key] for m in breakdown.values() if m[key] is not None]
         usage[key] = round(sum(values), 8) if values else None
-    job_id = manifest.get('job_id') if isinstance(manifest.get('job_id'), str) else job_dir.name
+    base_id = manifest.get('job_id') if isinstance(manifest.get('job_id'), str) else job_dir.name
+    job_id = base_id + '/' + job_dir.name if archived else base_id
     stage = manifest.get('stage') or receipt.get('stage') or 'unknown'
     status = state.get('status') or receipt.get('status') or 'unknown'
+    article = base_id.split('-', 1)[0] if '-' in base_id else None
+    scope = 'batch' if article == 'EDITION' or stage == 'landing-visual' else 'article'
+    duration = _number(receipt.get('seconds'))
+    if duration is None and isinstance(turn, dict):
+        millis = _number(turn.get('duration_ms'))
+        duration = round(millis / 1000, 3) if millis is not None else None
     row = {
-        'job_id': job_id, 'article': job_id.split('-', 1)[0] if '-' in job_id else None,
-        'stage': stage, 'status': status,
-        'retry': stage.startswith(('repair', 'rereview', 'retry')),
+        'job_id': job_id, 'article': article if scope == 'article' else None,
+        'scope': scope, 'stage': stage, 'status': status,
+        'retry': archived or stage.startswith(('repair', 'rereview', 'retry')) or stage.endswith('-two'),
+        'archived_attempt': archived, 'seconds': duration,
         'model_requested': manifest.get('model') or receipt.get('model_requested'),
         'models': breakdown,
         'usage_source': usage_source,
-        'billing_source': receipt.get('billing_source'),
+        'billing_source': receipt.get('billing_source') or ((parent_receipt or {}).get('billing_source') if archived else None),
         **usage,
         'missing_fields': [key for key in USAGE_FIELDS if usage[key] is None],
     }
@@ -154,33 +181,57 @@ def summarize_run(root: Path) -> dict:
         for child in sorted(jobs_dir.iterdir()):
             if _safe_dir(child) and (child / 'job.json').is_file() and not (child / 'job.json').is_symlink():
                 jobs.append(_job(child))
+                manifest = _json_file(child / 'job.json') or {}
+                receipt = _json_file(child / 'receipt.json') or {}
+                for attempt in sorted(child.iterdir()):
+                    if _safe_dir(attempt) and re.fullmatch(r'failed-attempt-\d+', attempt.name):
+                        jobs.append(_job(attempt, parent_manifest=manifest, parent_receipt=receipt))
     by_model = {}
     by_stage = {}
+    by_article = {}
     for job in jobs:
         by_stage.setdefault(job['stage'], []).append(job)
+        if job['article']:
+            by_article.setdefault(job['article'], []).append(job)
         for model, usage in job['models'].items():
-            by_model.setdefault(model, []).append({'status': job['status'], 'retry': job['retry'], **usage,
+            by_model.setdefault(model, []).append({'status': job['status'], 'retry': job['retry'],
+                                                     'seconds': job['seconds'], **usage,
                                                      'missing_fields': [k for k in USAGE_FIELDS if usage[k] is None]})
+    active = [job for job in jobs if not job['archived_attempt']]
     job_status = ('unavailable' if not _safe_dir(jobs_dir) else
-              'empty' if not jobs else
-              'incomplete' if any(j['status'] != 'output_ready_for_smn_validation' for j in jobs) else 'complete')
+                  'empty' if not jobs else
+                  'incomplete' if any(j['status'] != 'output_ready_for_smn_validation' for j in active) else
+                  'complete_with_failed_attempts' if len(active) < len(jobs) else 'complete')
     metadata = _run_metadata(root)
+    daily = _json_file(root / 'smn-daily-state.json') or {}
+    publication = _json_file(root / 'dev-publication-receipt.json') or {}
+    publication_status = publication.get('status') if isinstance(publication.get('status'), str) else None
+    article_state = daily.get('articles') or {}
+    if publication_status is None and isinstance(article_state, dict) and article_state:
+        publication_status = ('held' if any(isinstance(value, dict) and value.get('held')
+                                            for value in article_state.values()) else
+                              'finalized' if all(isinstance(value, dict) and value.get('finalized')
+                                                 for value in article_state.values()) else 'in_progress')
     return {
         'run_id': root.name, 'label': metadata.get('label', root.name),
         'source_date': metadata.get('source_date'),
         'started_utc': metadata.get('started_utc'), 'finished_utc': metadata.get('finished_utc'),
         'publication_mode': metadata.get('publication_mode'),
         'source_commit': metadata.get('source_commit'),
-        'status': metadata.get('status', job_status), 'job_status': job_status,
+        'status': metadata.get('status', publication_status or 'unknown'), 'job_status': job_status,
+        'publication_status': publication_status,
         'jobs': jobs, 'totals': _aggregate(jobs),
+        'article_totals': _aggregate([job for job in jobs if job['scope'] == 'article']),
         'by_model': {name: _aggregate(rows) for name, rows in sorted(by_model.items())},
         'by_stage': {name: _aggregate(rows) for name, rows in sorted(by_stage.items())},
+        'by_article': {name: _aggregate(rows) for name, rows in sorted(by_article.items())},
         'missing_fields': sorted({key for job in jobs for key in job['missing_fields']}),
         'cost_basis': 'Claude CLI modelUsage.costUSD (reported list-price API equivalent, not a charge)',
         'billing': {'source': 'subscription' if jobs and all(j['billing_source'] == 'subscription' for j in jobs)
                     else 'unknown', 'actual_cash_charged_usd': None, 'subscription_allocation_usd': None},
-        'overhead': {'batch_tokens': None, 'coordination_usage': _coordination_usage(root),
-                     'reason': 'Batch overhead unavailable; coordination usage is separate from article totals'},
+        'overhead': {'batch': _aggregate([job for job in jobs if job['scope'] == 'batch']),
+                     'coordination_usage': _coordination_usage(root),
+                     'reason': 'Only receipt-backed shared jobs are counted; coordination usage is separate'},
         'hero_image': {'incremental_dev_generation_calls': 0, 'basis': 'retained production hero reuse'},
     }
 
@@ -204,6 +255,7 @@ def discover_runs(state_root: Path) -> list[dict]:
         summary.pop('jobs')
         summary.pop('by_model')
         summary.pop('by_stage')
+        summary.pop('by_article')
         summary['kind'] = 'comparison' if root.parent == comparisons else 'daily'
         runs.append(summary)
     return runs
