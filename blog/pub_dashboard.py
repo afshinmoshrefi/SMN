@@ -48,19 +48,23 @@ for _extra in ("/home/flask", "/home/flask/blog"):
 
 from datetime import timedelta
 
-from flask import Flask, Response, g, jsonify, redirect, render_template, request, session
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, send_file, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import article_index
 import dashboard_auth
 import pin_store
 import schedule_store
+import smn_cost_report
+import smn_daily_control
+import subscription_publication
 from article_index import NEWS_ROOT, POSTS_JSON, TRASH_DIR
 from pin_store import iso, parse_dt, utcnow
 
 VERSION = "1.0.0"
 BLOG_DIR = Path(__file__).resolve().parent
 BLOG_QUEUE_URL = os.environ.get("SMN_BLOG_QUEUE_URL", "http://127.0.0.1:7171")
+SMN_DAILY_STATE_ROOT = Path(os.environ.get("SMN_DAILY_STATE_ROOT", "/var/lib/tradewave/smn-daily"))
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
 
@@ -516,6 +520,149 @@ def index():
     sweep()
     return render_template("pub_dashboard.html", version=VERSION,
                            site_base=site_base(), base=request.script_root)
+
+
+# Generation settings apply to new editions. Existing edition profiles stay bound
+# to their saved state and are never changed by the dashboard selector.
+GENERATION_OPTIONS = (
+    {"id": "claude", "label": "Claude subscription", "available": True},
+    {"id": "chatgpt", "label": "ChatGPT/Codex subscription", "available": True},
+    {"id": "claude_api", "label": "Claude API", "available": False,
+     "reason": "Not configured; no API adapter is installed."},
+    {"id": "openai_api", "label": "OpenAI API", "available": False,
+     "reason": "Not configured; no API adapter is installed."},
+)
+
+
+@app.route("/api/generation/settings", methods=["GET", "PUT"])
+def api_generation_settings():
+    if request.method == "GET":
+        try:
+            selected = smn_daily_control.selection(SMN_DAILY_STATE_ROOT)
+        except (OSError, ValueError, KeyError) as exc:
+            return fail("settings_unavailable", "Generation settings could not be read", 503)
+        return ok({"selection": selected, "options": GENERATION_OPTIONS})
+
+    # The open LAN mode bypasses guard's session CSRF check. A custom header
+    # also protects this new write there; browsers cannot send it cross-origin
+    # without a successful CORS preflight.
+    if g.identity.get("kind") != "agent" and request.headers.get("X-SMN-Dashboard") != "1":
+        return fail("csrf", "missing X-SMN-Dashboard header", 403)
+    origin = request.headers.get("Origin")
+    if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
+        return fail("origin", "cross-origin settings update refused", 403)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or data.get("profile") not in ("claude", "chatgpt"):
+        return fail("invalid_profile", "Choose an available subscription profile",
+                    field="profile")
+    try:
+        selected = smn_daily_control.set_profile(SMN_DAILY_STATE_ROOT, data["profile"])
+    except (OSError, ValueError):
+        return fail("settings_unavailable", "Generation settings could not be saved", 503)
+    audit("generation_profile", "", actor(), profile=selected["profile"])
+    return ok({"selection": selected, "options": GENERATION_OPTIONS})
+
+
+@app.route("/api/generation/runs", methods=["GET"])
+def api_generation_runs():
+    try:
+        return ok(smn_cost_report.discover_runs(SMN_DAILY_STATE_ROOT))
+    except OSError:
+        return fail("runs_unavailable", "Generation runs could not be read", 503)
+
+
+@app.route("/api/generation/runs/<run_id>", methods=["GET"])
+def api_generation_run(run_id):
+    kind = request.args.get("kind", "")
+    root = _generation_run_root(run_id, kind)
+    if root is False:
+        return fail("invalid_run", "Choose a run from the list", 400)
+    if root is None:
+        return fail("run_not_found", "Generation run was not found", 404)
+    try:
+        summary = smn_cost_report.summarize_run(root)
+        summary["previews"] = {symbol: request.script_root + "/api/generation/runs/" + run_id +
+                               "/preview/" + symbol + "/article.html?kind=" + kind
+                               for symbol in _preview_symbols(root)}
+        return ok(summary)
+    except OSError:
+        return fail("run_unavailable", "Generation run could not be read", 503)
+
+
+def _generation_run_root(run_id, kind):
+    if kind not in ("daily", "comparison") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,100}", run_id):
+        return False
+    matches = [item for item in smn_cost_report.discover_runs(SMN_DAILY_STATE_ROOT)
+               if item.get("run_id") == run_id and item.get("kind") == kind]
+    if len(matches) != 1:
+        return None
+    base = (SMN_DAILY_STATE_ROOT / ("comparisons" if kind == "comparison" else "")).resolve()
+    root = (base / run_id).resolve()
+    return root if root.parent == base else False
+
+
+def _preview_ready(root, symbol):
+    if not re.fullmatch(r"[A-Z0-9]{1,12}", symbol):
+        return False
+    result = root / "results" / symbol
+    if result.is_symlink() or not result.is_dir():
+        return False
+    state_path = root / "smn-daily-state.json"
+    if state_path.is_symlink() or not state_path.is_file():
+        return False
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        article = state.get("articles", {}).get(symbol, {})
+        stage = article.get("review_stage")
+        if not article.get("finalized") or not isinstance(stage, str) or not re.fullmatch(r"[a-z0-9_-]{1,40}", stage):
+            return False
+        date = state.get("date", "")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            return False
+        review = root / "jobs" / (symbol + "-" + date.replace("-", "") + "-" + stage) / "output.json"
+        if review.is_symlink() or not review.is_file():
+            return False
+        subscription_publication.reviewed(result, review)
+        return True
+    except Exception:
+        return False
+
+
+def _preview_symbols(root):
+    results = root / "results"
+    if not results.is_dir() or results.is_symlink():
+        return []
+    return [child.name for child in sorted(results.iterdir()) if _preview_ready(root, child.name)]
+
+
+@app.route("/api/generation/runs/<run_id>/preview/<symbol>/<path:asset>", methods=["GET"])
+def api_generation_preview(run_id, symbol, asset):
+    root = _generation_run_root(run_id, request.args.get("kind", ""))
+    if root is False:
+        return fail("invalid_run", "Choose a run from the list", 400)
+    if root is None:
+        return fail("run_not_found", "Generation run was not found", 404)
+    if not _preview_ready(root, symbol):
+        return fail("preview_unavailable", "Reviewed article preview is not available", 404)
+    parts = Path(asset).parts
+    if asset == "article.html":
+        relative = Path(asset)
+    elif (len(parts) == 2 and parts[0] == "assets" and
+          re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", parts[1]) and
+          Path(parts[1]).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".css")):
+        relative = Path(*parts)
+    else:
+        return fail("invalid_asset", "Preview file is not public", 404)
+    path = root / "results" / symbol / relative
+    if not path.is_file() or path.is_symlink() or (root / "results" / symbol / "assets").is_symlink():
+        return fail("asset_not_found", "Preview file was not found", 404)
+    response = send_file(path, conditional=True)
+    response.headers["Content-Security-Policy"] = ("sandbox allow-scripts; default-src 'none'; "
+        "img-src 'self' data:; style-src 'unsafe-inline' 'self'; script-src 'unsafe-inline'; "
+        "connect-src 'none'; base-uri 'none'; form-action 'none'")
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # --------------------------------------------------------------------------- #
