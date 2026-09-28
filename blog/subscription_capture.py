@@ -1,6 +1,6 @@
 """Read-only production and TradeWave engine evidence capture."""
 from __future__ import annotations
-import argparse, base64, datetime as dt, hashlib, io, json, re, subprocess, tarfile
+import argparse, base64, datetime as dt, hashlib, io, json, os, re, subprocess, tarfile
 from pathlib import Path
 
 PRODUCTION_HOST = ["-p", "4369", "root@209.182.216.112"]
@@ -104,6 +104,7 @@ def _remote_capture(edition: str) -> bytes:
     _date(edition)
     code = REMOTE_CAPTURE
     cmd=["ssh","-o","BatchMode=yes","-o","ConnectTimeout=10",*PRODUCTION_HOST,"python3 -",edition]
+    if os.environ.get("SMN_CAPTURE_LOCAL")=="1": cmd=["python3","-",edition]  # running on production itself
     p=subprocess.run(cmd,input=code.encode(),capture_output=True,timeout=900)
     if p.returncode==75: raise Waiting('production batch not complete')
     if p.returncode: raise Held("production capture held; remote read failed")
