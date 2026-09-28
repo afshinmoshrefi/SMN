@@ -44,8 +44,10 @@ def review_stages(root):
     return stages
 
 def edition_date(root):
-    state=root/'daily-state.json'
-    date=read(state).get('date') if state.exists() else root.name
+    # smn_daily.py keeps its date in smn-daily-state.json, so a comparison root
+    # such as comparisons/2026-09-28-claude can publish too.
+    states=[root/n for n in ('daily-state.json','smn-daily-state.json') if (root/n).exists()]
+    date=read(states[0]).get('date') if states else root.name
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(date)): raise ValueError('Edition root must declare an ISO edition date')
     return date
 
