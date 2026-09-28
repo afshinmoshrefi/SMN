@@ -119,22 +119,32 @@ class Day:
         target = self.root/'sources.json'
         if target.exists():
             return
-        smn_primary_sources.collect(self.root, self.date, self.symbols, self.roles, CLIS, self.run_job)
         example = load_json(BLOG/'examples/subscription-sources-20260923.json')
         folder = self.root/'research'
         folder.mkdir(exist_ok=True)
         for sym in self.symbols:
-            if (folder/(sym + '.json')).exists():
+            if self.state['articles'].get(sym, {}).get('held') or (folder/(sym + '.json')).exists():
                 continue
-            other = next(v for k, v in example.items() if k != sym)
-            entry, problems = self._research_job(sym, other, 'research')
-            if problems:
-                entry, problems = self._research_job(sym, other, 'research-two', problems)
-            if problems:
-                raise Hold('research for %s failed checks twice: %s' % (sym, '; '.join(problems)))
+            try:
+                smn_primary_sources.collect(self.root, self.date, [sym], self.roles, CLIS, self.run_job)
+                other = next(v for k, v in example.items() if k != sym)
+                entry, problems = self._research_job(sym, other, 'research')
+                if problems:
+                    entry, problems = self._research_job(sym, other, 'research-two', problems)
+                if problems:
+                    raise Hold('research for %s failed checks twice: %s' % (sym, '; '.join(problems)))
+            except Exception as exc:
+                # Hold only this article; the others still get written.
+                self.state['articles'].setdefault(sym, {})['held'] = {'utc': now(), 'reason': str(exc)[:500]}
+                self.save()
+                log(step='article_held', symbol=sym, reason=str(exc)[:300])
+                continue
             save_json(folder/(sym + '.json'), smn_research.to_sources(entry))
             log(step='research', symbol=sym, sources=len(entry['sources']))
-        save_json(target, {sym: load_json(folder/(sym + '.json')) for sym in self.symbols})
+        ready = [s for s in self.symbols if (folder/(s + '.json')).exists()]
+        if not ready:
+            raise Hold('research failed for every article')
+        save_json(target, {sym: load_json(folder/(sym + '.json')) for sym in ready})
 
     def _research_job(self, sym, example, stage, issues=None):
         job = self.root/'jobs'/(sym + '-' + self.date.replace('-', '') + '-' + stage)

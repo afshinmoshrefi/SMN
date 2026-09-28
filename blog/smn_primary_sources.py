@@ -286,7 +286,8 @@ def collect(root, edition, symbols, roles, clis, run_job):
                   'investor releases, filings, regulator or government data, and other first-party evidence. '
                   'Each page must concern this subject, contain useful reported business facts, be published '
                   'within 120 days through the edition date, and have a public HTTPS URL. Exclude news '
-                  'aggregators, analyst summaries, homepages, undated pages and PDFs. Return exact source '
+                  'aggregators, analyst summaries, homepages, undated pages and PDFs. Do not use nasdaq.com '
+                  'pages: that site blocks our page fetcher. Return exact source '
                   'titles, URLs, publication dates, publishers, and why each page is relevant. Never invent '
                   'a URL or publication date.\nSUBJECT: ' + json.dumps({k: post.get(k) for k in
                   ('symbol', 'title', 'dek', 'published_date')}) + '\nPRODUCTION LEADS:\n' + leads)
