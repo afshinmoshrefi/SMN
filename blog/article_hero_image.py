@@ -7,6 +7,7 @@ import sys
 import json
 import argparse
 import random
+import base64
 from typing import Optional, Dict, Tuple, Any
 
 sys.path.insert(0, "/home/flask")
@@ -349,7 +350,7 @@ def _normalize_market(resource_id: str) -> str:
 
 def generate_hero_image(
     hero_prompt: str, concept_brief: Dict, hero_output_path: str, symbol: str,
-    *, width: int = 1200, height: int = 600, date: str = "",
+    *, width: int = 1200, height: int = 600, date: str = "", attempt: int = 1,
 ) -> Optional[str]:
     """
     (MODIFIED) This is now the Smart Router.
@@ -378,6 +379,8 @@ def generate_hero_image(
     )
     # Include date so each article gets a fresh seed rather than the same image forever
     seed = hash(f"{concept_brief.get('entity_type','')}-{concept_brief.get('sector','')}-{base_name}-{date}") & 0xFFFFFFFF
+    # A regeneration after a failed text check must not redraw the same picture.
+    seed = (seed + (attempt - 1) * 7919) & 0xFFFFFFFF
     sector = concept_brief.get("sector", "").lower()
 
     # --- SMART ROUTER LOGIC ---
@@ -469,6 +472,108 @@ def generate_hero_image(
 
 
 # ------------------------------
+# Hero text check (cheap vision model) + bounded regeneration
+# ------------------------------
+HERO_MAX_ATTEMPTS = 3          # owner: detect, regenerate, re-check -- no more than 3 times
+HERO_CHECK_MODEL = "claude-haiku-4-5-20251001"
+HERO_NO_TEXT = (" Absolutely no text anywhere in the image: no letters, words, numbers, signage, "
+                "storefront names, labels or logos.")
+HERO_CHECK_RULES = (
+    "This is the hero illustration for a financial news article about {company} ({symbol}). "
+    "Read every piece of visible text in the image (signs, boxes, logos, labels, numbers). Copy each one "
+    "LETTER BY LETTER exactly as it is drawn, even when it is wrong. Never correct spelling and never fill "
+    "in a name you expect to see: if a sign says WALMRAT, write WALMRAT. List every word that is "
+    "misspelled, garbled, or looks like fake lettering, and any company name that is spelled wrong. "
+    "passed is true only when there is no visible text, or all visible text is correctly spelled real "
+    "words. Report the result with the report_hero_text tool.")
+HERO_CHECK_TOOL = {
+    "name": "report_hero_text",
+    "description": "Report the text found in the hero image.",
+    "input_schema": {"type": "object", "additionalProperties": False,
+                     "required": ["visible_text", "misspelled_or_garbled", "passed"],
+                     "properties": {"visible_text": {"type": "array", "items": {"type": "string"}},
+                                    "misspelled_or_garbled": {"type": "array", "items": {"type": "string"}},
+                                    "passed": {"type": "boolean"}}}}
+
+
+def check_hero_text(image_path: str, company: str, symbol: str) -> Dict[str, Any]:
+    """Ask a cheap vision model whether the hero has misspelled or garbled text.
+
+    A forced tool call gives a fixed answer shape. Returns {"passed": bool,
+    "checked": bool, ...}. When the check itself cannot run (API error, no
+    answer), checked is False and passed is True: a checker outage must never
+    stop the article.
+    """
+    try:
+        with open(image_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+        ext = os.path.splitext(image_path)[1].lower()
+        media = "image/png" if ext == ".png" else "image/webp" if ext == ".webp" else "image/jpeg"
+        resp = AI_tools.requests.post(
+            AI_tools.ANTHROPIC_API_URL, timeout=(15, 120),
+            headers={"x-api-key": AI_tools.ANTHROPIC_API_KEY, "anthropic-version": AI_tools.ANTHROPIC_VERSION,
+                     "content-type": "application/json"},
+            json={"model": HERO_CHECK_MODEL, "max_tokens": 800, "tools": [HERO_CHECK_TOOL],
+                  "tool_choice": {"type": "tool", "name": "report_hero_text"},
+                  "messages": [{"role": "user", "content": [
+                      {"type": "image", "source": {"type": "base64", "media_type": media, "data": data}},
+                      {"type": "text", "text": HERO_CHECK_RULES.format(company=company, symbol=symbol)}]}]})
+        if resp.status_code != 200:
+            raise RuntimeError("HTTP %s: %s" % (resp.status_code, resp.text[:200]))
+        answer = next(b["input"] for b in resp.json().get("content", []) if b.get("type") == "tool_use")
+        if not isinstance(answer.get("passed"), bool):
+            raise ValueError("no passed field in answer: %r" % answer)
+        bad = [w for w in answer.get("misspelled_or_garbled") or [] if str(w).strip()]
+        return {"checked": True, "passed": answer["passed"] and not bad,
+                "visible_text": answer.get("visible_text") or [], "misspelled_or_garbled": bad,
+                "model": HERO_CHECK_MODEL}
+    except Exception as e:
+        print(f"[HERO CHECK] check unavailable for {symbol}: {e}")
+        return {"checked": False, "passed": True, "error": str(e)[:300], "model": HERO_CHECK_MODEL}
+
+
+def generate_checked_hero(hero_prompt: str, concept_brief: Dict, hero_output_path: str, symbol: str,
+                          company: str, *, width: int, height: int, date: str) -> Tuple[Optional[str], Dict]:
+    """Generate the hero, check its text, and regenerate on failure (at most HERO_MAX_ATTEMPTS).
+
+    After the last failed check there is no hero: an article without a hero is
+    better than one with a misspelled company name. Every attempt is recorded
+    next to the image as <name>.check.json.
+    """
+    base, _ = os.path.splitext(hero_output_path)
+    record = {"symbol": symbol, "max_attempts": HERO_MAX_ATTEMPTS, "attempts": []}
+    final_path, prompt = None, hero_prompt
+    for attempt in range(1, HERO_MAX_ATTEMPTS + 1):
+        final_path = generate_hero_image(hero_prompt=prompt, concept_brief=concept_brief,
+                                         hero_output_path=hero_output_path, symbol=symbol,
+                                         width=width, height=height, date=date, attempt=attempt)
+        if not final_path:
+            record["attempts"].append({"attempt": attempt, "generated": False})
+            break
+        verdict = check_hero_text(final_path, company, symbol)
+        record["attempts"].append({"attempt": attempt, "generated": True, **verdict})
+        print(f"[HERO CHECK] {symbol} attempt {attempt}: passed={verdict['passed']} "
+              f"text={verdict.get('visible_text')} bad={verdict.get('misspelled_or_garbled')}")
+        if verdict["passed"]:
+            break
+        prompt = hero_prompt + HERO_NO_TEXT
+    else:
+        print(f"[HERO CHECK] {symbol}: text still wrong after {HERO_MAX_ATTEMPTS} attempts; publishing without a hero.")
+        try:
+            os.remove(hero_output_path)
+        except OSError:
+            pass
+        final_path = None
+    record["passed"] = bool(final_path)
+    try:
+        with open(base + ".check.json", "w") as f:
+            json.dump(record, f, indent=2)
+    except OSError as e:
+        print(f"[HERO CHECK] could not save check record: {e}")
+    return final_path, record
+
+
+# ------------------------------
 # Consolidated Workflow Function (NEW)
 # ------------------------------
 def hero_image_workflow(
@@ -512,24 +617,19 @@ def hero_image_workflow(
 
     # Step 4: Generate the image using the smart router
     print(f"[INFO] Generating hero image at path: {hero_path}")
-    final_path = generate_hero_image(
-        hero_prompt=hero_prompt,
-        concept_brief=concept_brief,
-        hero_output_path=hero_path,
-        symbol=symbol,
-        width=width,
-        height=height,
-        date=date,
+    final_path, hero_check = generate_checked_hero(
+        hero_prompt, concept_brief, hero_path, symbol, name_to_use,
+        width=width, height=height, date=date,
     )
 
     # Step 5: Handle failure and return results
     if not final_path:
         print(f"[FATAL] Hero image generation failed for {symbol}. No image was created.")
-        return { "error": "Image generation failed.", "image_path": None, "image_url": None, "prompt": hero_prompt, "concept": concept_brief }
+        return { "error": "Image generation failed.", "image_path": None, "image_url": None, "prompt": hero_prompt, "concept": concept_brief, "hero_check": hero_check }
 
     print(f"\n[SUCCESS] Saved hero image: {final_path}")
     print(f"[INFO] Audit files (prompt/concept) saved in: {os.path.dirname(final_path)}")
-    return { "image_path": final_path, "image_url": hero_url, "prompt": hero_prompt, "concept": concept_brief }
+    return { "image_path": final_path, "image_url": hero_url, "prompt": hero_prompt, "concept": concept_brief, "hero_check": hero_check }
 # ------------------------------
 # CLI
 # ------------------------------
