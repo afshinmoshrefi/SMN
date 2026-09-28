@@ -29,10 +29,10 @@ def _date(value):
 
 def _posts(root, edition):
     posts=json.loads((root/'production/posts.json').read_text())
-    if len(posts)!=6 or len({p.get('symbol') for p in posts})!=6 or any(
+    if not 1<=len(posts)<=6 or len({p.get('symbol') for p in posts})!=len(posts) or any(
         not re.fullmatch(r'[A-Z0-9]{1,12}',str(p.get('symbol',''))) or
         p.get('published_date','')[:10]!=edition for p in posts):
-        raise Held('six complete records for the requested date required')
+        raise Held('one to six unique daily records for the requested date required')
     return posts
 
 def _hashes(root):
@@ -53,16 +53,21 @@ def _safe_extract(blob: bytes, dest: Path) -> None:
                 raise Held("production archive contains unsupported entry")
         tar.extractall(dest, filter='data')
 
-def _remote_capture(edition: str) -> bytes:
-    _date(edition)
-    code = r'''import io,json,tarfile,sys,re
+REMOTE_CAPTURE = r'''import io,json,tarfile,sys,re
 from pathlib import Path
 from urllib.parse import urlparse
 from html.parser import HTMLParser
 date=sys.argv[1]; root=Path('/var/www/smn'); posts=json.loads((root/'posts.json').read_text())
-items=[x for x in posts if str(x.get('published_date','')).startswith(date)]
-if len(items)<6: sys.exit(75)
-if len(items)!=6: raise RuntimeError('published-date record count exceeds six')
+# The daily run leaves one audit folder per attempted subject. Manually added
+# articles have none, and a failed subject leaves an error manifest.
+audit=Path('/home/flask/blog/audit')/date.replace('-','/')
+runs=[json.loads((d/'manifest.json').read_text()) for d in (audit.iterdir() if audit.is_dir() else []) if (d/'manifest.json').is_file()]
+if len(runs)<6 or any(not r.get('run',{}).get('finished_at') for r in runs): sys.exit(75)
+ok={r['article_id'] for r in runs if r.get('run',{}).get('status')=='success'}
+def article_id(x): return Path(urlparse(x.get('hero_image','')).path).stem.rsplit('_',1)[-1]
+items=[x for x in posts if str(x.get('published_date','')).startswith(date) and article_id(x) in ok]
+if not items: raise RuntimeError('no daily article published')
+if len(items)>6: raise RuntimeError('daily record count exceeds six')
 class I(HTMLParser):
  def __init__(s): super().__init__(); s.u=[]
  def handle_starttag(s,t,a):
@@ -94,6 +99,10 @@ with tarfile.open(fileobj=sys.stdout.buffer,mode='w|gz') as tar:
    if f.is_file(): tar.add(f,arcname=sym+'/audit/'+n)
  tar.add('/home/flask/blog/article_ideas/article_queue_'+date+'.csv',arcname='selection.csv')
 '''
+
+def _remote_capture(edition: str) -> bytes:
+    _date(edition)
+    code = REMOTE_CAPTURE
     cmd=["ssh","-o","BatchMode=yes","-o","ConnectTimeout=10",*PRODUCTION_HOST,"python3 -",edition]
     p=subprocess.run(cmd,input=code.encode(),capture_output=True,timeout=900)
     if p.returncode==75: raise Waiting('production batch not complete')
@@ -120,7 +129,7 @@ def production(root: Path, edition: str) -> dict:
             if line.startswith('{"meta":'):
                 _write_once(prompt.parent.parent/'engine-payload.json',line.encode()); break
     payloads=list(out.glob('*/engine-payload.json'))
-    if len(payloads)!=6: raise Held("engine payload inputs incomplete")
+    if len(payloads)!=len(posts): raise Held("engine payload inputs incomplete")
     hashes=_hashes(out)
     _write_once(root/f'production-capture-{edition}-hashes.json',json.dumps(hashes,indent=2).encode())
     return {'status':'captured','symbols':[p['symbol'] for p in posts],'files':len(hashes),'production_writes':False}

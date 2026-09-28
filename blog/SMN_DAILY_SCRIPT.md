@@ -21,6 +21,11 @@ python smn_daily.py --root /var/lib/tradewave/smn-daily/YYYY-MM-DD --date YYYY-M
 | Screenshot check, hero text check (report only) | `visual` / `hero_check` model |
 | Publish to primary Dev, live check, landing check | code + `visual` model |
 
+**Which production articles:** only the daily run's articles, found by their
+audit folders. Manually added articles (for example a hand-placed lead) are
+skipped. The script waits until all six daily attempts have finished. If a
+daily subject failed in production, the edition has fewer than six articles.
+
 **Switch providers:** use `--profile claude` (default) or `--profile chatgpt`.
 The ChatGPT profile uses Astra at high effort for writing, Sol at medium effort
 for research and review, and Luna at low effort for image checks. `--models PATH`
