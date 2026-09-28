@@ -44,6 +44,30 @@ class PrimarySourcesTests(unittest.TestCase):
             {'title': 'Filing', 'url': 'https://filings.example/abc', 'date': '2026-09-24',
              'publisher': 'Regulator', 'reason': 'Official filing'}]
 
+    def test_stale_source_is_dropped_not_held(self):
+        old = {'title': 'Old results', 'url': 'https://abc.example/q1', 'date': '2026-05-07',
+               'publisher': 'ABC', 'reason': 'Older quarter'}
+        future = {**old, 'url': 'https://abc.example/next', 'date': '2026-09-27'}
+        kept = primary._validate_sources(self.rows + [old, future], '2026-09-26')
+        self.assertEqual(kept, self.rows)
+        with self.assertRaisesRegex(primary.Held, 'blank field'):
+            primary._validate_sources(self.rows + [{**old, 'title': ' '}], '2026-09-26')
+
+    def test_only_stale_sources_trigger_the_retry(self):
+        stale = [{**r, 'date': '2026-01-02'} for r in self.rows]
+        fresh = [{**r, 'url': r['url'] + '/new'} for r in self.rows]
+        def prepare(*args, **kwargs):
+            job = self.root/'jobs'/args[3]
+            job.mkdir(parents=True)
+            rows = fresh if args[3].endswith('-two') else stale
+            (job/'output.json').write_text(json.dumps({'sources': rows}))
+        def fetch(url):
+            return url, ('Official Results and Filing 2026-09-25 2026-09-24 records quarterly results. ') * 12
+        with patch.object(primary.smn_models, 'prepare', side_effect=prepare), \
+             patch.object(primary, 'fetch_page', side_effect=fetch) as fetched:
+            primary.collect(self.root, '2026-09-26', ['ABC'], {'research': {}}, {}, lambda job: None)
+        self.assertEqual(sorted(c.args[0] for c in fetched.call_args_list), sorted(r['url'] for r in fresh))
+
     def test_capture_and_reuse_bound_evidence(self):
         prepared = []
         def prepare(*args, **kwargs):
@@ -79,11 +103,11 @@ class PrimarySourcesTests(unittest.TestCase):
                          smn_research.check(entry, self.root, '2026-09-26', 'ABC'))
 
     def test_missing_evidence_and_bad_discovery_hold(self):
-        self.rows[0]['date'] = '2026-09-27'
+        self.rows[0]['date'] = '2026-09-31'
         job = self.root/'jobs/ABC-20260926-primary-discovery'
         job.mkdir(parents=True)
         (job/'output.json').write_text(json.dumps({'sources': self.rows}))
-        with self.assertRaisesRegex(primary.Held, 'dated after'):
+        with self.assertRaisesRegex(primary.Held, 'invalid published date'):
             primary.collect(self.root, '2026-09-26', ['ABC'], {}, {}, lambda job: None)
         self.assertFalse((self.root/'primary/ABC.txt').exists())
 

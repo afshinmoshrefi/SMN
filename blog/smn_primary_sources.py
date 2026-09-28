@@ -151,9 +151,14 @@ def fetch_page(url):
 
 
 def _validate_sources(sources, edition):
+    """Return the sources dated inside the 120-day window.
+
+    A malformed answer holds. A well-formed page outside the window is dropped,
+    and the caller's two-page minimum and single retry decide what happens next.
+    """
     if not isinstance(sources, list) or not 2 <= len(sources) <= MAX_SOURCES:
         raise Held('primary discovery must return 2-4 pages')
-    seen = set()
+    seen, current = set(), []
     cutoff = Date.fromisoformat(edition) - timedelta(days=120)
     for row in sources:
         if not isinstance(row, dict) or set(row) != {'title', 'url', 'date', 'publisher', 'reason'}:
@@ -164,12 +169,13 @@ def _validate_sources(sources, edition):
             published = Date.fromisoformat(row['date'])
         except ValueError as exc:
             raise Held('primary discovery has an invalid published date') from exc
-        if not cutoff <= published <= Date.fromisoformat(edition):
-            raise Held('primary source is stale or dated after the edition')
         url = row['url']
         if url in seen:
             raise Held('primary discovery returned duplicate URLs')
         seen.add(url)
+        if cutoff <= published <= Date.fromisoformat(edition):
+            current.append(row)
+    return current
 
 
 def _existing(primary, receipt, edition, sym):
@@ -233,9 +239,7 @@ def _discover(job, prompt, root, edition, roles, run_job):
                            timedelta(hours=20)).isoformat(), evidence_sha256=sha256(prompt.encode()),
                            stage='primary-discovery', web_search=True)
     run_job(job)
-    sources = load_json(job/'output.json')['sources']
-    _validate_sources(sources, edition)
-    return sources
+    return _validate_sources(load_json(job/'output.json')['sources'], edition)
 
 
 def collect(root, edition, symbols, roles, clis, run_job):
