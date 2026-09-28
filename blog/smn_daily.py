@@ -266,6 +266,20 @@ class Day:
                 self.save()
                 log(step='article_held', symbol=sym, reason='screenshot check failed')
 
+    def check(self):
+        """Overall day check: every captured article must pass; a held one fails the day."""
+        rows = {}
+        for sym in self.symbols:
+            s = self.state['articles'].get(sym, {})
+            rows[sym] = ({'status': 'passed'} if s.get('finalized') else
+                         {'status': 'held', 'reason': (s.get('held') or {}).get('reason', 'not finished')})
+        held = sorted(k for k, v in rows.items() if v['status'] == 'held')
+        record = {'utc': now(), 'date': self.date, 'passed': not held, 'articles': rows,
+                  'passed_count': len(rows) - len(held), 'held': held, 'jobs_used': self.jobs_used()}
+        save_json(self.root/'daily-check.json', record)
+        log(step='daily_check', passed=record['passed'], passed_count=record['passed_count'], held=held)
+        return record
+
     def publish(self, repo):
         import subscription_primary_publish as primary
         if (self.root/'dev-publication-receipt.json').exists():
@@ -332,12 +346,13 @@ def main():
         day.research()
         day.articles()
         day.visual()
+        check = day.check()
         if not a.publish:
-            log(status='ready_to_publish', jobs=day.jobs_used())
-            return 0
+            log(status='ready_to_publish', jobs=day.jobs_used(), passed=check['passed'])
+            return 0 if check['passed'] else 3
         receipt = day.publish(a.repo)
-        log(status=receipt.get('status'), jobs=day.jobs_used())
-        return 0
+        log(status=receipt.get('status'), jobs=day.jobs_used(), passed=check['passed'])
+        return 0 if check['passed'] else 3
     except Exception as exc:
         save_json(a.root/'HOLD.json', {'utc': now(), 'reason': str(exc),
                                        'jobs_used': day.jobs_used() if 'day' in locals() else None,

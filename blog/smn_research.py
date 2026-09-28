@@ -130,6 +130,11 @@ def direction_problem(record):
     return None
 
 
+def _spaced(s):
+    """Collapse line breaks, tabs and no-break spaces: source pages wrap sentences mid-line."""
+    return re.sub(r'\s+', ' ', s).strip()
+
+
 def check(entry, root, date, sym):
     """Return a list of concrete problems (empty when the entry is usable)."""
     problems = []
@@ -167,12 +172,13 @@ def check(entry, root, date, sym):
             problems.append('source %s date must be YYYY-MM-DD' % s['id'])
     records = {r['id']: r for r in entry['chart']['records']}
     unit = entry['chart']['spec']['unit']
+    flat = _spaced(text)
     for r in records.values():
         if r['source_id'] not in ids:
             problems.append('record %s cites an unknown source' % r['id'])
         if r['unit'] != unit:
             problems.append('record %s unit differs from the chart unit' % r['id'])
-        if r['quote'] not in text:
+        if _spaced(r['quote']) not in flat:
             problems.append('record %s quote is not verbatim in the saved news text' % r['id'])
         elif not any(v in r['quote'] for v in _variants(abs(r['value'])) | _scaled(r)):
             problems.append('record %s value %s does not appear in its quote' % (r['id'], r['value']))

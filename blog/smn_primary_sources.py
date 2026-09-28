@@ -200,6 +200,21 @@ def _save_cache(path, cache):
     os.replace(temporary, path)
 
 
+def _sec_filing_date(url):
+    """SEC exhibits do not print their own date; EDGAR's filing index states it."""
+    m = re.match(r'https://www\.sec\.gov/Archives/edgar/data/(\d+)/(\d{10})(\d{2})(\d{6})/', url)
+    if not m:
+        return None
+    try:
+        _, index = fetch_page('https://www.sec.gov/Archives/edgar/data/%s/%s%s%s/%s-%s-%s-index.htm'
+                              % (m.group(1), m.group(2), m.group(3), m.group(4),
+                                 m.group(2), m.group(3), m.group(4)))
+    except Held:
+        return None
+    found = re.search(r'Filing Date\s*(\d{4}-\d{2}-\d{2})', index)
+    return found.group(1) if found else None
+
+
 def _capture_rows(rows, cache, path):
     for row in rows:
         url = row['url']
@@ -217,7 +232,8 @@ def _capture_rows(rows, cache, path):
                           published.strftime('%d %B %Y').lstrip('0'),
                           published.strftime('%m/%d/%Y'), published.strftime('%m/%d/%y'),
                           published.strftime('%Y/%m/%d'))
-            if not any(clue.lower() in page.lower() for clue in date_clues):
+            if (not any(clue.lower() in page.lower() for clue in date_clues) and
+                    _sec_filing_date(final_url) != row['date']):
                 raise Held('published date not visible in fetched page')
             title_words = {word.lower() for word in re.findall(r'[A-Za-z]{5,}', row['title'])}
             if title_words and not title_words.intersection(re.findall(r'[a-z]{5,}', page.lower())):

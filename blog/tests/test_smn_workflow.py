@@ -56,6 +56,13 @@ class ResearchCheckTests(unittest.TestCase):
         e['chart']['records'][0]['value'] = 46.8
         self.assertTrue(any('does not appear' in p for p in smn_research.check(e, self.tmp.name, '2026-09-23', 'HPQ')))
 
+    def test_quote_wrapped_across_lines_in_the_page_passes(self):
+        # Sept 28 XLK: the release wraps mid-sentence and uses no-break spaces.
+        (Path(self.tmp.name)/'production/HPQ/audit/research_context.txt').write_text(
+            'URL: https://example.com/a\nIts total PC shipments dropped 16%\n for the\xa0quarter')
+        self.assertEqual(self.check(-16), [])
+        self.assertTrue(any('not verbatim' in p for p in self.check(-16, 'Its PC shipments dropped 16% for the quarter')))
+
 class ModelSettingsTests(unittest.TestCase):
     def write(self, **changes):
         data = json.loads(smn_models.DEFAULT.read_text())

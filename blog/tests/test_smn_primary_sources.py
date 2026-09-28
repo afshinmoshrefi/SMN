@@ -165,6 +165,21 @@ class PrimarySourcesTests(unittest.TestCase):
         self.assertEqual(len(proof['sources']), 2)
         self.assertEqual(proof['failed_urls'], {self.rows[0]['url']: 'HTTP 403'})
 
+    def test_sec_exhibit_date_is_read_from_the_filing_index(self):
+        # Sept 28 MCD: SEC exhibits do not print their date; EDGAR's index does.
+        sec = 'https://www.sec.gov/Archives/edgar/data/63908/000006390826000076/exhibit991.htm'
+        self.rows = [dict(self.rows[0], url=sec, date='2026-09-23', title='Investor update'),
+                     dict(self.rows[0], url=sec.replace('0076', '0073'), date='2026-08-04', title='Quarterly report')]
+        cache, path = {'pages': {}, 'failed_urls': {}}, self.root/'cache.json'
+        def fetch(url):
+            if url.endswith('-index.htm'):
+                return url, 'Filing Date %s Accepted' % ('2026-09-23' if '0076' in url else '2026-08-07')
+            return url, 'Investor update quarterly report with reported results. ' * 30
+        with patch.object(primary, 'fetch_page', side_effect=fetch):
+            primary._capture_rows(self.rows, cache, path)
+        self.assertEqual(list(cache['pages']), [sec])
+        self.assertIn('published date not visible', cache['failed_urls'][sec.replace('0076', '0073')])
+
     def test_private_and_non_https_urls_rejected(self):
         with self.assertRaises(primary.Held):
             primary._safe_url('http://company.example/report')
