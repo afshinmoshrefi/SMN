@@ -47,6 +47,15 @@ class ResearchCheckTests(unittest.TestCase):
         self.assertTrue(any('does not appear' in p for p in self.check(-61)))
 
 
+    def test_billions_value_quoted_in_millions_passes(self):
+        quote = 'Revenue$96,221$81,615$46,74318 %106 %'
+        e = entry(46.743, quote)
+        e['chart']['spec']['unit'] = e['chart']['records'][0]['unit'] = 'USD billions'
+        (Path(self.tmp.name)/'production/HPQ/audit/research_context.txt').write_text('URL: https://example.com/a\n' + quote)
+        self.assertEqual(smn_research.check(e, self.tmp.name, '2026-09-23', 'HPQ'), [])
+        e['chart']['records'][0]['value'] = 46.8
+        self.assertTrue(any('does not appear' in p for p in smn_research.check(e, self.tmp.name, '2026-09-23', 'HPQ')))
+
 class ModelSettingsTests(unittest.TestCase):
     def write(self, **changes):
         data = json.loads(smn_models.DEFAULT.read_text())

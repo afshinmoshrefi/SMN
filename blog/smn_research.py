@@ -103,6 +103,13 @@ def _variants(value):
     return {x for x in out if x and x not in {'0', '0.0'}}
 
 
+def _scaled(record):
+    """Tables often report a billions value in millions ($46,743 = 46.743 billion)."""
+    if re.search(r'billion|million', record['unit'], re.I):
+        return _variants(round(abs(record['value']) * 1000, 6))
+    return set()
+
+
 DOWN = re.compile(r'\b(fell|fall|falls|falling|declin\w*|down|drop\w*|decreas\w*|lower|shrank|shrink\w*|'
                   r'contract\w*|slump\w*|plung\w*|slid|slide\w*|los[st]|negative)\b', re.I)
 UP = re.compile(r'\b(rose|rise|rises|rising|grew|grow\w*|increas\w*|up|gain\w*|climb\w*|jump\w*|higher|'
@@ -167,7 +174,7 @@ def check(entry, root, date, sym):
             problems.append('record %s unit differs from the chart unit' % r['id'])
         if r['quote'] not in text:
             problems.append('record %s quote is not verbatim in the saved news text' % r['id'])
-        elif not any(v in r['quote'] for v in _variants(abs(r['value']))):
+        elif not any(v in r['quote'] for v in _variants(abs(r['value'])) | _scaled(r)):
             problems.append('record %s value %s does not appear in its quote' % (r['id'], r['value']))
         problem = direction_problem(r)
         if problem:
