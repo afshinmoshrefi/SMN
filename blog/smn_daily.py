@@ -65,12 +65,12 @@ def retry(step, fn, tries=3, wait=30):
 
 
 class Day:
-    def __init__(self, root, date, models=None, max_jobs=40, profile='claude'):
+    def __init__(self, root, date, models=None, max_jobs=40, profile='claude', roles=None):
         self.root = Path(root).resolve()
         self.date = date
         self.models = models
         self.profile = profile
-        self.roles = smn_models.load(models, profile)
+        self.roles = roles if roles is not None else smn_models.load(models, profile)
         self.max_jobs = max_jobs
         self.state_path = self.root/'smn-daily-state.json'
         self.state = load_json(self.state_path) if self.state_path.exists() else {
@@ -365,8 +365,25 @@ def main():
     ap.add_argument('--max-jobs', type=int, default=40, help='all model jobs for the day, retries included')
     ap.add_argument('--publish', action='store_true', help='publish to primary Dev after all checks pass')
     ap.add_argument('--repo', type=Path, default=BLOG.parent, help='clean SMN checkout at origin/main (publish)')
+    ap.add_argument('--publish-only', action='store_true',
+                    help='publish an edition another host already wrote and checked (Dev shows the prod shadow); '
+                         'no capture, research, writing or checks run here')
     a = ap.parse_args()
     a.root.mkdir(parents=True, exist_ok=True)
+    if a.publish_only:
+        try:
+            state = load_json(a.root/'smn-daily-state.json')
+            day = Day(a.root, a.date, max_jobs=a.max_jobs, roles=state['roles'])
+            ready = [s for s, v in state['articles'].items() if v.get('finalized')]
+            if not ready:
+                raise Hold('no finished article to publish')
+            receipt = day.publish(a.repo)
+            log(status=receipt.get('status'), published=ready)
+            return 0
+        except Exception as exc:
+            save_json(a.root/'HOLD.json', {'utc': now(), 'reason': str(exc), 'step': 'publish-only'})
+            log(status='hold', reason=str(exc)[:500])
+            return 2
     try:
         day = Day(a.root, a.date, a.models, a.max_jobs, a.profile)
         day.release_transient_holds()

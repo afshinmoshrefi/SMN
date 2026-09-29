@@ -53,5 +53,15 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(load_json(self.job/'state.json')['status'], 'ready')
 
 
+    def test_publish_only_uses_the_edition_roles_and_skips_writing(self):
+        save_json(Path(self.tmp.name)/'smn-daily-state.json', {'date': '2026-09-29', 'roles': {'write': {'x': 1}},
+                  'articles': {'O': {'finalized': True}, 'APH': {'held': {'reason': 'x'}}}})
+        with patch.object(smn_daily.Day, 'publish', return_value={'status': 'live_verified'}) as pub, \
+             patch.object(smn_daily.Day, 'research') as research, \
+             patch('sys.argv', ['smn_daily', '--root', self.tmp.name, '--date', '2026-09-29', '--publish-only']):
+            self.assertEqual(smn_daily.main(), 0)
+        pub.assert_called_once()
+        research.assert_not_called()
+
 if __name__ == '__main__':
     unittest.main()
