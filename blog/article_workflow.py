@@ -258,6 +258,37 @@ def generate_hero_image(resource_id: str,
 # Step 3: Research with Tavily + Grok
 # ----------------------------------------------------------------------
 
+def plain_domains(domains: List[str]) -> List[str]:
+    """Reduce domains to bare hostnames: Tavily's news search rejects wildcards and paths.
+
+    Sept 28-29: Grok returned 'invesco.com/us/etfs/us/products/qqq' and
+    'investor.cboe.com/volatility-index'; Tavily answered HTTP 400 and QQQ and
+    VIX produced no article.
+    """
+    out = []
+    for d in domains or []:
+        host = str(d).strip().lower()
+        host = host.split("://", 1)[-1].split("/", 1)[0].split("?", 1)[0].split(":", 1)[0]
+        host = host.lstrip("*.").strip(".")
+        if host.startswith("www."):
+            host = host[4:]
+        if "." in host and all(part and part.replace("-", "").isalnum() for part in host.split(".")):
+            if host not in out:
+                out.append(host)
+    return out
+
+
+def _tavily(query: str, include_domains: Optional[List[str]]) -> Dict[str, Any]:
+    """One Tavily search; if the domain-limited search is rejected, search openly instead of failing."""
+    try:
+        return AI_tools.search_tavily(query=query, include_domains=include_domains, days=365)
+    except Exception as e:
+        if not include_domains:
+            raise
+        print(f"[Tavily] domain-limited search failed ({str(e)[:160]}); retrying open search")
+        return AI_tools.search_tavily(query=query, include_domains=None, days=365)
+
+
 def research_tavily(resource_id: str,
                     symbol: str,
                     company: str,
@@ -277,14 +308,14 @@ def research_tavily(resource_id: str,
     article_audit.record("company_domains.json", {
         "symbol": symbol, "company": company, "domains": specific_company_domains})
 
-    dynamic_whitelist = list(set(WHITELISTED_SOURCE_DOMAINS + specific_company_domains))
+    dynamic_whitelist = sorted(set(plain_domains(WHITELISTED_SOURCE_DOMAINS + specific_company_domains)))
 
     query_a = f"{company} ({symbol}) stock price news earnings analyst ratings"
     query_b = f"{company} ({symbol}) insider trading unusual options short interest technical analysis"
 
     print(f"[Tavily] Running double search on {len(dynamic_whitelist)} trusted domains")
-    resp_a = AI_tools.search_tavily(query=query_a, include_domains=dynamic_whitelist, days=365)
-    resp_b = AI_tools.search_tavily(query=query_b, include_domains=dynamic_whitelist, days=365)
+    resp_a = _tavily(query_a, dynamic_whitelist)
+    resp_b = _tavily(query_b, dynamic_whitelist)
 
     combined_results = resp_a.get("results", []) + resp_b.get("results", [])
     tavily_resp = {"results": combined_results}
