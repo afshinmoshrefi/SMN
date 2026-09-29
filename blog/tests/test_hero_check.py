@@ -51,20 +51,29 @@ class HeroCheckTests(unittest.TestCase):
         self.assertFalse(Path(self.path).exists())
         self.assertFalse(record['passed'])
 
+    def write_jpeg(self):
+        from PIL import Image
+        Image.new('RGB', (300, 100), 'white').save(self.path, 'JPEG')
+
     def test_checker_outage_never_blocks(self):
-        Path(self.path).write_bytes(b'jpeg')
+        self.write_jpeg()
         with patch.object(hero.AI_tools.requests, 'post', side_effect=RuntimeError('HTTP 529')):
             verdict = hero.check_hero_text(self.path, 'Costco', 'COST')
         self.assertTrue(verdict['passed'])
         self.assertFalse(verdict['checked'])
 
     def test_garbled_word_fails_even_if_model_says_passed(self):
-        Path(self.path).write_bytes(b'jpeg')
+        self.write_jpeg()
         answer = {'visible_text': ['COSTCO WHOLESLAE'], 'misspelled_or_garbled': ['WHOLESLAE'], 'passed': True}
         reply = type('R', (), {'status_code': 200, 'json': lambda self: {'content': [
             {'type': 'tool_use', 'name': 'report_hero_text', 'input': answer}]}})()
         with patch.object(hero.AI_tools.requests, 'post', return_value=reply):
             self.assertFalse(hero.check_hero_text(self.path, 'Costco', 'COST')['passed'])
+
+
+    def test_checker_sees_whole_hero_and_three_zoomed_parts(self):
+        self.write_jpeg()
+        self.assertEqual(len(hero._hero_views(self.path)), 4)
 
 
 if __name__ == '__main__':
