@@ -40,21 +40,22 @@ class HeroCheckTests(unittest.TestCase):
                                       {'checked': True, 'passed': True}])
         self.assertEqual(path, self.path)
         self.assertEqual(self.seeds, [1, 2])
-        self.assertNotIn('no text', self.prompts[0])
-        self.assertIn('no text', self.prompts[1])
+        self.assertNotIn('unmarked', self.prompts[0])
+        self.assertIn('unmarked', self.prompts[1])
 
     def test_retries_remove_what_invites_lettering(self):
         motif = ('Costco warehouse exterior with distinctive red and blue company signage, '
                  'membership retail architecture, commercial photography')
         second = hero._unbranded_prompt(motif, 'Costco Wholesale', 'COST')
-        scene = second[:-len(hero.HERO_NO_TEXT)]
+        scene = second[:-len(hero.HERO_PLAIN)]
         self.assertNotIn('Costco', scene)
         self.assertNotIn('signage', scene)
-        self.assertTrue(second.endswith(hero.HERO_NO_TEXT))
+        self.assertTrue(second.endswith(hero.HERO_PLAIN))
         self.assertIn('warehouse', second)
         third = hero._safe_scene_prompt({'sector': 'custom'})
-        self.assertIn('no signs', third)
-        self.assertNotIn('custom industry', third)
+        # Flux draws what a prompt names, even after "no": never name the things to avoid.
+        for word in ('no ', 'sign', 'text', 'logo', 'box', 'letter'):
+            self.assertNotIn(word, third.lower())
 
     def test_three_failures_publish_without_hero(self):
         bad = {'checked': True, 'passed': False, 'misspelled_or_garbled': ['WALMRT']}

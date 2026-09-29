@@ -476,11 +476,17 @@ def generate_hero_image(
 # ------------------------------
 HERO_MAX_ATTEMPTS = 3          # owner: detect, regenerate, re-check -- no more than 3 times
 HERO_CHECK_MODEL = "claude-haiku-4-5-20251001"
-HERO_NO_TEXT = (" Absolutely no text anywhere in the image: no letters, words, numbers, signage, "
-                "storefront names, labels or logos.")
+# FLUX 1.1 Pro Ultra has no negative prompt and draws whatever a prompt names, even after "no":
+# "no signs, no boxes" produced signs and boxes (Sept 29 test). Retries therefore only describe
+# plain, unmarked things and never list what to avoid.
+HERO_PLAIN = " Every surface is plain and unmarked."
 # Words that invite the image model to draw lettering (custom motifs ask for "company signage").
 _TEXT_INVITING = re.compile(r"\b(?:signs?|signage|storefronts?|logos?|labels?|banners?|billboards?|"
-                            r"posters?|branded|branding|brand|packaging|boxes|cartons|entrance|exterior)\b", re.I)
+                            r"posters?|branded|branding|brand|packaging|boxes|cartons|entrance|exterior|"
+                            # Flux also paints the prompt's own business words onto buildings
+                            # ("membershir", "conmaur & reaile" from "membership", "company", "retail").
+                            r"company|companies|membership|members|retail|retailer|wholesale|stores?|shops?|"
+                            r"supermarkets?|commercial|corporate|headquarters|dealership|restaurant)\b", re.I)
 
 
 def _unbranded_prompt(prompt: str, company: str, symbol: str) -> str:
@@ -490,18 +496,16 @@ def _unbranded_prompt(prompt: str, company: str, symbol: str) -> str:
         prompt = re.sub(r"\b%s(?:'s)?\b" % re.escape(w), "", prompt, flags=re.I)
     prompt = _TEXT_INVITING.sub("", prompt)
     prompt = re.sub(r"\s+([,.])", r"\1", re.sub(r"\s{2,}", " ", prompt)).strip().rstrip(".,")
-    return prompt + "." + HERO_NO_TEXT
+    return prompt + "." + HERO_PLAIN
 
 
 def _safe_scene_prompt(concept_brief: Dict) -> str:
-    """Attempt 3: an industry scene with nothing that carries text (no stores, signs, boxes, screens)."""
-    sector = concept_brief.get("sector") or "business"
-    if sector == "custom":
-        sector = "large-scale commerce and logistics"
-    return ("Wide cinematic editorial photograph evoking the %s industry through architecture, materials, "
-            "light and scale: clean modern composition with generous negative space, photorealistic, calm "
-            "even lighting, shallow depth of field. Plain surfaces only: no storefronts, no signs, no boxes, "
-            "no packaging, no screens, no vehicles with markings, no people.%s" % (sector, HERO_NO_TEXT))
+    """Attempt 3: a minimalist architectural abstract; nothing in it can carry lettering."""
+    return ("Minimalist abstract architectural photograph: clean geometric lines of a modern building in soft "
+            "golden-hour light, smooth concrete, glass and brushed steel, long shadows, generous negative space, "
+            "photorealistic, wide cinematic composition, calm and professional." + HERO_PLAIN)
+
+
 HERO_CHECK_RULES = (
     "This is the hero illustration for a financial news article about {company} ({symbol}). "
     "The first image is the whole hero; the next images are zoomed-in parts of it. "
