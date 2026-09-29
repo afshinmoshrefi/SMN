@@ -43,6 +43,19 @@ class HeroCheckTests(unittest.TestCase):
         self.assertNotIn('no text', self.prompts[0])
         self.assertIn('no text', self.prompts[1])
 
+    def test_retries_remove_what_invites_lettering(self):
+        motif = ('Costco warehouse exterior with distinctive red and blue company signage, '
+                 'membership retail architecture, commercial photography')
+        second = hero._unbranded_prompt(motif, 'Costco Wholesale', 'COST')
+        scene = second[:-len(hero.HERO_NO_TEXT)]
+        self.assertNotIn('Costco', scene)
+        self.assertNotIn('signage', scene)
+        self.assertTrue(second.endswith(hero.HERO_NO_TEXT))
+        self.assertIn('warehouse', second)
+        third = hero._safe_scene_prompt({'sector': 'custom'})
+        self.assertIn('no signs', third)
+        self.assertNotIn('custom industry', third)
+
     def test_three_failures_publish_without_hero(self):
         bad = {'checked': True, 'passed': False, 'misspelled_or_garbled': ['WALMRT']}
         path, record = self.run_with([bad, bad, bad])
