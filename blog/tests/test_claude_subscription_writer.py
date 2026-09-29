@@ -143,7 +143,7 @@ class StageModelTests(unittest.TestCase):
             for stage in ('write', 'repair', 'repair-two'):
                 self.assertEqual(ed._job_options(stage), {'model': 'claude-opus-5-5', 'effort': 'medium'})
             for stage in ('review', 'rereview'):
-                self.assertEqual(ed._job_options(stage), {'model': 'claude-sonnet-5', 'effort': 'low'})
+                self.assertEqual(ed._job_options(stage), {'model': 'claude-sonnet-5-5', 'effort': 'low'})
             self.assertEqual(Edition(tmp, '2026-09-25')._job_options('review'), {'effort': 'xhigh'})
 
 

@@ -19,34 +19,34 @@ SCHEMA = {
     'type': 'object', 'additionalProperties': False,
     'required': ['company', 'angle', 'category', 'question', 'brief', 'hero_alt', 'sources', 'chart'],
     'properties': {
-        'company': {'type': 'string', 'minLength': 2},
-        'angle': {'type': 'string', 'minLength': 5},
-        'category': {'type': 'string', 'minLength': 5},
-        'question': {'type': 'string', 'minLength': 20},
-        'brief': {'type': 'string', 'minLength': 200},
-        'hero_alt': {'type': 'string', 'minLength': 20},
-        'sources': {'type': 'array', 'minItems': 2, 'maxItems': 5, 'items': {
+        'company': {'type': 'string'},
+        'angle': {'type': 'string'},
+        'category': {'type': 'string'},
+        'question': {'type': 'string'},
+        'brief': {'type': 'string'},
+        'hero_alt': {'type': 'string'},
+        'sources': {'type': 'array', 'items': {
             'type': 'object', 'additionalProperties': False,
             'required': ['id', 'title', 'url', 'date', 'excerpt'],
             'properties': {'id': {'type': 'string'}, 'title': {'type': 'string'}, 'url': {'type': 'string'},
-                           'date': {'type': 'string'}, 'excerpt': {'type': 'string', 'minLength': 80}}}},
+                           'date': {'type': 'string'}, 'excerpt': {'type': 'string'}}}},
         'chart': {'type': 'object', 'additionalProperties': False, 'required': ['spec', 'records'],
             'properties': {
                 'spec': {'type': 'object', 'additionalProperties': False,
                     'required': ['title', 'subtitle', 'question', 'note', 'unit', 'rows'],
                     'properties': {'title': {'type': 'string'}, 'subtitle': {'type': 'string'},
                         'question': {'type': 'string'}, 'note': {'type': 'string'}, 'unit': {'type': 'string'},
-                        'rows': {'type': 'array', 'minItems': 2, 'maxItems': 8, 'items': {
+                        'rows': {'type': 'array', 'items': {
                             'type': 'object', 'additionalProperties': False, 'required': ['record_id', 'label'],
                             'properties': {'record_id': {'type': 'string'}, 'label': {'type': 'string'}}}}}},
-                'records': {'type': 'array', 'minItems': 2, 'maxItems': 8, 'items': {
+                'records': {'type': 'array', 'items': {
                     'type': 'object', 'additionalProperties': False,
                     'required': ['id', 'value', 'unit', 'period', 'status', 'source_id', 'locator', 'quote'],
                     'properties': {'id': {'type': 'string'}, 'value': {'type': 'number'},
                         'unit': {'type': 'string'}, 'period': {'type': 'string'},
                         'status': {'type': 'string', 'enum': ['reported', 'historical', 'revised']},
                         'source_id': {'type': 'string'}, 'locator': {'type': 'string'},
-                        'quote': {'type': 'string', 'minLength': 5}}}}}},
+                        'quote': {'type': 'string'}}}}}},
     }}
 
 RULES = '''You prepare the research brief for one Seasonal Market News article. You do not write the article.
@@ -130,6 +130,9 @@ def direction_problem(record):
     return None
 
 
+LENGTHS = {'company': 2, 'category': 5, 'question': 20, 'brief': 200, 'hero_alt': 20}
+
+
 def _spaced(s):
     """Collapse line breaks, tabs and no-break spaces: source pages wrap sentences mid-line."""
     return re.sub(r'\s+', ' ', s).strip()
@@ -157,6 +160,26 @@ def check(entry, root, date, sym):
             cited = {s['url'] for s in entry['sources']}
             if sum(bool(cited & urls) for urls in primary_urls) < 2:
                 problems.append('cite at least two captured primary sources')
+    # Length and count rules live here, not in the output schema: a schema miss only tells the
+    # model "invalid" and Sonnet-low burned all 5 CLI retries on it (Sept 28-29: COST, TTWO, O).
+    # These messages say exactly what to fix, and the research-two retry receives them.
+    for field, minimum in LENGTHS.items():
+        if len(str(entry.get(field) or '').strip()) < minimum:
+            problems.append('%s is %d characters; it needs at least %d'
+                            % (field, len(str(entry.get(field) or '').strip()), minimum))
+    counts = (('sources', entry.get('sources') or [], 2, 5),
+              ('chart.spec.rows', entry['chart']['spec'].get('rows') or [], 2, 8),
+              ('chart.records', entry['chart'].get('records') or [], 2, 8))
+    for name, items, low, high in counts:
+        if not low <= len(items) <= high:
+            problems.append('%s has %d items; it needs %d-%d' % (name, len(items), low, high))
+    for src in entry.get('sources') or []:
+        if len(src.get('excerpt', '').strip()) < 80:
+            problems.append('source %s excerpt is %d characters; it needs at least 80'
+                            % (src.get('id'), len(src.get('excerpt', '').strip())))
+    for rec in entry['chart'].get('records') or []:
+        if len(rec.get('quote', '').strip()) < 5:
+            problems.append('record %s quote is shorter than 5 characters' % rec.get('id'))
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{4,80}', entry['angle']):
         problems.append('angle must be UPPER_SNAKE_CASE')
     ids = [s['id'] for s in entry['sources']]

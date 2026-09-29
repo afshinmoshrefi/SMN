@@ -24,9 +24,9 @@ from subscription_writer import (load_json, save_json, sha256, utc_now,
 
 PROVIDER = 'anthropic'
 MODEL = 'claude-opus-5-5'           # article writing and repair
-REVIEW_MODEL = 'claude-sonnet-5'    # independent review
+REVIEW_MODEL = 'claude-sonnet-5-5'  # independent review (Sonnet 5.5: same price as 5)
 LIGHT_MODEL = 'claude-haiku-4-5-20251001'  # screenshot inspection
-MODELS = {MODEL, REVIEW_MODEL, LIGHT_MODEL}
+MODELS = {MODEL, REVIEW_MODEL, LIGHT_MODEL, 'claude-sonnet-5'}
 EFFORTS = {'low', 'medium', 'high', 'xhigh', 'max'}
 SYSTEM = ('You are a professional financial writer and editor for Seasonal Market News. '
           'Answer only with the requested structured output. Use only the supplied evidence.')

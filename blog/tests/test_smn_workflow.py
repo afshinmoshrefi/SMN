@@ -10,11 +10,20 @@ import smn_research
 
 
 def entry(value, quote):
-    return {'angle': 'PC_SHIPMENTS_AND_GUIDANCE', 'sources': [
-                {'id': 'reuters-q3', 'title': 'T', 'url': 'https://example.com/a', 'date': '2026-09-01', 'excerpt': 'x'}],
-            'chart': {'spec': {'unit': 'percent change', 'rows': [{'record_id': 'biz-0', 'label': 'PC shipments'}]},
-                      'records': [{'id': 'biz-0', 'value': value, 'unit': 'percent change', 'period': 'Q3',
-                                   'status': 'reported', 'source_id': 'reuters-q3', 'locator': 'p1', 'quote': quote}]}}
+    def record(rid):
+        return {'id': rid, 'value': value, 'unit': 'percent change', 'period': 'Q3', 'status': 'reported',
+                'source_id': 'reuters-q3', 'locator': 'p1', 'quote': quote}
+    excerpt = 'HP said its total PC shipments dropped 16% for the quarter as commercial demand stayed weak.'
+    return {'angle': 'PC_SHIPMENTS_AND_GUIDANCE', 'company': 'HP Inc.', 'category': 'Stocks / Hardware',
+            'question': 'Does the PC slump change the seasonal picture for HP?', 'brief': 'b' * 220,
+            'hero_alt': 'Laptops on a warehouse line',
+            'sources': [{'id': 'reuters-q3', 'title': 'T', 'url': 'https://example.com/a', 'date': '2026-09-01',
+                         'excerpt': excerpt},
+                        {'id': 'reuters-q3b', 'title': 'T2', 'url': 'https://example.com/a', 'date': '2026-09-01',
+                         'excerpt': excerpt}],
+            'chart': {'spec': {'unit': 'percent change', 'rows': [{'record_id': 'biz-0', 'label': 'PC shipments'},
+                                                                   {'record_id': 'biz-1', 'label': 'PC shipments'}]},
+                      'records': [record('biz-0'), record('biz-1')]}}
 
 
 class ResearchCheckTests(unittest.TestCase):
@@ -47,10 +56,24 @@ class ResearchCheckTests(unittest.TestCase):
         self.assertTrue(any('does not appear' in p for p in self.check(-61)))
 
 
+    def test_length_rules_are_checked_in_code_with_exact_messages(self):
+        # Sept 28-29: schema minLength misses burned all CLI retries without saying what was wrong.
+        self.assertNotIn('minLength', json.dumps(smn_research.SCHEMA))
+        e = entry(-16, 'Its total PC shipments dropped 16% for the quarter')
+        e.update(company='HP', category='Stocks', question='Short?', brief='too short', hero_alt='x')
+        e['chart']['records'].pop()
+        e['sources'][1]['excerpt'] = 'x'
+        problems = smn_research.check(e, self.tmp.name, '2026-09-23', 'HPQ')
+        self.assertIn('brief is 9 characters; it needs at least 200', problems)
+        self.assertTrue(any(p.startswith('chart.records has 1 items') for p in problems))
+        self.assertTrue(any('excerpt is 1 characters' in p for p in problems))
+
     def test_billions_value_quoted_in_millions_passes(self):
         quote = 'Revenue$96,221$81,615$46,74318 %106 %'
         e = entry(46.743, quote)
-        e['chart']['spec']['unit'] = e['chart']['records'][0]['unit'] = 'USD billions'
+        e['chart']['spec']['unit'] = 'USD billions'
+        for r in e['chart']['records']:
+            r['unit'] = 'USD billions'
         (Path(self.tmp.name)/'production/HPQ/audit/research_context.txt').write_text('URL: https://example.com/a\n' + quote)
         self.assertEqual(smn_research.check(e, self.tmp.name, '2026-09-23', 'HPQ'), [])
         e['chart']['records'][0]['value'] = 46.8
