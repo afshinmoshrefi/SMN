@@ -348,6 +348,34 @@ Return two to three descriptive sentences for the image generator. Describe the 
 def _normalize_market(resource_id: str) -> str:
     return RESOURCE_TO_MARKET.get(str(resource_id), "STOCK")
 
+HERO_OPENAI_MODEL = "gpt-image-2"
+HERO_OPENAI_QUALITY = "medium"
+
+
+def generate_openai_hero(prompt: str, output_path: str, width: int, height: int) -> Optional[str]:
+    """Render the hero with OpenAI's image API; None on any failure so the caller can use Flux."""
+    # The API takes sizes in multiples of 16 with an aspect ratio of at most 3:1.
+    w = max(16, (int(width) // 16) * 16)
+    h = max(16, (int(height) // 16) * 16)
+    if w > 3 * h:
+        w = 3 * h
+    try:
+        resp = AI_tools.requests.post(
+            "https://api.openai.com/v1/images/generations", timeout=300,
+            headers={"Authorization": f"Bearer {AI_tools.OPENAI_KEY}"},
+            json={"model": HERO_OPENAI_MODEL, "prompt": prompt, "size": f"{w}x{h}",
+                  "quality": HERO_OPENAI_QUALITY, "output_format": "jpeg", "n": 1})
+        data = resp.json()
+        if resp.status_code != 200 or not data.get("data"):
+            raise RuntimeError("HTTP %s: %s" % (resp.status_code, str(data)[:300]))
+        AI_tools._save_compressed_jpeg(base64.b64decode(data["data"][0]["b64_json"]), output_path, quality=75)
+        print(f"[ROUTER] OpenAI {HERO_OPENAI_MODEL} hero {w}x{h} saved ({data.get('usage', {}).get('output_tokens')} image tokens)")
+        return output_path if os.path.isfile(output_path) and os.path.getsize(output_path) > 0 else None
+    except Exception as e:
+        print(f"[ROUTER] OpenAI hero failed for this render, using Flux: {e}")
+        return None
+
+
 def generate_hero_image(
     hero_prompt: str, concept_brief: Dict, hero_output_path: str, symbol: str,
     *, width: int = 1200, height: int = 600, date: str = "", attempt: int = 1,
@@ -404,6 +432,12 @@ def generate_hero_image(
     elif generation_routing == "premium":
         use_premium_model = True
         print("[ROUTER] Global override: forcing PREMIUM model.")
+
+    # --- OpenAI gpt-image-2 first (Sept 29 test: spelled signs right 3/3 vs Flux 2/3,
+    #     about $0.029 vs $0.06 per hero). Flux below is the backup when it fails. ---
+    image_url = generate_openai_hero(hero_prompt, hero_output_path, width, height)
+    if image_url:
+        return hero_output_path
 
    # --- Execute the chosen model ---
     if use_premium_model:

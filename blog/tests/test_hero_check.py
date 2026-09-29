@@ -90,5 +90,35 @@ class HeroCheckTests(unittest.TestCase):
         self.assertEqual(len(hero._hero_views(self.path)), 4)
 
 
+class HeroRenderRouteTests(unittest.TestCase):
+    """Sept 29: gpt-image-2 is the first renderer; Flux is the backup."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = str(Path(self.tmp.name)/'hero_X_1.jpg')
+
+    def test_openai_hero_is_used_when_it_works(self):
+        import base64, io
+        from PIL import Image
+        buf = io.BytesIO(); Image.new('RGB', (32, 16)).save(buf, 'JPEG')
+        reply = type('R', (), {'status_code': 200, 'json': lambda self: {
+            'data': [{'b64_json': base64.b64encode(buf.getvalue()).decode()}], 'usage': {}}})()
+        with patch.object(hero.AI_tools.requests, 'post', return_value=reply) as post, \
+             patch.object(hero.AI_tools, 'generate_AI_Image_flux_schnell') as flux:
+            self.assertEqual(hero.generate_hero_image('p', {}, self.path, 'X', width=2176, height=960), self.path)
+        self.assertEqual(post.call_args.kwargs['json']['size'], '2176x960')
+        flux.assert_not_called()
+
+    def test_flux_backs_up_a_failed_openai_render(self):
+        def flux(prompt, image_filepath, *a, **k):
+            Path(image_filepath).write_bytes(b'jpeg')
+            return 'https://flux/img'
+        with patch.object(hero.AI_tools.requests, 'post', side_effect=RuntimeError('HTTP 500')), \
+             patch.object(hero.AI_tools, 'generate_AI_Image_premium', side_effect=flux) as premium:
+            self.assertEqual(hero.generate_hero_image('p', {}, self.path, 'X', width=2176, height=960), self.path)
+        premium.assert_called_once()
+
+
 if __name__ == '__main__':
     unittest.main()
