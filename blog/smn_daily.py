@@ -14,6 +14,7 @@ from pathlib import Path
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,11 @@ BLOG = Path(__file__).resolve().parent
 CLIS = {'claude': os.environ.get('SMN_CLAUDE', '/root/.local/bin/claude'), 'codex': os.environ.get('SMN_CODEX')}
 PLAYWRIGHT = os.environ.setdefault('SMN_PLAYWRIGHT', '/opt/smn-playwright/node_modules/playwright')
 os.environ.setdefault('SMN_BROWSER_CHANNEL', 'bundled')
+# Passing faults: a login-token refresh race, rate limits, provider overload, network drops.
+# They clear within minutes, so they are waited out and never count as a failed attempt.
+TRANSIENT = re.compile(r'OAuth token|rate.?limit|overloaded|\b(429|500|502|503|529)\b|temporarily|'
+                       r'ECONNRESET|ETIMEDOUT|timed? ?out', re.I)
+TRANSIENT_WAITS = (60, 180, 420)
 ATTEMPT_FILES = ('state.json', 'diagnostic.log', 'result.json', 'turn-usage.json', 'usage-before.json',
                  'invocation.json', 'output.json', 'events.jsonl', 'usage-after.json')
 
@@ -82,29 +88,53 @@ class Day:
         return sum(1 for j in jobs.iterdir() if j.is_dir()) + sum(
             1 for j in jobs.glob('*/failed-attempt-*')) if jobs.exists() else 0
 
+    def _archive(self, job, exc, kind):
+        """Move a failed attempt aside and mark the job ready to run again."""
+        n = len(list(job.glob(kind + '-*'))) + 1
+        archive = job/('%s-%d' % (kind, n))
+        archive.mkdir()
+        for name in ATTEMPT_FILES:
+            if (job/name).exists():
+                shutil.move(str(job/name), archive/name)
+        save_json(job/'state.json', {'status': 'ready', 'utc': now(), 'requeued_after': str(exc)[:300]})
+        log(step='requeue', job=job.name, kind=kind, error=str(exc)[:300])
+
     def run_job(self, job):
-        """Run a prepared job; one requeue when the job failed without a receipt."""
+        """Run a prepared job. Passing faults are waited out (TRANSIENT_WAITS); any
+        other failure gets one requeue, and a second one holds the article."""
         job = Path(job)
         if (job/'receipt.json').exists():
             return load_json(job/'receipt.json')
-        if self.jobs_used() > self.max_jobs:
-            raise Hold('model-job budget of %d exhausted' % self.max_jobs)
-        try:
-            return smn_models.run(job, CLIS)
-        except Exception as exc:
-            if (job/'receipt.json').exists() or list(job.glob('failed-attempt-*')):
-                raise Hold('model job %s failed twice: %s' % (job.name, exc))
-            archive = job/'failed-attempt-1'
-            archive.mkdir()
-            for name in ATTEMPT_FILES:
-                if (job/name).exists():
-                    shutil.move(str(job/name), archive/name)
-            save_json(job/'state.json', {'status': 'ready', 'utc': now(), 'requeued_after': str(exc)[:300]})
-            log(step='requeue', job=job.name, error=str(exc)[:300])
+        waits = list(TRANSIENT_WAITS)
+        while True:
             if self.jobs_used() > self.max_jobs:
-                raise Hold('model-job budget of %d exhausted before retry' % self.max_jobs)
-            time.sleep(60)
-            return smn_models.run(job, CLIS)
+                raise Hold('model-job budget of %d exhausted' % self.max_jobs)
+            try:
+                return smn_models.run(job, CLIS)
+            except Exception as exc:
+                if (job/'receipt.json').exists():
+                    raise Hold('model job %s failed after its receipt: %s' % (job.name, exc))
+                if TRANSIENT.search(str(exc)) and waits:
+                    self._archive(job, exc, 'transient-attempt')
+                    time.sleep(waits.pop(0))
+                    continue
+                if list(job.glob('failed-attempt-*')):
+                    raise Hold('model job %s failed twice: %s' % (job.name, exc))
+                self._archive(job, exc, 'failed-attempt')
+                time.sleep(60)
+
+    def release_transient_holds(self):
+        """A rerun (the 06:00 timer) retries articles held only by a passing fault."""
+        for sym, s in self.state['articles'].items():
+            if s.get('finalized') or not TRANSIENT.search((s.get('held') or {}).get('reason', '')):
+                continue
+            for job in (self.root/'jobs').glob('%s-%s-*' % (sym, self.date.replace('-', ''))):
+                state = load_json(job/'state.json') if (job/'state.json').exists() else {}
+                if state.get('status') == 'failed_needs_review' and TRANSIENT.search(state.get('reason', '')):
+                    self._archive(job, state.get('reason', ''), 'transient-attempt')
+            del s['held']
+            self.save()
+            log(step='article_released', symbol=sym)
 
     # ---- steps -----------------------------------------------------
     def capture(self):
@@ -339,6 +369,7 @@ def main():
     a.root.mkdir(parents=True, exist_ok=True)
     try:
         day = Day(a.root, a.date, a.models, a.max_jobs, a.profile)
+        day.release_transient_holds()
         if not day.capture():
             log(status='waiting_for_production')
             return 0
