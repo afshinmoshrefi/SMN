@@ -480,7 +480,9 @@ HERO_NO_TEXT = (" Absolutely no text anywhere in the image: no letters, words, n
                 "storefront names, labels or logos.")
 HERO_CHECK_RULES = (
     "This is the hero illustration for a financial news article about {company} ({symbol}). "
-    "Read every piece of visible text in the image (signs, boxes, logos, labels, numbers). Copy each one "
+    "The first image is the whole hero; the next images are zoomed-in parts of it. "
+    "Read every piece of visible text in the image (big signs AND the small lines under signs, boxes, "
+    "labels, posters, numbers). Copy each one "
     "LETTER BY LETTER exactly as it is drawn, even when it is wrong. Never correct spelling and never fill "
     "in a name you expect to see: if a sign says WALMRAT, write WALMRAT. List every word that is "
     "misspelled, garbled, or looks like fake lettering, and any company name that is spelled wrong. "
@@ -496,6 +498,30 @@ HERO_CHECK_TOOL = {
                                     "passed": {"type": "boolean"}}}}
 
 
+def _hero_views(image_path: str, parts: int = 3):
+    """The whole hero plus overlapping full-resolution thirds, as base64 JPEGs.
+
+    One downscaled 2176px hero hides small garbled lines (Sept 29 test hero:
+    'NUTMORANAY STECLIAL' under the COSTCO sign passed); the zoomed thirds show them.
+    """
+    from PIL import Image
+    import io
+    im = Image.open(image_path).convert("RGB")
+    width, height = im.size
+    whole = im.copy()
+    whole.thumbnail((1568, 1568))
+    views, step = [whole], width // parts
+    overlap = int(step * 0.15)
+    for i in range(parts):
+        views.append(im.crop((max(0, i * step - overlap), 0, min(width, (i + 1) * step + overlap), height)))
+    out = []
+    for view in views:
+        buf = io.BytesIO()
+        view.save(buf, "JPEG", quality=90)
+        out.append(base64.b64encode(buf.getvalue()).decode())
+    return out
+
+
 def check_hero_text(image_path: str, company: str, symbol: str) -> Dict[str, Any]:
     """Ask a cheap vision model whether the hero has misspelled or garbled text.
 
@@ -505,18 +531,15 @@ def check_hero_text(image_path: str, company: str, symbol: str) -> Dict[str, Any
     stop the article.
     """
     try:
-        with open(image_path, "rb") as f:
-            data = base64.b64encode(f.read()).decode()
-        ext = os.path.splitext(image_path)[1].lower()
-        media = "image/png" if ext == ".png" else "image/webp" if ext == ".webp" else "image/jpeg"
+        images = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": d}}
+                  for d in _hero_views(image_path)]
         resp = AI_tools.requests.post(
             AI_tools.ANTHROPIC_API_URL, timeout=(15, 120),
             headers={"x-api-key": AI_tools.ANTHROPIC_API_KEY, "anthropic-version": AI_tools.ANTHROPIC_VERSION,
                      "content-type": "application/json"},
             json={"model": HERO_CHECK_MODEL, "max_tokens": 800, "tools": [HERO_CHECK_TOOL],
                   "tool_choice": {"type": "tool", "name": "report_hero_text"},
-                  "messages": [{"role": "user", "content": [
-                      {"type": "image", "source": {"type": "base64", "media_type": media, "data": data}},
+                  "messages": [{"role": "user", "content": images + [
                       {"type": "text", "text": HERO_CHECK_RULES.format(company=company, symbol=symbol)}]}]})
         if resp.status_code != 200:
             raise RuntimeError("HTTP %s: %s" % (resp.status_code, resp.text[:200]))
