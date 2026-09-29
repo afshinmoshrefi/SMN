@@ -478,6 +478,30 @@ HERO_MAX_ATTEMPTS = 3          # owner: detect, regenerate, re-check -- no more 
 HERO_CHECK_MODEL = "claude-haiku-4-5-20251001"
 HERO_NO_TEXT = (" Absolutely no text anywhere in the image: no letters, words, numbers, signage, "
                 "storefront names, labels or logos.")
+# Words that invite the image model to draw lettering (custom motifs ask for "company signage").
+_TEXT_INVITING = re.compile(r"\b(?:signs?|signage|storefronts?|logos?|labels?|banners?|billboards?|"
+                            r"posters?|branded|branding|brand|packaging|boxes|cartons|entrance|exterior)\b", re.I)
+
+
+def _unbranded_prompt(prompt: str, company: str, symbol: str) -> str:
+    """Attempt 2: the same scene without the company name, ticker or words that invite lettering."""
+    words = {w for w in re.findall(r"[A-Za-z][A-Za-z&'.-]+", company or "") if len(w) > 2} | {symbol}
+    for w in sorted(words, key=len, reverse=True):
+        prompt = re.sub(r"\b%s(?:'s)?\b" % re.escape(w), "", prompt, flags=re.I)
+    prompt = _TEXT_INVITING.sub("", prompt)
+    prompt = re.sub(r"\s+([,.])", r"\1", re.sub(r"\s{2,}", " ", prompt)).strip().rstrip(".,")
+    return prompt + "." + HERO_NO_TEXT
+
+
+def _safe_scene_prompt(concept_brief: Dict) -> str:
+    """Attempt 3: an industry scene with nothing that carries text (no stores, signs, boxes, screens)."""
+    sector = concept_brief.get("sector") or "business"
+    if sector == "custom":
+        sector = "large-scale commerce and logistics"
+    return ("Wide cinematic editorial photograph evoking the %s industry through architecture, materials, "
+            "light and scale: clean modern composition with generous negative space, photorealistic, calm "
+            "even lighting, shallow depth of field. Plain surfaces only: no storefronts, no signs, no boxes, "
+            "no packaging, no screens, no vehicles with markings, no people.%s" % (sector, HERO_NO_TEXT))
 HERO_CHECK_RULES = (
     "This is the hero illustration for a financial news article about {company} ({symbol}). "
     "The first image is the whole hero; the next images are zoomed-in parts of it. "
@@ -579,7 +603,10 @@ def generate_checked_hero(hero_prompt: str, concept_brief: Dict, hero_output_pat
               f"text={verdict.get('visible_text')} bad={verdict.get('misspelled_or_garbled')}")
         if verdict["passed"]:
             break
-        prompt = hero_prompt + HERO_NO_TEXT
+        # Each retry removes more of what makes the model draw lettering.
+        prompt = (_unbranded_prompt(hero_prompt, company, symbol) if attempt == 1
+                  else _safe_scene_prompt(concept_brief))
+        record["attempts"][-1]["next_prompt"] = prompt
     else:
         print(f"[HERO CHECK] {symbol}: text still wrong after {HERO_MAX_ATTEMPTS} attempts; publishing without a hero.")
         try:
