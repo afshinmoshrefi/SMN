@@ -47,7 +47,7 @@ class EditorialGateTests(unittest.TestCase):
                          'The next meeting is scheduled for October 15, 2026.')]:
             hashed=gate.sha256(text.encode());raw+='TEXT_SHA256: '+hashed+'\nTEXT:\n'+text+'\n'
             sources.append({'url':url,'final_url':url,'date':'2026-09-25','page_text_sha256':hashed,'page_text_chars':len(text)})
-        (folder/'SPY.txt').write_text(raw,encoding='utf-8')
+        (folder/'SPY.txt').write_bytes(raw.encode('utf-8'))
         self.write(folder/'SPY.receipt.json',{'symbol':'SPY','edition_date':'2026-09-30',
                    'text_sha256':gate.sha256((folder/'SPY.txt').read_bytes()),'sources':sources})
         self.ctx=gate.context(self.root,'SPY','2026-09-30')
@@ -116,6 +116,25 @@ class EditorialGateTests(unittest.TestCase):
         self.write(self.result/'writer-evidence.json',{'material_context':[]})
         with self.assertRaisesRegex(ValueError,'pre-writer material-source contract'):
             gate.context(self.root,'SPY','2026-09-30')
+
+    def test_primary_crlf_page_bytes_are_preserved_and_mutations_rejected(self):
+        path=self.root/'primary/SPY.txt';receipt=self.root/'primary/SPY.receipt.json'
+        proof=json.loads(receipt.read_text());raw='';texts=[]
+        for i,item in enumerate(proof['sources']):
+            text='Official statement\r\nwith exact captured carriage returns '+str(i)+'.'
+            texts.append(text);item['page_text_sha256']=gate.sha256(text.encode());item['page_text_chars']=len(text)
+            newline='\n' if i==0 else '\r\n'
+            raw+='TEXT_SHA256: '+item['page_text_sha256']+newline+'TEXT:'+newline+text+'\n'
+        path.write_bytes(raw.encode());proof['text_sha256']=gate.sha256(path.read_bytes());self.write(receipt,proof)
+        docs=gate.primary_sources(self.root,'SPY','2026-09-30')
+        self.assertEqual([docs[item['url']]['text'] for item in proof['sources']],texts)
+        path.write_bytes(path.read_bytes().replace(b'carriage',b'changed'))
+        with self.assertRaisesRegex(ValueError,'Primary evidence changed'):
+            gate.primary_sources(self.root,'SPY','2026-09-30')
+        # Even rewriting the outer file hash cannot hide altered per-page bytes.
+        proof['text_sha256']=gate.sha256(path.read_bytes());self.write(receipt,proof)
+        with self.assertRaisesRegex(ValueError,'Primary page bytes/date differ'):
+            gate.primary_sources(self.root,'SPY','2026-09-30')
 
     def problems(self,text,kind='fact',claim=None,coverage=None,symbol='SPY'):
         a=article(text,kind);ctx=copy.deepcopy(self.ctx);ctx['requirements']=gate.requirements(a,card())

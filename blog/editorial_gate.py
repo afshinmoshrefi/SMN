@@ -33,13 +33,13 @@ def primary_sources(root, symbol, edition):
         raise ValueError('Primary evidence changed or missing; refresh research in a new revision')
     if proof.get('edition_date') != edition or proof.get('symbol') != symbol:
         raise ValueError('Primary evidence belongs to another edition/subject')
-    raw = path.read_text(encoding='utf-8')
+    raw = path.read_bytes().decode('utf-8')
     docs = {}
     for item in proof['sources']:
-        marker = 'TEXT_SHA256: '+item['page_text_sha256']+'\nTEXT:\n'
-        if raw.count(marker) != 1:
+        markers = list(re.finditer(r'(?m)^TEXT_SHA256: '+re.escape(item['page_text_sha256'])+r'\r?\nTEXT:\r?\n',raw))
+        if len(markers) != 1:
             raise ValueError('Primary page boundary missing or ambiguous')
-        page = raw.split(marker, 1)[1][:item['page_text_chars']]
+        page = raw[markers[0].end():][:item['page_text_chars']]
         if sha256(page.encode()) != item['page_text_sha256'] or item['date'] > edition:
             raise ValueError('Primary page bytes/date differ from captured evidence')
         document = {'text': page, 'date': item['date'], 'url': item['final_url'],

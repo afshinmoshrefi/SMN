@@ -162,6 +162,8 @@ class Day:
                 continue
             try:
                 smn_primary_sources.collect(self.root, self.date, [sym], self.roles, CLIS, self.run_job)
+                from editorial_gate import primary_sources
+                primary_sources(self.root,sym,self.date)
                 other = next(v for k, v in example.items() if k != sym)
                 entry, problems = self._research_job(sym, other, 'research')
                 if problems:

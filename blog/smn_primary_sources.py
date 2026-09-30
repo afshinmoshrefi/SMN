@@ -58,33 +58,57 @@ class _PublicHTTPSHandler(HTTPSHandler):
 
 
 class _Text(HTMLParser):
+    VOID = {'area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'}
+    OMIT = {'head','script','style','noscript','svg','nav','footer','aside','ix:header','ix:hidden'}
     def __init__(self):
         super().__init__()
-        self.skip = 0
+        self.stack = []
         self.parts = []
+        self.main_parts = []
+        self.article_parts = []
+        self.dates = []
+
+    def _append(self, text):
+        if any(frame[1] for frame in self.stack):
+            return
+        self.parts.append(text)
+        if any(frame[2] == 'main' for frame in self.stack):self.main_parts.append(text)
+        if any(frame[2] == 'article' for frame in self.stack):self.article_parts.append(text)
+
+    def text(self):
+        return ''.join(self.dates + (self.main_parts or self.article_parts or self.parts))
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         if tag == 'time' and attributes.get('datetime'):
-            self.parts.append(' ' + attributes['datetime'] + ' ')
+            self._append(' ' + attributes['datetime'] + ' ')
         if tag == 'meta' and attributes.get('content') and (
                 attributes.get('property', '').lower() in ('article:published_time', 'datepublished') or
                 attributes.get('name', '').lower() in ('date', 'pubdate', 'datepublished')):
-            self.parts.append(' ' + attributes['content'] + ' ')
-        if tag in ('script', 'style', 'noscript', 'svg'):
-            self.skip += 1
-        elif tag in ('p', 'h1', 'h2', 'h3', 'li', 'tr', 'article', 'section'):
-            self.parts.append('\n')
+            self.dates.append(' ' + attributes['content'] + ' ')
+        hidden = (tag in self.OMIT or (tag == 'header' and not any(f[2] in ('main','article') for f in self.stack)) or
+                  'hidden' in attributes or
+                  str(attributes.get('aria-hidden','')).lower() == 'true' or
+                  re.search(r'display\s*:\s*none\b',attributes.get('style',''),re.I))
+        region = 'main' if tag == 'main' or attributes.get('role') == 'main' else 'article' if tag == 'article' else ''
+        if tag not in self.VOID:self.stack.append((tag,bool(hidden),region))
+        if tag in ('p', 'h1', 'h2', 'h3', 'li', 'tr', 'article', 'section','br'):
+            self._append('\n')
 
     def handle_endtag(self, tag):
-        if tag in ('script', 'style', 'noscript', 'svg') and self.skip:
-            self.skip -= 1
-        elif tag in ('p', 'h1', 'h2', 'h3', 'li', 'tr', 'article', 'section'):
-            self.parts.append('\n')
+        if tag in ('p', 'h1', 'h2', 'h3', 'li', 'tr', 'article', 'section'):
+            self._append('\n')
+        for index in range(len(self.stack)-1,-1,-1):
+            if self.stack[index][0] == tag:
+                del self.stack[index:]
+                break
 
     def handle_data(self, data):
-        if not self.skip:
-            self.parts.append(data)
+        self._append(data)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag,attrs)
+        if tag not in self.VOID:self.handle_endtag(tag)
 
 
 def _safe_url(url):
@@ -142,7 +166,7 @@ def fetch_page(url):
             charset = response.headers.get_content_charset() or 'utf-8'
         parser = _Text()
         parser.feed(raw.decode(charset, errors='replace'))
-        page = re.sub(r'[ \t]+', ' ', ''.join(parser.parts))
+        page = re.sub(r'[ \t]+', ' ', parser.text())
         page = re.sub(r'\n\s*\n+', '\n', page).strip()[:MAX_TEXT_CHARS]
         if len(page) < 400:
             raise Held('primary page has insufficient readable text')

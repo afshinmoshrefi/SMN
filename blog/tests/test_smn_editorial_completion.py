@@ -67,6 +67,15 @@ class CompletionTests(unittest.TestCase):
         self.ed.repair.assert_called_once()
         self.ed.finalize.assert_called_once_with('AMD','rereview')
 
+    def test_invalid_primary_capture_holds_before_spending_research_turn(self):
+        with patch('smn_daily.smn_primary_sources.collect'), \
+             patch('editorial_gate.primary_sources',side_effect=ValueError('primary bytes changed')), \
+             patch.object(self.day,'_research_job') as model:
+            with self.assertRaisesRegex(smn_daily.Hold,'research failed'):
+                self.day.research()
+        model.assert_not_called()
+        self.assertIn('primary bytes changed',self.day.state['articles']['AMD']['held']['reason'])
+
     def test_held_flag_never_counts_complete(self):
         self.day.state['articles']['AMD']={'finalized':True,'held':{'reason':'missing source'}}
         result=self.day.check()

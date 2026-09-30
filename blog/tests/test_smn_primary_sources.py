@@ -9,6 +9,40 @@ import smn_research
 
 
 class PrimarySourcesTests(unittest.TestCase):
+    def extracted(self,html):
+        parser=primary._Text();parser.feed(html)
+        return parser.text()
+
+    def test_large_navigation_does_not_displace_press_release(self):
+        page=('<html><head><meta property="article:published_time" content="2026-06-24">'
+              '<title>Page title</title></head><nav>'+('Memory products navigation '*1000)+
+              '</nav><div>'+('Secondary links '*1000)+'</div><main><article>'
+              '<header><h1>Micron Reports Record Results</h1><time datetime="2026-06-24">June 24, 2026</time></header>'
+              '<p>Reported quarterly revenue is the company-owned financial value.</p>'
+              '</article></main><footer>Footer links</footer></html>')
+        text=self.extracted(page)[:primary.MAX_TEXT_CHARS]
+        self.assertIn('Micron Reports Record Results',text)
+        self.assertIn('2026-06-24',text)
+        self.assertIn('quarterly revenue',text)
+        self.assertNotIn('navigation',text);self.assertNotIn('Secondary links',text)
+
+    def test_sec_hidden_inline_xbrl_does_not_displace_visible_report(self):
+        page=('<html><head><title>Filing</title></head><body><ix:header><ix:hidden>'+
+              ('us-gaap:DebtCurrent xbrli:shares '*1000)+'</ix:hidden></ix:header>'
+              '<div hidden>Hidden attribute</div><div aria-hidden="true">Hidden aria</div>'
+              '<div style="display: none">Hidden CSS<span>Nested hidden</span></div>'
+              '<script>window.unreadable()</script><style>unreadable css</style>'
+              '<h1>Quarterly report</h1><p>June 24, 2026</p>'
+              '<p>Revenue and earnings are reported in the visible financial tables.</p></body></html>')
+        text=self.extracted(page)[:primary.MAX_TEXT_CHARS]
+        self.assertIn('Quarterly report',text);self.assertIn('Revenue and earnings',text)
+        for excluded in ('us-gaap','xbrli','Hidden','unreadable'):self.assertNotIn(excluded,text)
+
+    def test_role_main_and_article_fallback_preserve_visible_dates(self):
+        self.assertEqual(self.extracted('<div>Navigation</div><div role="main"><p>Visible report</p></div>').strip(),'Visible report')
+        text=self.extracted('<div>Navigation</div><article><p>September 30, 2026</p><p>Visible report</p></article>')
+        self.assertIn('September 30, 2026',text);self.assertNotIn('Navigation',text)
+
     def test_connection_pins_public_address_and_preserves_tls_hostname(self):
         conn = primary._PublicHTTPSConnection('example.com')
         conn._context = Mock()
