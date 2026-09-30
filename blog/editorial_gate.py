@@ -17,6 +17,11 @@ CAUSAL = re.compile(r'\b(blam\w*|attribut\w*|due to|driven by|caused by|resulted
 INFERENCE_LIMIT = re.compile(r'\b(?:no\s+(?:basis|evidence|grounds|support|justification)\s+(?:for|to)|without)\s*$', re.I)
 FUTURE = re.compile(r'\b(upcoming|next\s+(?:\w+\s+){0,3}(?:tests?|meeting|decision|release|earnings|report|week|month))\b', re.I)
 NEGATED_FUTURE = re.compile(r'\b(?:not|never|neither)\s+(?:(?:a|an|the|about|of|forecast|prediction|predict|predicts|predicting|forecasting|represent|represents|representing)\s+)*$', re.I)
+UNCONFIRMED_FUTURE = re.compile(
+    r"\b(?:do|does|did|has|have|had)\s+not\s+"
+    r"(?:confirm\w*|say|specif\w*|announc\w*|identif\w*|know|establish\w*|state)\b"
+    r"(?:(?:\s+(?!(?:but|and|yet|however)\b)\w+){0,5}\s+)(?:when|what\s+date|date|timing|schedule\w*)\b"
+    r"(?:\s+(?!(?:but|and|yet|however)\b)\w+){0,8}\s*$", re.I)
 COUNT = re.compile(r'\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:midterm\s+)?years?\s+(?:appear|overlap|are shared|in common)', re.I)
 CALENDAR_DATE = re.compile(r'\b(?:20\d{2}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2})\b', re.I)
 NUMBERS = {word: n for n, word in enumerate('zero one two three four five six seven eight nine ten'.split())}
@@ -67,7 +72,8 @@ def units(article):
 
 def asserts_future_event(text):
     # Check each occurrence: a nearby disclaimer cannot suppress another assertion.
-    return any(not NEGATED_FUTURE.search(text[:match.start()])
+    return any(not (NEGATED_FUTURE.search(text[:match.start()]) or
+                    UNCONFIRMED_FUTURE.search(text[:match.start()]))
                for match in FUTURE.finditer(text))
 
 

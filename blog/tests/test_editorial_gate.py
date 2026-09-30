@@ -202,6 +202,24 @@ class EditorialGateTests(unittest.TestCase):
                            'This is not a forecast of the upcoming meeting.'):
             self.assertFalse(gate.asserts_future_event(disclaimer))
 
+    def test_unconfirmed_future_event_is_not_asserted_but_mixed_claim_still_is(self):
+        unconfirmed='Saved sources do not confirm when AMD will next report.'
+        self.assertFalse(gate.asserts_future_event(unconfirmed))
+        self.assertEqual(self.problems(unconfirmed),[])
+
+        positive='The study does not indicate weakness in the upcoming earnings report.'
+        self.assertTrue(gate.asserts_future_event(positive))
+        self.assertTrue(any('future date' in e for
+                            e in self.problems(positive,claim=self.claim())))
+
+        mixed=unconfirmed+' The next meeting is October 15.'
+        self.assertTrue(gate.asserts_future_event(mixed))
+        self.assertTrue(any('future date' in e for e in
+                            self.problems(mixed,claim=self.claim())))
+        for conjunction in ('but', 'and', 'yet'):
+            self.assertTrue(gate.asserts_future_event(
+                'Sources do not confirm the timing '+conjunction+' the next meeting will happen.'))
+
     def test_negated_event_does_not_hide_positive_event_in_same_paragraph(self):
         for text in ('It illustrates historical shape, not the next earnings result. '
                      'The next meeting is October 15.',
