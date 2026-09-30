@@ -28,6 +28,22 @@ PAGE_RULES = ('You check screenshots of one news article page (desktop 1440px an
     'image missing or broken, labels colliding, content running off the screen, empty areas where content '
     'should be, unreadable text. Do not judge writing quality or financial content. A major defect is one a '
     'reader would notice. passed is true only when there is no major defect.')
+TILE_RULES = (' Consecutive -partNN images are contiguous crops of the same tall page, in top-to-bottom order. '
+    'Paragraphs, charts and images may continue across tile boundaries; inspect adjacent tiles before reporting '
+    'clipping. A crop boundary alone is not a page defect. Minor cosmetic issues do not block: passed must be true '
+    'when all defects are minor or there are none, and false when any defect is major.')
+REINSPECTION_RULES = (' This is one fresh independent image inspection after an inconsistent verdict. '
+    'Inspect the images again; do not inherit or reverse a prior verdict automatically. Apply the tile semantics '
+    'and return a consistent passed flag and severity list. Real major defects still block.')
+
+
+def _page_prompt(job,stage,names):
+    base=PAGE_RULES.format(names=names)
+    current=base+TILE_RULES+(REINSPECTION_RULES if stage=='visual-reinspect' else '')
+    if stage=='visual' and (Path(job)/'prompt.txt').exists():
+        saved=(Path(job)/'prompt.txt').read_text(encoding='utf-8')
+        if saved==base:return base  # Preserve verifiable legacy assignments.
+    return current
 LANDING_RULES = ('You check screenshots of a news site edition landing page (desktop and mobile): {names}. '
     'It should show a header and {count} article cards, each with an image, a symbol label, a headline and a '
     'summary. Report broken or missing images, overlapping or cut-off text, missing cards, or layout that '
@@ -112,7 +128,16 @@ def _job(root, date, name, stage, prompt, schema, images, roles, clis, role, run
     return answer, receipt, job
 
 
-def article(root, date, sym, roles, clis, run_job=None):
+def _article_record(answer,receipt,html_sha,images,seen,out):
+    return {'passed':answer['passed'] is True and not any(d['severity']=='major' for d in answer['defects']),
+            'article_html_sha256':html_sha,'inspected_images':{i.name:_sha(i) for i in images},
+            'inspected_job_images':{i.relative_to(out).as_posix():_sha(i) for i in seen},
+            'inspector':{'model':receipt['model_requested'],'effort':receipt['effort_requested'],
+                         'job_id':receipt['job_id'],'output_sha256':receipt['output_sha256']},
+            'defects':answer['defects']}
+
+
+def article(root, date, sym, roles, clis, run_job=None,max_jobs=40):
     out = Path(root)/'results'/sym
     layout = _layout(out)
     images = sorted(out.glob('qa-*.png'))
@@ -121,29 +146,31 @@ def article(root, date, sym, roles, clis, run_job=None):
     html_sha = _sha(out/'article.html')
     seen = [t for i in images for t in _tiles(i, out/'vision-tiles')]
     names = ', '.join(i.name for i in seen)
-    answer, receipt, job = _job(root, date, sym, 'visual', PAGE_RULES.format(names=names), PAGE_SCHEMA,
+    original=Path(root)/'jobs'/(sym+'-'+date.replace('-','')+'-visual')
+    answer, receipt, job = _job(root, date, sym, 'visual', _page_prompt(original,'visual',names), PAGE_SCHEMA,
                                 seen, roles, clis, 'visual', run_job)
-    major = [d for d in answer['defects'] if d['severity'] == 'major']
-    passed = answer['passed'] is True and not major
-    record = {'passed': passed, 'article_html_sha256': html_sha,
-              'inspected_images': {i.name: _sha(i) for i in images},
-              'inspected_job_images': {i.relative_to(out).as_posix():_sha(i) for i in seen},
-              'inspector': {'model': receipt['model_requested'], 'effort': receipt['effort_requested'],
-                            'job_id': receipt['job_id'], 'output_sha256': receipt['output_sha256']},
-              'defects': answer['defects']}
-    if passed:
+    if answer['passed'] is False and not any(d['severity']=='major' for d in answer['defects']):
+        save_json(out/'visual-checks-failed.json',_article_record(answer,receipt,html_sha,images,seen,out))
+        stage='visual-reinspect';fresh=Path(root)/'jobs'/(sym+'-'+date.replace('-','')+'-'+stage)
+        jobs=Path(root)/'jobs'
+        used=sum(p.is_dir() for p in jobs.iterdir())+sum(1 for p in jobs.glob('*/failed-attempt-*'))
+        if not fresh.exists() and used>=max_jobs:
+            raise ValueError('Visual reinspection model-job budget of %d exhausted' % max_jobs)
+        answer,receipt,job=_job(root,date,sym,stage,_page_prompt(fresh,stage,names),PAGE_SCHEMA,
+                               seen,roles,clis,'visual',run_job)
+    record=_article_record(answer,receipt,html_sha,images,seen,out)
+    if record['passed']:
         save_json(out/'visual-checks.json', record)
     else:
         save_json(out/'visual-checks-failed.json', record)
     return record
 
 
-def verify_article_visual(root, sym):
-    """Fail closed on stale visual approvals, including cached completed jobs."""
+def _verify_article_record(root,sym,record,require_pass=True):
     root=Path(root);out=root/'results'/sym;_layout(out)
-    record=load_json(out/'visual-checks.json');images=sorted(out.glob('qa-*.png'))
+    images=sorted(out.glob('qa-*.png'))
     expected={i.name:_sha(i) for i in images}
-    if (record.get('passed') is not True or record.get('article_html_sha256')!=_sha(out/'article.html') or
+    if ((require_pass and record.get('passed') is not True) or record.get('article_html_sha256')!=_sha(out/'article.html') or
             not expected or record.get('inspected_images')!=expected or
             any(d.get('severity') in ('major','blocker') for d in record.get('defects',[]))):
         raise ValueError('Article visual approval is missing, failed or stale')
@@ -151,7 +178,8 @@ def verify_article_visual(root, sym):
     if not job_id or Path(job_id).name!=job_id or not job_id.startswith(sym+'-'):
         raise ValueError('Article visual inspector job binding missing')
     job=root/'jobs'/job_id;manifest=load_json(job/'job.json')
-    if manifest.get('stage')!='visual' or manifest.get('job_id')!=job_id:
+    stage=manifest.get('stage')
+    if stage not in {'visual','visual-reinspect'} or manifest.get('job_id')!=job_id:
         raise ValueError('Article visual inspector uses a different job')
     seen=[]
     for name in manifest.get('input_hashes',{}):
@@ -166,14 +194,29 @@ def verify_article_visual(root, sym):
     actual_seen={p.relative_to(out).as_posix():_sha(p) for p in seen}
     if record.get('inspected_job_images',actual_seen)!=actual_seen:
         raise ValueError('Article visual tile binding changed')
-    prompt=PAGE_RULES.format(names=', '.join(i.name for i in seen))
+    prompt=_page_prompt(job,stage,', '.join(i.name for i in seen))
     _verify_inputs(job,prompt,PAGE_SCHEMA,seen);answer,receipt=_verify_answer(job,manifest)
-    if (answer.get('passed') is not True or answer.get('defects')!=record.get('defects') or
+    if ((require_pass and answer.get('passed') is not True) or answer.get('passed')!=record.get('passed') or answer.get('defects')!=record.get('defects') or
             any(d.get('severity') in ('major','blocker') for d in answer.get('defects',[])) or
             inspector.get('output_sha256')!=receipt['output_sha256'] or
             inspector.get('model')!=receipt['model_requested'] or
             inspector.get('effort')!=receipt['effort_requested']):
         raise ValueError('Article visual approval differs from the inspected answer')
+    return record
+
+
+def verify_article_visual(root, sym):
+    """Fail closed on stale approvals; recognize only known immutable prompt versions."""
+    return _verify_article_record(root,sym,load_json(Path(root)/'results'/sym/'visual-checks.json'))
+
+
+def verify_inconsistent_visual_hold(root,sym):
+    """Only a receipt-bound first verdict with no major defects permits one reinspection."""
+    record=load_json(Path(root)/'results'/sym/'visual-checks-failed.json')
+    _verify_article_record(root,sym,record,require_pass=False)
+    job=Path(root)/'jobs'/record['inspector']['job_id']
+    if record.get('passed') is not False or load_json(job/'job.json').get('stage')!='visual':
+        raise ValueError('Visual hold does not permit another inspection')
     return record
 
 

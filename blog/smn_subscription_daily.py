@@ -5,7 +5,7 @@ No article-writing API fallback; external hero costs are recorded separately.
 """
 import argparse
 from contextlib import contextmanager
-from datetime import date as Date
+from datetime import date as Date, datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +15,21 @@ from smn_daily import Day, CLIS, now
 
 ORIGIN = 'https://seasonalmarketnews.com'
 AUTH_FAILURE = ('login', 'auth', 'quota', 'rate limit', 'rate_limit', 'usage limit')
+
+
+def edition_date():
+    # Production's 02:00 selector names its CSV for the UTC publication date.
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def outcome(result):
+    if result.get('status') == 'waiting_for_selection':
+        return 'waiting_for_selection', 75
+    providers = result.get('providers')
+    if (isinstance(providers, dict) and providers.get('chatgpt') and
+            all(isinstance(p, dict) and p.get('passed') is True for p in providers.values())):
+        return 'completed', 0
+    return 'held', 2
 
 
 @contextmanager
@@ -163,16 +178,25 @@ def run(root, date, publish=False, target='production'):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--date', default=Date.today().isoformat())
+    parser.add_argument('--date', default=edition_date())
     parser.add_argument('--publish', action='store_true')
     parser.add_argument('--target', choices=['production','dev'], default='production')
     args = parser.parse_args()
+    last_run = args.root/'last-run.json'
     try:
+        save_json(last_run, {'utc': now(), 'date': args.date, 'status': 'running',
+                            'target': args.target, 'publish': args.publish})
         result = run(args.root, args.date, args.publish, args.target)
+        status, code = outcome(result)
+        save_json(last_run, {'utc': now(), 'date': args.date, 'status': status,
+                            'exit_code': code, 'target': args.target, 'publish': args.publish,
+                            'result': result})
         print(json.dumps(result))
-        return 0 if all(p.get('passed') for p in result.get('providers', {}).values()) else 2
+        return code
     except Exception as exc:
         save_json(args.root/args.date/'HOLD.json', {'utc': now(), 'reason': str(exc)[:500], 'api_writer_fallback': False})
+        save_json(last_run, {'utc': now(), 'date': args.date, 'status': 'held', 'exit_code': 2,
+                            'target': args.target, 'publish': args.publish, 'reason': str(exc)[:500]})
         print(json.dumps({'status': 'held', 'reason': str(exc)[:500]}))
         return 2
 

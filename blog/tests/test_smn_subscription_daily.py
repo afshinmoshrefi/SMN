@@ -8,6 +8,7 @@ import tempfile
 import types
 import unittest
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -52,6 +53,56 @@ def _canonical(root: Path, symbols=('AAA',)) -> Path:
 
 
 class SubscriptionDailyTests(unittest.TestCase):
+    def test_schedule_and_retry_share_utc_selection_date_across_ny_midnight(self):
+        for month in (1, 7):
+            for hour in (3, 6):
+                instant=datetime(2026,month,5,hour,tzinfo=timezone.utc)
+                with patch.object(controller,'datetime') as clock:
+                    clock.now.side_effect=lambda tz: instant.astimezone(tz)
+                    self.assertEqual(controller.edition_date(),f'2026-{month:02d}-05')
+                    clock.now.assert_called_once_with(timezone.utc)
+
+    def test_missing_or_failed_reader_never_reports_success(self):
+        for result in ({}, {'providers':{}}, {'providers':{'claude':{'passed':True}}},
+                       {'providers':{'chatgpt':{'passed':False}}},
+                       {'providers':{'chatgpt':{'passed':True},'claude':{'passed':False}}},
+                       {'status':'waiting_unknown'}):
+            self.assertEqual(controller.outcome(result),('held',2))
+        self.assertEqual(controller.outcome({'status':'waiting_for_selection'}),
+                         ('waiting_for_selection',75))
+        self.assertEqual(controller.outcome({'providers':{'chatgpt':{'passed':True}}}),
+                         ('completed',0))
+
+    def test_main_records_waiting_failure_success_and_explicit_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            cases=[({'status':'waiting_for_selection'},75,'waiting_for_selection'),
+                   ({'providers':{'chatgpt':{'passed':False,'reason':'review held'}}},2,'held'),
+                   ({'providers':{'chatgpt':{'passed':True}}},0,'completed')]
+            for result,code,status in cases:
+                with patch.object(sys,'argv',['daily','--root',str(root),'--date','2026-09-30']), \
+                        patch.object(controller,'run',return_value=result) as run, \
+                        patch('builtins.print'):
+                    self.assertEqual(controller.main(),code)
+                    run.assert_called_once_with(root,'2026-09-30',False,'production')
+                receipt=controller.load_json(root/'last-run.json')
+                self.assertEqual((receipt['date'],receipt['status'],receipt['exit_code']),
+                                 ('2026-09-30',status,code))
+                self.assertEqual(receipt['result'],result)
+
+    def test_main_exception_records_server_hold_and_failure_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with patch.object(sys,'argv',['daily','--root',str(root)]), \
+                    patch.object(controller,'edition_date',return_value='2026-09-30'), \
+                    patch.object(controller,'run',side_effect=RuntimeError('selection transport failed')), \
+                    patch('builtins.print'):
+                self.assertEqual(controller.main(),2)
+            receipt=controller.load_json(root/'last-run.json')
+            self.assertEqual((receipt['status'],receipt['exit_code']),('held',2))
+            self.assertEqual(receipt['reason'],'selection transport failed')
+            self.assertEqual(controller.load_json(root/'2026-09-30/HOLD.json')['reason'],receipt['reason'])
+
     def test_freeze_inputs_copies_exact_bytes_and_holds_on_tampering(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -321,8 +321,35 @@ class Day:
         self.save()
         log(step='article', symbol=sym, review_stage=stage)
 
+    def _release_inconsistent_visual_holds(self):
+        from editorial_gate import verify_review
+        from subscription_writer import sha256
+        for sym in self.symbols:
+            state=self.state['articles'].get(sym,{})
+            if (state.get('held') or {}).get('reason')!='screenshot check failed':continue
+            out=self.root/'results'/sym
+            try:
+                smn_visual.verify_inconsistent_visual_hold(self.root,sym)
+                held=out/'review-binding.held.json';active=out/'review-binding.json'
+                binding=load_json(held if held.exists() else active)
+                stage=binding['review_stage']
+                if not isinstance(stage,str) or not re.fullmatch('[a-z-]+',stage):
+                    raise ValueError('Held review stage invalid')
+                proof=verify_review(out,self.root/'jobs'/(sym+'-'+self.date.replace('-','')+'-'+stage)/'output.json')
+                if binding.get('editorial_audit')!=proof or binding.get('article_html_sha256')!=sha256((out/'article.html').read_bytes()):
+                    raise ValueError('Held editorial binding changed')
+                if held.exists():
+                    if active.exists():
+                        if active.read_bytes()!=held.read_bytes():raise ValueError('Conflicting held review bindings')
+                    else:held.rename(active)
+                state.pop('held');state['editorially_finalized']=True;state['finalized']=False
+                self.save()
+            except (OSError,ValueError,KeyError,TypeError) as exc:
+                log(step='visual_hold_retained',symbol=sym,reason=str(exc))
+
     def visual(self):
         from editorial_gate import verify_review, verify_complete
+        self._release_inconsistent_visual_holds()
         done = [s for s in self.symbols if not self.state['articles'].get(s,{}).get('held') and
                 (self.state['articles'].get(s,{}).get('editorially_finalized') or self.state['articles'].get(s,{}).get('finalized'))]
         missing = [s for s in done if not (self.root/'results'/s/'layout-checks.json').exists()]
@@ -337,7 +364,7 @@ class Day:
                 binding=load_json(out/'review-binding.json')
                 verify_review(out,self.root/'jobs'/(sym+'-'+self.date.replace('-','')+'-'+binding['review_stage'])/'output.json')
                 record = (smn_visual.verify_article_visual(self.root,sym) if (out/'visual-checks.json').exists() else
-                          smn_visual.article(self.root, self.date, sym, self.roles, CLIS, self.run_job))
+                          smn_visual.article(self.root, self.date, sym, self.roles, CLIS, self.run_job,max_jobs=self.max_jobs))
                 if record['passed']:
                     proof=verify_complete(out)
                     self.state['articles'][sym]['finalized']=True
@@ -386,15 +413,23 @@ class Day:
         if not (self.root/'primary-stage.json').exists():
             primary.stage(self.root, Path(repo))
         from subscription_publication import validate_staged_reviews
-        validate_staged_reviews(self.root)
-        if not (self.root/'live-verification.json').exists():
-            primary.activate(self.root, Path(repo), 'node', PLAYWRIGHT)
-        if not (self.root/'live-landing-visual-checks.json').exists():
-            record = smn_visual.landing(self.root, self.date, self.roles, CLIS, self.run_job)
-            if not record['passed']:
-                primary.call(load_json(self.root/'primary-stage.json'), 'rollback')
-                raise Hold('live landing check failed; rolled back: %s' % record['defects'])
-        return primary.finish(self.root, Path(repo))
+        activation_attempted=(self.root/'primary-activation.json').exists() or (self.root/'live-verification.json').exists()
+        try:
+            validate_staged_reviews(self.root)
+            if not (self.root/'live-verification.json').exists():
+                activation_attempted=True
+                primary.activate(self.root, Path(repo), 'node', PLAYWRIGHT)
+            if not (self.root/'live-landing-visual-checks.json').exists():
+                record = smn_visual.landing(self.root, self.date, self.roles, CLIS, self.run_job)
+                if not record['passed']:
+                    raise Hold('live landing check failed: %s' % record['defects'])
+            return primary.finish(self.root, Path(repo))
+        except BaseException as exc:
+            if activation_attempted:
+                try:primary.call(load_json(self.root/'primary-stage.json'),'rollback')
+                except Exception as rollback_error:
+                    raise Hold('Publication failed (%s); rollback also failed (%s)' % (exc,rollback_error)) from exc
+            raise
 
 
 def mechanical_problems(checks):

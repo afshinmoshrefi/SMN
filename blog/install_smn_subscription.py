@@ -95,6 +95,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 Environment=HOME=/root
+Environment=TZ=UTC
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=SMN_CAPTURE_LOCAL=1
 Environment=SMN_CODEX={args.codex}
