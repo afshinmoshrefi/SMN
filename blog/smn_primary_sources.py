@@ -227,7 +227,7 @@ def _capture_rows(rows, cache, path):
         url = row['url']
         if url in cache['pages'] or url in cache['failed_urls']:
             continue
-        if len(cache['pages']) >= 2:
+        if len(cache['pages']) >= MAX_SOURCES:
             break
         try:
             final_url, page = fetch_page(url)
@@ -307,6 +307,9 @@ def collect(root, edition, symbols, roles, clis, run_job):
                   'article dated ' + edition + ' about ' + sym + '. Use web search. Search beyond the saved '
                   'production news leads; they are leads only and may be stale or incomplete. Choose company '
                   'investor releases, filings, regulator or government data, and other first-party evidence. '
+                  'For a performance shock or explanation, include the management letter, explanatory statement '
+                  'or transcript that sets out all material causes and counterevidence; duplicate release/filing '
+                  'copies alone are insufficient. Include dated official upcoming event/calendar evidence when relevant. '
                   'Each page must concern this subject, contain useful reported business facts, be published '
                   'within 120 days through the edition date, and have a public HTTPS URL. Exclude news '
                   'aggregators, analyst summaries, homepages, undated pages and PDFs. Do not use nasdaq.com '
@@ -344,7 +347,7 @@ def collect(root, edition, symbols, roles, clis, run_job):
                        '\nTEXT_SHA256: ' + sha256(page.encode()) + '\nTEXT:\n' + page + '\n')
             sections.append(section)
             records.append({**row, 'final_url': final_url, 'page_text_sha256': sha256(page.encode()),
-                            'page_text_chars': len(page)})
+                            'page_text_chars': len(page), 'truncated': len(page) >= MAX_TEXT_CHARS})
         blob = ('\n\n'.join(sections) + '\n').encode()
         proof = {'edition_date': edition, 'symbol': sym, 'fetched_utc': fetched,
                  'discovery_jobs': cache['jobs'], 'text_sha256': sha256(blob), 'sources': records,

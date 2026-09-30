@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import smn_models
@@ -16,7 +17,11 @@ def entry(value, quote):
     excerpt = 'HP said its total PC shipments dropped 16% for the quarter as commercial demand stayed weak.'
     return {'angle': 'PC_SHIPMENTS_AND_GUIDANCE', 'company': 'HP Inc.', 'category': 'Stocks / Hardware',
             'question': 'Does the PC slump change the seasonal picture for HP?', 'brief': 'b' * 220,
-            'hero_alt': 'Laptops on a warehouse line',
+            'hero_alt': 'Laptops on a warehouse line', 'material_context': [
+                {'id':'reported-shipments','kind':'fact','source_id':'reuters-q3',
+                 'quote':'Its total PC shipments dropped 16% for the quarter',
+                 'summary':'Reported PC shipments declined during the quarter.',
+                 'required':True,'event_date':''}],
             'sources': [{'id': 'reuters-q3', 'title': 'T', 'url': 'https://example.com/a', 'date': '2026-09-01',
                          'excerpt': excerpt},
                         {'id': 'reuters-q3b', 'title': 'T2', 'url': 'https://example.com/a', 'date': '2026-09-01',
@@ -32,6 +37,9 @@ class ResearchCheckTests(unittest.TestCase):
         ctx = Path(self.tmp.name)/'production/HPQ/audit'
         ctx.mkdir(parents=True)
         (ctx/'research_context.txt').write_text('URL: https://example.com/a\nIts total PC shipments dropped 16% for the quarter')
+        primary=patch('editorial_gate.primary_sources',return_value={
+            'https://example.com/a':{'text':'Its total PC shipments dropped 16% for the quarter'}})
+        primary.start();self.addCleanup(primary.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -82,7 +90,7 @@ class ResearchCheckTests(unittest.TestCase):
     def test_quote_wrapped_across_lines_in_the_page_passes(self):
         # Sept 28 XLK: the release wraps mid-sentence and uses no-break spaces.
         (Path(self.tmp.name)/'production/HPQ/audit/research_context.txt').write_text(
-            'URL: https://example.com/a\nIts total PC shipments dropped 16%\n for the\xa0quarter')
+            'URL: https://example.com/a\nIts total PC shipments dropped 16%\n for the\xa0quarter',encoding='utf-8')
         self.assertEqual(self.check(-16), [])
         self.assertTrue(any('not verbatim' in p for p in self.check(-16, 'Its PC shipments dropped 16% for the quarter')))
 

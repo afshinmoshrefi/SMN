@@ -29,6 +29,8 @@ def digest(value):
     return d(value)
 
 def reviewed(result,review_path):
+    from editorial_gate import verify_complete
+    verify_complete(result)
     a=read(result/'article.json');m=read(result/'mechanical-checks.json');r=read(review_path)
     if not m.get('passed') or not sha256_equal(digest(a),m.get('article_sha256')):raise ValueError('Changed or mechanically held article')
     if (r.get('passed') is not True or set(r.get('checks',{}))!=CHECKS or
@@ -74,6 +76,21 @@ def reviewed(result,review_path):
         for name,expected in screenshots.items())):
         raise ValueError('Rendered-page screenshots missing or stale')
     return a
+
+
+def validate_staged_reviews(root):
+    """Resume/manual activation must not bypass newer or stale completion checks."""
+    root=Path(root)
+    for entry in read(root/'publication-package/entries.json'):
+        sym=entry['symbol']
+        if not re.fullmatch('[A-Z0-9]{1,12}',sym):raise ValueError('Unsafe staged subject')
+        result=root/'results'/sym
+        from editorial_gate import verify_complete
+        verify_complete(result)
+        relative=urlparse(entry['url']).path.lstrip('/')
+        staged=root/'publication-package'/relative
+        if staged.read_bytes()!=(result/'article.html').read_bytes():
+            raise ValueError('Staged article differs from current final review')
 
 CSS='''
 :root{--ink:#183140;--muted:#627781;--accent:#0066cc;--border:#dfe6e7;--soft:#f6f8fa}*{box-sizing:border-box}body{margin:0;font:16px/1.6 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff}header{border-bottom:1px solid var(--border);background:#fff}.header-content{max-width:1200px;margin:0 auto;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;gap:24px}.logo{display:flex;align-items:baseline;gap:2px;text-decoration:none}.logo-seasonal,.logo-market{font-size:22px;font-weight:700;letter-spacing:-.5px}.logo-seasonal{color:var(--accent)}.logo-market{color:var(--ink)}.logo-news{font-size:22px;font-weight:400;letter-spacing:-.5px;color:var(--muted)}nav{display:flex;gap:28px}nav a{color:#526873;text-decoration:none;font-size:14px;font-weight:500}nav a:hover,.edition-card h3 a:hover{text-decoration:underline}.smn-edition{max-width:1200px;margin:0 auto;padding:42px 24px 54px}.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--ink)}.section-title{font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase}.edition-intro{color:#526873;margin:0 0 24px}.edition-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.edition-card{display:block;border:1px solid var(--border);background:#fff;color:inherit;text-decoration:none;transition:box-shadow .2s ease,transform .2s ease}.edition-card:hover{box-shadow:0 8px 24px #15334418;transform:translateY(-2px)}.edition-card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--soft)}.edition-copy{padding:18px}.edition-meta{font:12px/1.4 "IBM Plex Mono",monospace;color:var(--muted);text-transform:uppercase}.edition-card h3{font-size:20px;line-height:1.3;letter-spacing:-.3px;margin:8px 0}.edition-card h3 a{color:var(--ink);text-decoration:none}.edition-copy p{font-size:14px;line-height:1.55;color:#526873;margin:0 0 14px}.read-more{color:var(--accent);font-size:14px;font-weight:600}.edition-proof{margin-top:14px;font-size:12px;color:var(--muted)}.edition-proof summary{cursor:pointer}.edition-proof a{color:var(--muted)}footer{border-top:1px solid var(--border);padding:28px 24px;background:var(--soft)}.footer-content{max-width:1200px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.footer-left,.footer-links a{font-size:13px;color:var(--muted);text-decoration:none}.footer-links{display:flex;gap:24px}@media(max-width:750px){.header-content{padding:16px 20px}.edition-grid{grid-template-columns:1fr}.smn-edition{padding:30px 20px 42px}.footer-content{flex-direction:column;text-align:center}.logo-seasonal,.logo-market,.logo-news{font-size:20px}}
@@ -166,6 +183,7 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
         shutil.copy2(root/'archive-seed.json',target/'archive-seed.json')
     (target/'home-section.html').write_text('<style>'+CSS+'</style>'+section,encoding='utf-8')
     manifest={'schema_version':1,'target_origin':target_origin,'target_root':'/var/www/smn','edition_date':date,
+      'editorial_gate_version':1,
       'edition_id':'subscription-'+date,'source_commit':source_commit,'production_allowed':production,
       'files':{p.relative_to(target).as_posix():digest_bytes(p.read_bytes()) for p in target.rglob('*') if p.is_file()}}
     write(target/'manifest.json',manifest);return manifest

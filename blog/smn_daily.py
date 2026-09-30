@@ -213,10 +213,12 @@ class Day:
                 self._article(ed, sym)
             except Exception as exc:
                 # Hold only this article; the ones that pass are still published.
+                s['finalized'] = False
                 s['held'] = {'utc': now(), 'reason': str(exc)[:500]}
                 self.save()
                 log(step='article_held', symbol=sym, reason=str(exc)[:300])
-        self.done = [s for s in self.symbols if self.state['articles'].get(s, {}).get('finalized')]
+        self.done = [s for s in self.symbols if not self.state['articles'].get(s, {}).get('held') and
+                     (self.state['articles'].get(s, {}).get('editorially_finalized') or self.state['articles'].get(s, {}).get('finalized'))]
         if not self.done:
             raise Hold('no article passed')
 
@@ -225,15 +227,27 @@ class Day:
         path.parent.mkdir(exist_ok=True)
         if not path.exists():
             path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        elif path.read_text(encoding='utf-8') != '\n'.join(lines) + '\n':
+            raise Hold('Saved repair request differs; preserve the attempt and create an explicit evidence revision')
         return path
 
     def _article(self, ed, sym):
+        from editorial_gate import verify_complete, verify_review
         s = self.state['articles'].setdefault(sym, {})
         if s.get('finalized'):
+            verify_complete(ed.result(sym))
+            return
+        if s.get('editorially_finalized'):
+            verify_review(ed.result(sym),ed.job(sym,s['review_stage'])/'output.json')
             return
         if not ed.job(sym, 'write').exists():
             ed.prepare(sym, 'write')
         self.run_job(ed.job(sym, 'write'))
+        if s.get('mechanical_ok'):
+            from visual_evidence import digest
+            m=load_json(ed.result(sym)/'mechanical-checks.json')
+            if not m.get('passed') or m.get('article_sha256')!=digest(load_json(ed.result(sym)/'article.json')) or m.get('evidence_sha256')!=load_json(ed.result(sym)/'bundle.json')['evidence_sha256']:
+                raise Hold('Saved mechanical approval is stale; explicit revision required')
         if not s.get('mechanical_ok'):
             draft = s.get('draft', 'write')
             checks = ed.receive(sym, draft)
@@ -255,32 +269,42 @@ class Day:
             ed.review(sym, stage)
         self.run_job(ed.job(sym, stage))
         review = load_json(ed.job(sym, stage)/'output.json')
-        if not review_passed(review):
+        problems = editorial_review_problems(ed,sym,stage)
+        if problems:
             if stage == 'rereview':
-                raise Hold('%s failed review twice: %s' % (sym, review_problems(review)))
-            issues = self._issues(sym + '-review.txt', review_problems(review))
+                raise Hold('%s failed review twice: %s' % (sym, problems))
+            issues = self._issues(sym + '-review.txt', problems)
             if not ed.job(sym, 'repair-two').exists():
                 ed.repair(sym, issues, 'repair-two')
             self.run_job(ed.job(sym, 'repair-two'))
+            # Persist the next draft/stage before replacing article bytes so a crash
+            # resumes its mechanical check, never the approval of the prior draft.
+            s.update(draft='repair-two', mechanical_ok=False, review_stage='rereview')
+            self.save()
             checks = ed.receive(sym, 'repair-two')
             if not checks['passed']:
                 raise Hold('%s review repair broke mechanical checks' % sym)
-            s['review_stage'] = stage = 'rereview'
+            s['mechanical_ok'] = True
+            stage = 'rereview'
             self.save()
             if not ed.job(sym, stage).exists():
                 ed.review(sym, stage)
             self.run_job(ed.job(sym, stage))
             review = load_json(ed.job(sym, stage)/'output.json')
-            if not review_passed(review):
-                raise Hold('%s failed review twice: %s' % (sym, review_problems(review)))
+            problems = editorial_review_problems(ed,sym,stage)
+            if problems:
+                raise Hold('%s failed review twice: %s' % (sym, problems))
         ed.finalize(sym, stage)
-        s['finalized'] = True
+        s['editorially_finalized'] = True
+        s['finalized'] = False
         s['review_stage'] = stage
         self.save()
         log(step='article', symbol=sym, review_stage=stage)
 
     def visual(self):
-        done = [s for s in self.symbols if self.state['articles'].get(s, {}).get('finalized')]
+        from editorial_gate import verify_review, verify_complete
+        done = [s for s in self.symbols if not self.state['articles'].get(s,{}).get('held') and
+                (self.state['articles'].get(s,{}).get('editorially_finalized') or self.state['articles'].get(s,{}).get('finalized'))]
         missing = [s for s in done if not (self.root/'results'/s/'layout-checks.json').exists()]
         if missing:
             retry('layout', lambda: subprocess.run(['node', str(BLOG/'subscription_layout.cjs'), str(self.root),
@@ -289,15 +313,24 @@ class Day:
             out = self.root/'results'/sym
             if not (out/'hero-check.json').exists():
                 smn_visual.hero(self.root, self.date, sym, self.roles, CLIS, self.run_job)
-            if (out/'visual-checks.json').exists():
-                continue
-            record = smn_visual.article(self.root, self.date, sym, self.roles, CLIS, self.run_job)
+            try:
+                binding=load_json(out/'review-binding.json')
+                verify_review(out,self.root/'jobs'/(sym+'-'+self.date.replace('-','')+'-'+binding['review_stage'])/'output.json')
+                record = (smn_visual.verify_article_visual(self.root,sym) if (out/'visual-checks.json').exists() else
+                          smn_visual.article(self.root, self.date, sym, self.roles, CLIS, self.run_job))
+                if record['passed']:
+                    proof=verify_complete(out)
+                    self.state['articles'][sym]['finalized']=True
+                    save_json(out/'completion-check.json',proof)
+                    self.save()
+            except Exception as exc:
+                record={'passed':False,'reason':str(exc)}
             if not record['passed']:
-                self.state['articles'][sym]['held'] = {'utc': now(), 'reason': 'screenshot check failed'}
+                self.state['articles'][sym]['held'] = {'utc': now(), 'reason': record.get('reason','screenshot check failed')}
                 self.state['articles'][sym]['finalized'] = False
                 # Remove the final binding so the publisher skips this article.
                 binding = out/'review-binding.json'
-                binding.rename(out/'review-binding.held.json')
+                if binding.exists(): binding.rename(out/'review-binding.held.json')
                 self.save()
                 log(step='article_held', symbol=sym, reason='screenshot check failed')
 
@@ -306,7 +339,18 @@ class Day:
         rows = {}
         for sym in self.symbols:
             s = self.state['articles'].get(sym, {})
-            rows[sym] = ({'status': 'passed'} if s.get('finalized') else
+            if s.get('held') and s.get('finalized'):
+                s['finalized'] = False
+                self.save()
+            if s.get('finalized') and not s.get('held'):
+                try:
+                    from editorial_gate import verify_complete
+                    verify_complete(self.root/'results'/sym)
+                except Exception as exc:
+                    s['finalized']=False
+                    s['held']={'utc':now(),'reason':str(exc)}
+                    self.save()
+            rows[sym] = ({'status': 'passed'} if s.get('finalized') and not s.get('held') else
                          {'status': 'held', 'reason': (s.get('held') or {}).get('reason', 'not finished')})
         held = sorted(k for k, v in rows.items() if v['status'] == 'held')
         record = {'utc': now(), 'date': self.date, 'passed': not held, 'articles': rows,
@@ -321,6 +365,8 @@ class Day:
             return load_json(self.root/'dev-publication-receipt.json')
         if not (self.root/'primary-stage.json').exists():
             primary.stage(self.root, Path(repo))
+        from subscription_publication import validate_staged_reviews
+        validate_staged_reviews(self.root)
         if not (self.root/'live-verification.json').exists():
             primary.activate(self.root, Path(repo), 'node', PLAYWRIGHT)
         if not (self.root/'live-landing-visual-checks.json').exists():
@@ -348,7 +394,16 @@ def mechanical_problems(checks):
 def review_passed(r):
     return (r.get('passed') is True and set(r.get('checks', {})) == CHECKS and
             all(v.get('passed') is True for v in r['checks'].values()) and
-            not any(i.get('severity') in {'major', 'blocker'} for i in r.get('issues', [])))
+            not any(i.get('severity') in {'major', 'blocker'} or i.get('category','style')!='style' for i in r.get('issues', [])))
+
+
+def editorial_review_problems(ed,sym,stage):
+    from editorial_gate import verify_review
+    try:
+        verify_review(ed.result(sym),ed.job(sym,stage)/'output.json')
+        return []
+    except Exception as exc:
+        return [str(exc)]
 
 
 def review_problems(r):
@@ -379,7 +434,9 @@ def main():
         try:
             state = load_json(a.root/'smn-daily-state.json')
             day = Day(a.root, a.date, max_jobs=a.max_jobs, roles=state['roles'])
-            ready = [s for s, v in state['articles'].items() if v.get('finalized')]
+            day.symbols=list(state['articles'])
+            day.check()
+            ready = [s for s, v in day.state['articles'].items() if v.get('finalized') and not v.get('held')]
             if not ready:
                 raise Hold('no finished article to publish')
             receipt = day.publish(a.repo)

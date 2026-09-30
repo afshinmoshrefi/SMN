@@ -8,6 +8,13 @@ from visual_evidence import digest,format_value
 from seasonal_edition import _measurement_text
 
 class PublicationBoundaries(unittest.TestCase):
+    def setUp(self):
+        # These legacy fixtures isolate packaging/hash behavior. The full source,
+        # provider and editorial contract is exercised in test_editorial_gate.py.
+        gate = patch('editorial_gate.verify_complete')
+        gate.start()
+        self.addCleanup(gate.stop)
+
     def test_sha256_equality_accepts_case_only_variation_and_rejects_invalid_values(self):
         digest='a1'*32
         self.assertTrue(sha256_equal(digest,digest.upper()))

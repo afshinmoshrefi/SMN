@@ -16,6 +16,8 @@ SOURCE_FILES=(
  'blog/schemas/subscription_article.schema.json','blog/schemas/subscription_review.schema.json',
  'blog/SUBSCRIPTION_DEV_PUBLICATION.md','blog/SUBSCRIPTION_DAILY_RUNBOOK.md','blog/subscription_daily.py','blog/subscription_capture.py',
  'blog/subscription_dev_publish.py','blog/subscription_layout.cjs','blog/subscription_live.cjs')
+SOURCE_FILES += ('blog/editorial_gate.py','blog/smn_visual.py','blog/smn_models.py',
+                 'blog/claude_subscription_writer.py')
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def read(path): return json.loads(Path(path).read_text(encoding='utf-8'))
@@ -141,6 +143,8 @@ def read_marker(process, timeout=60):
         raise RuntimeError('timed out waiting for Dev lock marker; no activation acknowledgement sent')
 
 def activate(root,repo,node=None,playwright=None):
+    from subscription_publication import validate_staged_reviews
+    validate_staged_reviews(root)
     if not node: raise ValueError('--node is required for live Dev verification')
     root=Path(root).resolve(); receipt=read(root/'dev-stage.json')
     record=json.loads(remote_prepare(root,receipt))

@@ -32,6 +32,8 @@ def stage(root, repo):
 
 
 def activate(root, repo, node, playwright):
+    from subscription_publication import validate_staged_reviews
+    validate_staged_reviews(root)
     receipt = shared.read(root/'primary-stage.json')
     _, head = shared.clean_main(repo)
     if head != receipt['source_commit']:

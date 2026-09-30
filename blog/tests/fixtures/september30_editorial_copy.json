@@ -1,0 +1,1644 @@
+{
+  "VIX": {
+    "article": {
+      "title": "The VIX Fell in Every Midterm Winter From 1994 to 2022. This Year It Starts Near Its Lows",
+      "title_source_ids": [
+        "vix-history",
+        "reuters-midterms-vix"
+      ],
+      "dek": "TradeWave's October 10 to February 15 period has a strong midterm-year record for falling volatility. The record across all years is mixed, and the index is already close to its 52-week low.",
+      "dek_source_ids": [
+        "vix-history",
+        "reuters-midterms-vix"
+      ],
+      "angle_delivery": {
+        "angle": "VIX_CALM_BEFORE_MIDTERM_WINTER_WINDOW",
+        "seasonal_question": "With the VIX already calm, how has it behaved from October 10 to February 15 in past midterm years, and how much did it swing inside that period?",
+        "seasonal_contribution": "In TradeWave's seasonal record the VIX ended lower in all eight midterm years from 1994 to 2022, a median short result of 23.67 percent. Across all years from 2006 to 2025 it rose in four windows, which cut the average short result to 5.4 percent. The yearly range chart shows large rises above the starting price even in years that ended lower.",
+        "current_connection": "Reuters reported the VIX at a new low for the year near 15, with no midterm premium in the VIX curve. The index closed at 16.04 on September 29, about ten days before the window opens."
+      },
+      "sections": [
+        {
+          "role": "opening",
+          "heading": null,
+          "paragraphs": [
+            {
+              "text": "Wall Street's fear gauge has gone quiet ahead of the US midterm elections. On September 9, Reuters reported that the Cboe Volatility Index had recently touched a new low for the year of around 15, below its long-term median of 17.6. Reuters also quoted Michael Purves of Tallbacken Capital Advisors, who said the VIX curve showed no premium for the midterms.",
+              "source_ids": [
+                "reuters-midterms-vix"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "That matters now because TradeWave's seasonal window for the VIX runs from October 10, 2026, to February 15, 2027. It opens about ten days after this edition, so none of it has happened yet. The question is whether a midterm-winter decline can repeat when the index is already calm.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "current_context",
+          "heading": "Cboe's record quarter and a longer licensing deal",
+          "paragraphs": [
+            {
+              "text": "Cboe, the company behind the index, reported record second-quarter net revenue of $731.6 million on July 31, up 25 percent, helped by record index options volumes. It also raised its 2026 organic net revenue growth target to 'mid to high teens,' which is a forecast. On September 29, Cboe extended its exclusive licensing agreement with S&P Dow Jones Indices through 2051.",
+              "source_ids": [
+                "cboe-q2-2026",
+                "cboe-spdji-extension"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "Those results describe the exchange's business, not where the VIX goes next. The index closed at 16.04 on September 29, against a 52-week range of 13.38 to 35.30. That puts it nearer the bottom of its range than the top.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": "business-context",
+          "native_chart_id": null
+        },
+        {
+          "role": "seasonal_record",
+          "heading": "Eight midterm winters, eight declines",
+          "paragraphs": [
+            {
+              "text": "TradeWave studied this exact period in the eight midterm years from 1994 to 2022. The VIX finished lower every time, so a bet on falling prices worked in all eight, with a median short result of 23.67 percent. The smallest decline was 11.28 percent in the 2006 window and the largest was 43.82 percent in 2022.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The record is favorable but narrower than it looks. When all years are counted, not only midterm years, the VIX sometimes rose sharply over the same dates, as the comparison below shows.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars"
+        },
+        {
+          "role": "risk",
+          "heading": "How far the VIX moved against a short",
+          "paragraphs": [
+            {
+              "text": "The yearly range chart shows the same seasonal period for each year, not the whole calendar year. It marks how far the VIX traveled above and below the starting price along the way. It does not show the order of those highs and lows, and it does not measure a peak-to-trough loss.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The 2018 window is the clearest warning. It is the most recent midterm year with a large surge, and it had the biggest rise above the start in the midterm sample. From October 10, 2018, to February 15, 2019, the VIX ended 35.06 percent lower, yet at one point it stood 57.67 percent above its starting price.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars_mae_mfe"
+        },
+        {
+          "role": "comparison",
+          "heading": "Midterm years versus every year",
+          "paragraphs": [
+            {
+              "text": "TradeWave checked the same dates across consecutive years to see whether the pattern holds outside midterms. In both the 2006 to 2025 and 2016 to 2025 histories, the VIX fell in 80 percent of windows. Rare surges, including an 89.78 percent rise in the 2017 window from a start near 10, cut the all-year average short result to 5.4 and 4.75 percent. Every rise came in a non-midterm year. However, these histories reuse several midterm years, and the gap may reflect the eras sampled as much as the election calendar.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "outlook",
+          "heading": "What to watch before February",
+          "paragraphs": [
+            {
+              "text": "The next tests are the ones Reuters named: inflation and jobs data, a Federal Reserve meeting and the midterm elections themselves.",
+              "source_ids": [
+                "reuters-midterms-vix"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The price chart below lays the average seasonal shape from the same eight midterm years over the VIX's actual chart. It covers the next 60 weekdays, from September 30 to December 22, 2026. That horizon starts before the window opens and ends well before February 15. It shows the historical shape only and is not a target or forecast. In TradeWave, compare this window across the 10-year and 20-year histories, and use the yearly range chart to see how far each year moved against a short.",
+              "source_ids": [
+                "vix-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        }
+      ],
+      "takeaways": [
+        {
+          "text": "The VIX fell from October 10 to February 15 in all eight midterm years from 1994 to 2022. Across all years from 2006 to 2025, though, it rose in four of 20 windows, and those surges sharply cut the average.",
+          "source_ids": [
+            "vix-history"
+          ]
+        },
+        {
+          "text": "Even winning years were not smooth. In the window from October 10, 2018, to February 15, 2019, the VIX ended 35.06 percent lower after trading as much as 57.67 percent above its starting price.",
+          "source_ids": [
+            "vix-history"
+          ]
+        },
+        {
+          "text": "The VIX starts near the low end of its 52-week range, and Reuters reported no midterm premium in the VIX curve. Inflation, jobs, Fed and election news are the checks ahead.",
+          "source_ids": [
+            "reuters-midterms-vix",
+            "vix-history"
+          ]
+        }
+      ],
+      "visual_decisions": [
+        {
+          "chart_id": "business-context",
+          "reader_value": "Shows Cboe's reported jump in second-quarter net revenue from 2025 to 2026. It gives readers the business backdrop for the company behind the index, kept separate from the seasonal VIX evidence."
+        }
+      ],
+      "omitted_chart_reasons": {}
+    },
+    "original_article_sha256": "0b66d1841b3b5320dbbdb413e68fc9cc9458dfa1693f398a21f0170047416314",
+    "card": {
+      "engine_results": {
+        "cohort": {
+          "years": [
+            1994,
+            1998,
+            2002,
+            2006,
+            2010,
+            2014,
+            2018,
+            2022
+          ]
+        },
+        "comparisons": [
+          {
+            "request": {
+              "years": "10"
+            },
+            "per_year": [
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          },
+          {
+            "request": {
+              "years": "20"
+            },
+            "per_year": [
+              {
+                "year": 2006
+              },
+              {
+                "year": 2007
+              },
+              {
+                "year": 2008
+              },
+              {
+                "year": 2009
+              },
+              {
+                "year": 2010
+              },
+              {
+                "year": 2011
+              },
+              {
+                "year": 2012
+              },
+              {
+                "year": 2013
+              },
+              {
+                "year": 2014
+              },
+              {
+                "year": 2015
+              },
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "bundle": {
+      "story_id": "VIX",
+      "as_of": "2026-09-30T04:30:03.572032+00:00",
+      "sources": [
+        {
+          "id": "vix-history",
+          "title": "TradeWave VIX seasonal evidence",
+          "source_type": "engine_export",
+          "url": "evidence/vix-history.json",
+          "payload": {
+            "window": {
+              "start_date": "2026-10-10",
+              "end_date": "2027-02-15",
+              "calendar_days": 129
+            }
+          },
+          "payload_sha256": "50fe6aa2419c2a1afcd39308a08cbf5848e3b44e092711a2c124eb126c767424",
+          "date": "2026-09-30",
+          "excerpt": "Unchanged TradeWave engine results for the exact production-selected study. Midterm samples are selected years, not consecutive years. Full-window results are not remaining returns. Raw price-change rows preserve signs; stats follow the engine-selected long/short side. Entry-relative extrema do not provide peak-to-trough drawdown or the order of price moves. Average Profit is winners-only; Average Profit - All is its rounded all-window mean. No client recalculation."
+        }
+      ]
+    }
+  },
+  "IBM": {
+    "article": {
+      "title": "After IBM's Summer Plunge, a Strong Midterm Seasonal Record Opens October 24",
+      "title_source_ids": [
+        "yahoo-ibm-plunge",
+        "ibm-history"
+      ],
+      "dek": "IBM shares rose from late October to mid-February in all 15 midterm years from 1966 to 2022. Recent consecutive years are weaker, including a 2025 loss, and the second quarter brought revenue growth of just 1%.",
+      "dek_source_ids": [
+        "ibm-history",
+        "ibm-q2-release"
+      ],
+      "angle_delivery": {
+        "angle": "POST_EARNINGS_SHOCK_BEFORE_SEASONAL_WINDOW",
+        "seasonal_question": "What did IBM's second-quarter results show after the July stock plunge, as its late-October seasonal window approaches?",
+        "seasonal_contribution": "TradeWave's midterm-year study of October 24 to February 14 is favorable: IBM rose in all 15 selected years (1966-2022). Consecutive 10- and 20-year histories are less convincing and include a 2025 loss, and winning years could still fall well below the starting price along the way.",
+        "current_connection": "The window opens after a July miss that Yahoo Finance tied to clients shifting spending toward servers, storage and memory. The seasonal record is about how the shares have behaved in this period. It does not confirm that the business will recover or that the drop will reverse."
+      },
+      "sections": [
+        {
+          "role": "opening",
+          "heading": null,
+          "chart_id": null,
+          "native_chart_id": null,
+          "paragraphs": [
+            {
+              "text": "IBM shares suffered their worst one-day fall in decades on July 14, dropping more than 25% after the company warned second-quarter results would miss expectations. Investors now want to know whether the business can repair the damage.",
+              "source_ids": [
+                "yahoo-ibm-plunge"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The calendar makes this a live question now. TradeWave's study of IBM from October 24 to February 14 found the shares finished higher in every one of the 15 midterm-election years from 1966 to 2022, and 2026 is a midterm year. The record is favorable, but it is less convincing when you look at recent consecutive years. The summer drop also does not imply a rebound.",
+              "source_ids": [
+                "ibm-history"
+              ],
+              "kind": "analysis"
+            }
+          ]
+        },
+        {
+          "role": "current_context",
+          "heading": "What the second quarter showed",
+          "chart_id": "business-context",
+          "native_chart_id": null,
+          "paragraphs": [
+            {
+              "text": "Analysts had expected adjusted earnings of $3.02 a share on revenue of $17.86 billion, Yahoo Finance reported; IBM delivered $2.93 and $17.2 billion. Chief executive Arvind Krishna blamed clients shifting spending toward servers, storage and memory ahead of expected price increases.",
+              "source_ids": [
+                "yahoo-ibm-plunge"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "Revenue rose 1%. Software grew 5% and Consulting was flat, while Infrastructure fell 7% and IBM Z dropped 42%. IBM now expects full-year constant-currency revenue growth of four to five percent and a rise in free cash flow of about $1 billion. Both are forecasts.",
+              "source_ids": [
+                "ibm-q2-release"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "IBM's SEC filing shows first-half free cash flow of $4.8 billion, unchanged from a year earlier.",
+              "source_ids": [
+                "ibm-8k-ex99"
+              ],
+              "kind": "fact"
+            }
+          ]
+        },
+        {
+          "role": "seasonal_record",
+          "heading": "A clean midterm record",
+          "chart_id": null,
+          "native_chart_id": "bars",
+          "paragraphs": [
+            {
+              "text": "TradeWave's selected midterm years show IBM higher at the end of the window every time, with a median gain of 15.96%. The weakest years were still small gains: 0.69% in 2014 and 4.3% in 1994.",
+              "source_ids": [
+                "ibm-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "These are results for the full window starting October 24, not a guide to what remains once it is under way. Midterms come every fourth year, so 15 results spread across nearly six decades give a thin base, however consistent they look.",
+              "source_ids": [
+                "ibm-history"
+              ],
+              "kind": "analysis"
+            }
+          ]
+        },
+        {
+          "role": "risk",
+          "heading": "Winning years were not smooth",
+          "chart_id": null,
+          "native_chart_id": "bars_mae_mfe",
+          "paragraphs": [
+            {
+              "text": "The yearly range chart shows how far IBM rose above and fell below its starting price in each year's version of the same October-to-February period, not the whole calendar year. It separates the ending result from what a holder had to sit through.",
+              "source_ids": [
+                "ibm-history"
+              ],
+              "kind": "analysis"
+            },
+            {
+              "text": "2018 is the clearest example because it is the most recent midterm year with a large dip and the deepest in this sample. From October 24, 2018 to February 14, 2019, IBM was at one point 15.66% below the starting price, yet it finished 9.92% higher. The chart does not show the order of those moves, and it does not measure a peak-to-trough loss.",
+              "source_ids": [
+                "ibm-history"
+              ],
+              "kind": "fact"
+            }
+          ]
+        },
+        {
+          "role": "comparison",
+          "heading": "Weaker results in consecutive years",
+          "chart_id": null,
+          "native_chart_id": null,
+          "paragraphs": [
+            {
+              "text": "TradeWave also ran the same dates across every year, not just midterms, to see whether the pattern holds more broadly. The shares rose in 9 of the 10 windows starting in 2016 through 2025, and in 17 of 20 starting in 2006 through 2025, with lower medians. The latest window, starting October 2025, lost 15.04%. Many years appear in more than one group, so the comparison is not an independent test, but it tempers the midterm result.",
+              "source_ids": [
+                "ibm-history"
+              ],
+              "kind": "fact"
+            }
+          ]
+        },
+        {
+          "role": "outlook",
+          "heading": "What to watch next",
+          "chart_id": null,
+          "native_chart_id": null,
+          "paragraphs": [
+            {
+              "text": "The business question to follow is whether clients keep shifting spending toward servers, storage and memory.",
+              "source_ids": [
+                "yahoo-ibm-plunge"
+              ],
+              "kind": "analysis"
+            },
+            {
+              "text": "The price chart below lays the average seasonal path from these same 15 midterm years over IBM's actual price, rescaled to fit, for the next 60 weekdays, September 30 to December 22, 2026. That is shorter than the full window, which runs to February 14. It illustrates the historical shape and is not a forecast or price target. In TradeWave, compare this window across the 10- and 20-year histories and inspect the yearly range of outcomes.",
+              "source_ids": [
+                "ibm-history"
+              ],
+              "kind": "analysis"
+            }
+          ]
+        }
+      ],
+      "takeaways": [
+        {
+          "text": "IBM rose from October 24 to February 14 in all 15 midterm years from 1966 to 2022, but the record across all recent years is weaker, including a 15.04% loss in the window starting October 2025.",
+          "source_ids": [
+            "ibm-history"
+          ]
+        },
+        {
+          "text": "Even winning years could be hard to hold: in the October 2018 to February 2019 window, IBM was at one point 15.66% below its starting price, yet it finished 9.92% higher.",
+          "source_ids": [
+            "ibm-history"
+          ]
+        },
+        {
+          "text": "The July shock came from a miss on both revenue and earnings; the question into the window is whether clients keep favoring servers, storage and memory.",
+          "source_ids": [
+            "yahoo-ibm-plunge"
+          ]
+        }
+      ],
+      "visual_decisions": [
+        {
+          "chart_id": "business-context",
+          "reader_value": "Shows which segments made up IBM's reported second-quarter revenue, which puts the Infrastructure decline in context beside the larger Software business. It sits next to the business discussion and apart from the seasonal charts."
+        }
+      ],
+      "omitted_chart_reasons": {}
+    },
+    "original_article_sha256": "cd0c5372c600a4b78176f771de84d191b0771f9b07e778fc8d0288d9602aca36",
+    "card": {
+      "engine_results": {
+        "cohort": {
+          "years": [
+            1966,
+            1970,
+            1974,
+            1978,
+            1982,
+            1986,
+            1990,
+            1994,
+            1998,
+            2002,
+            2006,
+            2010,
+            2014,
+            2018,
+            2022
+          ]
+        },
+        "comparisons": [
+          {
+            "request": {
+              "years": "10"
+            },
+            "per_year": [
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          },
+          {
+            "request": {
+              "years": "20"
+            },
+            "per_year": [
+              {
+                "year": 2006
+              },
+              {
+                "year": 2007
+              },
+              {
+                "year": 2008
+              },
+              {
+                "year": 2009
+              },
+              {
+                "year": 2010
+              },
+              {
+                "year": 2011
+              },
+              {
+                "year": 2012
+              },
+              {
+                "year": 2013
+              },
+              {
+                "year": 2014
+              },
+              {
+                "year": 2015
+              },
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "bundle": {
+      "story_id": "IBM",
+      "as_of": "2026-09-30T04:30:03.572032+00:00",
+      "sources": [
+        {
+          "id": "ibm-history",
+          "title": "TradeWave IBM seasonal evidence",
+          "source_type": "engine_export",
+          "url": "evidence/ibm-history.json",
+          "payload": {
+            "window": {
+              "start_date": "2026-10-24",
+              "end_date": "2027-02-14",
+              "calendar_days": 114
+            }
+          },
+          "payload_sha256": "131a61b0103aa2d3d38f42a85d67d60ec7defc442498b4c3614e482205fcb34d",
+          "date": "2026-09-30",
+          "excerpt": "Unchanged TradeWave engine results for the exact production-selected study. Midterm samples are selected years, not consecutive years. Full-window results are not remaining returns. Raw price-change rows preserve signs; stats follow the engine-selected long/short side. Entry-relative extrema do not provide peak-to-trough drawdown or the order of price moves. Average Profit is winners-only; Average Profit - All is its rounded all-window mean. No client recalculation."
+        }
+      ]
+    }
+  },
+  "AMD": {
+    "article": {
+      "title": "AMD's Data Center boom meets a weak midterm-year October record",
+      "title_source_ids": [
+        "amd-8k-q2-2026",
+        "amd-history"
+      ],
+      "dek": "AMD's price fell from September 30 to October 17 in every midterm year from 1986 to 2022. Consecutive-year histories are mixed, and third-quarter results are expected only after the window closes.",
+      "dek_source_ids": [
+        "amd-history"
+      ],
+      "angle_delivery": {
+        "angle": "AI_GROWTH_AHEAD_OF_Q3_REPORT_AND_SEASONAL_SHORT_WINDOW",
+        "seasonal_question": "How have AMD shares behaved from September 30 to October 17 in midterm-election years, now that 2026 is one and third-quarter results are still ahead?",
+        "seasonal_contribution": "TradeWave's short study found AMD's price fell in all 10 midterm years from 1986 to 2022, though the same dates split evenly across consecutive years from 2006 to 2025 and 2022 traded well above its starting price before ending lower.",
+        "current_connection": "The window covers the wait before third-quarter results, estimated for November 3, while investors weigh 107% Data Center growth, roughly $13 billion revenue guidance and a forward P/E of 84.34."
+      },
+      "sections": [
+        {
+          "role": "opening",
+          "heading": null,
+          "paragraphs": [
+            {
+              "text": "AMD enters October with a Data Center business whose second-quarter sales more than doubled, and a share price that already assumes that growth continues. For investors, the open question is how the stock has behaved while the market waits for the next report.",
+              "source_ids": [
+                "amd-8k-q2-2026",
+                "zacks-sep28"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "That wait overlaps an 18-day TradeWave window running from September 30 to October 17. In midterm-election years like 2026, the seasonal record points one way: AMD's price fell in all 10 midterm years from 1986 to 2022. Across ordinary consecutive years, however, the same dates show no such tilt.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "current_context",
+          "heading": "Fast growth, high expectations",
+          "paragraphs": [
+            {
+              "text": "On August 4, AMD reported second-quarter 2026 revenue of $11.5 billion, up from $7.7 billion a year earlier. Data Center revenue was $6.7 billion, up 107%. The company guided third-quarter revenue to about $13 billion, a forward-looking figure that could differ materially.",
+              "source_ids": [
+                "amd-8k-q2-2026"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "Zacks said on September 28 that consensus expects third-quarter EPS of $1.90 on revenue of $13.06 billion. These are estimates, not results. The stock traded at 84.34 times forward earnings, against an industry average of 21.53.",
+              "source_ids": [
+                "zacks-sep28"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "TradeWave's data put the next report on November 3, after the window closes. So the seasonal period covers the wait for results, not the reaction to them.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": "business-context",
+          "native_chart_id": null
+        },
+        {
+          "role": "seasonal_record",
+          "heading": "Ten midterm years, ten declines",
+          "paragraphs": [
+            {
+              "text": "TradeWave's study tests a short position over this window, which is a bet on falling prices, so a positive short result means AMD's price fell. In the 10 selected midterm years from 1986 to 2022, it fell every time, with a median short result of 11.72%.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The declines were not uniform. The price fell just 1.33% in 2006 and 2.11% in 2010, but 30.23% in 1990. Ten windows spread over 36 years is a small sample, and these are full-window results, not a promise for any single year.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars"
+        },
+        {
+          "role": "risk",
+          "heading": "Lower at the finish, higher along the way",
+          "paragraphs": [
+            {
+              "text": "The yearly range chart shows the same seasonal period in each year, not the whole calendar year, marking how far AMD traded above and below its starting price. The most recent midterm year, 2022, is useful because it had the largest rise in the set: over September 30 to October 17, 2022, the price climbed as much as 10.94% above its start, yet ended 8.52% lower.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "For a short seller, that rise was pain endured before the window's ending result. These highs and lows are measured from the starting price. They do not show which came first or a peak-to-trough loss.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars_mae_mfe"
+        },
+        {
+          "role": "comparison",
+          "heading": "Outside midterm years, the pattern fades",
+          "paragraphs": [
+            {
+              "text": "TradeWave checked the same dates across consecutive years to see whether the decline holds outside midterm years. It mostly does not: prices rose in 6 of 10 windows from 2016 to 2025, including a 44.06% gain in 2025, and split 10 up and 10 down from 2006 to 2025. Five midterm years appear in both sets, so the samples overlap. The bearish reading rests on the midterm selection.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "outlook",
+          "heading": "What to watch after October 17",
+          "paragraphs": [
+            {
+              "text": "The next business test comes with the estimated November 3 report, when third-quarter results can be set against the $13.06 billion consensus. In TradeWave, readers can compare this window across the midterm and consecutive-year histories, and inspect each year's range of outcomes.",
+              "source_ids": [
+                "zacks-sep28",
+                "amd-history"
+              ],
+              "kind": "analysis"
+            },
+            {
+              "text": "The price chart below uses the same 10 midterm years and lays their average seasonal path over AMD's actual chart for the next 60 weekdays, from September 30 to December 22, 2026. That is longer than the 18-day window. The path is scaled to show historical shape only. It is not a forecast, price target or earnings prediction.",
+              "source_ids": [
+                "amd-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        }
+      ],
+      "takeaways": [
+        {
+          "text": "AMD's price fell from September 30 to October 17 in all 10 midterm years from 1986 to 2022. That matters because 2026 is a midterm year, but in consecutive years from 2006 to 2025 the same dates split evenly, so the finding depends on the midterm selection.",
+          "source_ids": [
+            "amd-history"
+          ]
+        },
+        {
+          "text": "A falling finish can still include a sharp rise first. In 2022 the price climbed as much as 10.94% above its start during the window and still ended 8.52% lower.",
+          "source_ids": [
+            "amd-history"
+          ]
+        },
+        {
+          "text": "Third-quarter results are expected on November 3, after the window. Consensus of $13.06 billion in revenue and a forward P/E of 84.34 show how much the market already expects.",
+          "source_ids": [
+            "zacks-sep28",
+            "amd-history"
+          ]
+        }
+      ],
+      "visual_decisions": [
+        {
+          "chart_id": "business-context",
+          "reader_value": "Shows that Data Center produced most of AMD's reported second-quarter revenue. That is the growth driver behind today's high expectations, and the chart sits beside the business discussion, apart from the seasonal charts."
+        }
+      ],
+      "omitted_chart_reasons": {}
+    },
+    "original_article_sha256": "c2905aba6105605e2467cd770dac17c061de4b554db89bdd245be78d1ce39774",
+    "card": {
+      "engine_results": {
+        "cohort": {
+          "years": [
+            1986,
+            1990,
+            1994,
+            1998,
+            2002,
+            2006,
+            2010,
+            2014,
+            2018,
+            2022
+          ]
+        },
+        "comparisons": [
+          {
+            "request": {
+              "years": "10"
+            },
+            "per_year": [
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          },
+          {
+            "request": {
+              "years": "20"
+            },
+            "per_year": [
+              {
+                "year": 2006
+              },
+              {
+                "year": 2007
+              },
+              {
+                "year": 2008
+              },
+              {
+                "year": 2009
+              },
+              {
+                "year": 2010
+              },
+              {
+                "year": 2011
+              },
+              {
+                "year": 2012
+              },
+              {
+                "year": 2013
+              },
+              {
+                "year": 2014
+              },
+              {
+                "year": 2015
+              },
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "bundle": {
+      "story_id": "AMD",
+      "as_of": "2026-09-30T04:30:03.572032+00:00",
+      "sources": [
+        {
+          "id": "amd-history",
+          "title": "TradeWave AMD seasonal evidence",
+          "source_type": "engine_export",
+          "url": "evidence/amd-history.json",
+          "payload": {
+            "window": {
+              "start_date": "2026-09-30",
+              "end_date": "2026-10-17",
+              "calendar_days": 18
+            }
+          },
+          "payload_sha256": "301374a5c92038afe676e6006d7e30fadaf986b3c2e1de6374978a0dd245fa3b",
+          "date": "2026-09-30",
+          "excerpt": "Unchanged TradeWave engine results for the exact production-selected study. Midterm samples are selected years, not consecutive years. Full-window results are not remaining returns. Raw price-change rows preserve signs; stats follow the engine-selected long/short side. Entry-relative extrema do not provide peak-to-trough drawdown or the order of price moves. Average Profit is winners-only; Average Profit - All is its rounded all-window mean. No client recalculation."
+        }
+      ]
+    }
+  },
+  "SPY": {
+    "article": {
+      "title": "A Fed rate hike meets SPY's strong midterm-year window",
+      "title_source_ids": [
+        "fed-fomc-sep16",
+        "spy-history"
+      ],
+      "dek": "From October 29, SPY enters a 35-day period that rose in all seven midterm years since 1998. Longer histories are less consistent, and the Fed has just raised rates.",
+      "dek_source_ids": [
+        "spy-history",
+        "fed-fomc-sep16"
+      ],
+      "angle_delivery": {
+        "angle": "MIDTERM_WINDOW_MACRO_BACKDROP",
+        "seasonal_question": "What is the economic backdrop as SPY approaches a late-October midterm-year seasonal window that begins October 29?",
+        "seasonal_contribution": "TradeWave's seasonal record for October 29 to December 2 is favorable in midterm years: SPY rose in all seven from 1998 to 2022. The record is less consistent across all years from 2006 to 2025, and 2022 shows a sizable dip before a gain.",
+        "current_connection": "The window opens after a September 16 Fed rate increase and a stronger August payroll report, a mixed backdrop that investors can follow through coming Fed decisions and jobs reports without treating them as proof of a seasonal repeat."
+      },
+      "sections": [
+        {
+          "role": "opening",
+          "heading": null,
+          "paragraphs": [
+            {
+              "text": "Investors heading into the last months of 2026 face an unusual mix: the Federal Reserve has just raised interest rates, while the calendar approaches a stretch that has historically been kind to the S&P 500 in midterm-election years.",
+              "source_ids": [
+                "fed-fomc-sep16",
+                "spy-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "TradeWave's study covers SPY from October 29 to December 2, a window that opens about four weeks from now. The question is what backdrop the index carries into it, and how much the seasonal record can tell you.",
+              "source_ids": [
+                "spy-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "current_context",
+          "heading": "A rate increase and a hiring rebound",
+          "paragraphs": [
+            {
+              "text": "On September 16 the Federal Open Market Committee voted 12-0 to raise its federal funds target range by a quarter point, to 3-3/4 to 4 percent. That is a tightening of policy.",
+              "source_ids": [
+                "fed-fomc-sep16"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "Hiring picked up. August payrolls rose 162,000, versus 21,000 in July and a 12-month average near 31,000, the Bureau of Labor Statistics said; the latest two months are preliminary.",
+              "source_ids": [
+                "bls-aug-payrolls"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": "business-context",
+          "native_chart_id": null
+        },
+        {
+          "role": "seasonal_record",
+          "heading": "Seven midterm years, seven gains",
+          "paragraphs": [
+            {
+              "text": "TradeWave's seasonal record for this window is favorable. In each midterm year from 1998 through 2022, SPY finished the October 29 to December 2 period higher, with a median gain of 5.36%. The smallest gain was 2.53%, in 2006.",
+              "source_ids": [
+                "spy-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "Seven years is a small sample, and the pattern looks less convincing when you look at every year, as the comparison below shows.",
+              "source_ids": [
+                "spy-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars"
+        },
+        {
+          "role": "risk",
+          "heading": "What 2022 went through on the way up",
+          "paragraphs": [
+            {
+              "text": "The yearly range chart shows how far SPY moved above and below its starting price in each year's same seasonal period, not the whole calendar year. It shows the ride, not just the finish.",
+              "source_ids": [
+                "spy-history"
+              ],
+              "kind": "analysis"
+            },
+            {
+              "text": "2022 is useful because it is the latest midterm year and had the deepest dip among them. Over October 29 to December 2, 2022, SPY ended up 5.36% but at some point traded 4.51% below its starting price. That is not a peak-to-trough loss, and the chart does not show which came first.",
+              "source_ids": [
+                "spy-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars_mae_mfe"
+        },
+        {
+          "role": "comparison",
+          "heading": "Less consistent across all years",
+          "paragraphs": [
+            {
+              "text": "TradeWave also checked the same dates in every year. From 2016 to 2025, eight of 10 rose; from 2006 to 2025, 14 of 20 rose, and 2008 fell 8.39%. These samples reuse several midterm years, so agreement is not independent, but every loss came in a non-midterm year.",
+              "source_ids": [
+                "spy-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "outlook",
+          "heading": "What to watch before October 29",
+          "paragraphs": [
+            {
+              "text": "The next Fed decision is the clearest checkpoint for whether policy tightens further before or during the window.",
+              "source_ids": [
+                "fed-fomc-sep16"
+              ],
+              "kind": "analysis"
+            },
+            {
+              "text": "The price chart below lays TradeWave's seasonal path from the seven midterm years over SPY's recent prices for the next 60 weekdays, September 30 to December 22, a different span from the seasonal window. It illustrates a historical shape, not a forecast or price target. In TradeWave, compare this window across the 10- and 20-year histories and inspect each year's range.",
+              "source_ids": [
+                "spy-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        }
+      ],
+      "takeaways": [
+        {
+          "text": "SPY rose in all seven midterm-year windows from 1998 to 2022, but in only 14 of 20 years from 2006 to 2025, so the midterm record is stronger than the window's broader history.",
+          "source_ids": [
+            "spy-history"
+          ]
+        },
+        {
+          "text": "A good finish can hide a rough ride: in 2022 SPY ended the period up 5.36% after trading as much as 4.51% below its starting price.",
+          "source_ids": [
+            "spy-history"
+          ]
+        },
+        {
+          "text": "The backdrop is mixed, with higher rates and a stronger August jobs figure; coming Fed decisions and jobs reports are things to watch, not proof of a seasonal repeat.",
+          "source_ids": [
+            "fed-fomc-sep16",
+            "bls-aug-payrolls"
+          ]
+        }
+      ],
+      "visual_decisions": [
+        {
+          "chart_id": "business-context",
+          "reader_value": "Shows at a glance how August's payroll gain compared with July and the prior 12-month average, placing the hiring side of the mixed backdrop beside the rate discussion."
+        }
+      ],
+      "omitted_chart_reasons": {}
+    },
+    "original_article_sha256": "6b7d802748e08e7dd2dc4ac12a955087c1820d5d5ea59fbb043ecfcbc1c63f01",
+    "card": {
+      "engine_results": {
+        "cohort": {
+          "years": [
+            1998,
+            2002,
+            2006,
+            2010,
+            2014,
+            2018,
+            2022
+          ]
+        },
+        "comparisons": [
+          {
+            "request": {
+              "years": "10"
+            },
+            "per_year": [
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          },
+          {
+            "request": {
+              "years": "20"
+            },
+            "per_year": [
+              {
+                "year": 2006
+              },
+              {
+                "year": 2007
+              },
+              {
+                "year": 2008
+              },
+              {
+                "year": 2009
+              },
+              {
+                "year": 2010
+              },
+              {
+                "year": 2011
+              },
+              {
+                "year": 2012
+              },
+              {
+                "year": 2013
+              },
+              {
+                "year": 2014
+              },
+              {
+                "year": 2015
+              },
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "bundle": {
+      "story_id": "SPY",
+      "as_of": "2026-09-30T04:30:03.572032+00:00",
+      "sources": [
+        {
+          "id": "spy-history",
+          "title": "TradeWave SPY seasonal evidence",
+          "source_type": "engine_export",
+          "url": "evidence/spy-history.json",
+          "payload": {
+            "window": {
+              "start_date": "2026-10-29",
+              "end_date": "2026-12-02",
+              "calendar_days": 35
+            }
+          },
+          "payload_sha256": "50af99b6127296b8bf6e8ec5bf87949d80729e5b0730a296fd09c12eabaae428",
+          "date": "2026-09-30",
+          "excerpt": "Unchanged TradeWave engine results for the exact production-selected study. Midterm samples are selected years, not consecutive years. Full-window results are not remaining returns. Raw price-change rows preserve signs; stats follow the engine-selected long/short side. Entry-relative extrema do not provide peak-to-trough drawdown or the order of price moves. Average Profit is winners-only; Average Profit - All is its rounded all-window mean. No client recalculation."
+        }
+      ]
+    }
+  },
+  "QQQ": {
+    "article": {
+      "title": "QQQ's Midterm Seasonal Window Rose in All Six Cases, and It Opens After a Fed Hike",
+      "title_source_ids": [
+        "qqq-history",
+        "fed-fomc-sep16"
+      ],
+      "dek": "From October 25 to April 26, QQQ gained in every midterm-election year from 2002 through 2022. Longer 10- and 20-year histories include losing years, so the record is favorable but less convincing when you look beyond the midterm cycle.",
+      "dek_source_ids": [
+        "qqq-history"
+      ],
+      "angle_delivery": {
+        "angle": "QQQ_MIDTERM_WINDOW_AI_EARNINGS_AND_FED_HIKE",
+        "seasonal_question": "How has QQQ behaved from October 25 to April 26 in midterm-election years, and how does that compare with its broader history for the same dates?",
+        "seasonal_contribution": "TradeWave shows QQQ rose in all six midterm windows from 2002 through 2022, with a median gain of 11.61%. The 10- and 20-year consecutive histories rose in 80% of years and include losses. Even the winning 2018 window was at one point 15.89% below its starting price.",
+        "current_connection": "The window opens soon after the Fed's September 16 quarter-point hike, with QQQ concentrated in large holdings such as NVIDIA, whose latest reported revenue and guidance are developments to watch while the window runs. They do not validate a seasonal outcome."
+      },
+      "sections": [
+        {
+          "role": "opening",
+          "heading": null,
+          "paragraphs": [
+            {
+              "text": "Investors in QQQ face a familiar question with a new twist: can a fund led by a handful of giant technology companies keep climbing while borrowing costs rise? On September 16 the Federal Reserve raised its federal funds target range by a quarter point to 3-3/4 to 4 percent, on a 12-0 vote.",
+              "source_ids": [
+                "fed-fomc-sep16"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "That question comes just before a period TradeWave has studied for this fund. The seasonal window runs from October 25, 2026 to April 26, 2027, and 2026 is a midterm-election year. As of this September 30 analysis, the window has not begun, and its outcome is unknown.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "current_context",
+          "heading": "What QQQ carries into the window",
+          "paragraphs": [
+            {
+              "text": "QQQ tracks the Nasdaq-100, and as of June 30 the index's largest positions included NVIDIA, Apple, Micron and Microsoft. With that much weight in a few names, news from those companies can move the fund.",
+              "source_ids": [
+                "yahoo-qqqm-qqq"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "NVIDIA reported fiscal second-quarter revenue of $96.2 billion, up 106% from a year earlier, including $89.0 billion from Data Center. It guided third-quarter revenue to $108.0 billion, plus or minus 2%, assuming no China Data Center compute. That guidance is a forecast, not a result.",
+              "source_ids": [
+                "nvda-q2fy27"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The rate increase is a policy decision, not a seasonal signal, and it does not tell investors how QQQ will perform once the window opens.",
+              "source_ids": [
+                "fed-fomc-sep16"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": "business-context",
+          "native_chart_id": null
+        },
+        {
+          "role": "seasonal_record",
+          "heading": "Six midterm windows, six gains",
+          "paragraphs": [
+            {
+              "text": "TradeWave's seasonal record for this exact window, limited to the midterm-election years 2002, 2006, 2010, 2014, 2018 and 2022, is favorable: QQQ rose in all six, with a median full-window gain of 11.61%. Results ranged from 9.91% in 2006 to 13.74% in 2010.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The broader record is less tidy. Across the 10 consecutive windows starting 2016 through 2025, and the 20 starting 2006 through 2025, QQQ rose in 80% of years, with a median of 10.47%. The window starting in 2021 fell 15.87%, and the one starting in 2024 fell 4.33%.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The midterm record looks cleaner than the fund's full history for these dates, but six cases is a small sample. These are complete-window results, not a guide to what remains from any later starting point.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars"
+        },
+        {
+          "role": "risk",
+          "heading": "Winning years were not smooth",
+          "paragraphs": [
+            {
+              "text": "The yearly range chart shows how far QQQ traveled above and below its starting price in each year, covering the same October-to-April period rather than the whole calendar year. It does not show which move came first, and the low is not a peak-to-trough loss.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "The window from October 25, 2018 to April 26, 2019 shows why that matters. It is the midterm year that fell furthest below its starting price, at one point 15.89% lower, yet it ended with an 11.97% gain. In 2014, by contrast, QQQ never traded below its start.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "fact"
+            },
+            {
+              "text": "Judging this window by ending results alone would miss that a double-digit dip has happened even in a winning midterm year.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": "bars_mae_mfe"
+        },
+        {
+          "role": "comparison",
+          "heading": "Why the longer histories were checked",
+          "paragraphs": [
+            {
+              "text": "TradeWave checked the consecutive 10- and 20-year histories to see whether the pattern holds outside the midterm cycle. It mostly does, but with losing years, so the midterm record should not be read as a guarantee. The groups overlap: five of the six midterm years also sit in the 20-year set, so agreement is not an independent test.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "analysis"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        },
+        {
+          "role": "outlook",
+          "heading": "What to watch before October 25",
+          "paragraphs": [
+            {
+              "text": "The next question is how QQQ's largest holdings fare in the weeks before the window opens. In TradeWave, readers can compare this same window across the midterm, 10-year and 20-year histories and inspect each year's range of outcomes.",
+              "source_ids": [
+                "yahoo-qqqm-qqq",
+                "qqq-history"
+              ],
+              "kind": "analysis"
+            },
+            {
+              "text": "The price chart below lays the average seasonal path of the same six midterm years over QQQ's actual price, which closed at 737.93 on September 29. It covers the next 60 weekdays, from September 30 to December 22, 2026, a shorter span that starts before the window. It illustrates historical shape, not a forecast or price target.",
+              "source_ids": [
+                "qqq-history"
+              ],
+              "kind": "fact"
+            }
+          ],
+          "chart_id": null,
+          "native_chart_id": null
+        }
+      ],
+      "takeaways": [
+        {
+          "text": "QQQ rose in all six midterm-year windows from 2002 to 2022, but longer 10- and 20-year histories include losing years, so the clean record rests on a small sample.",
+          "source_ids": [
+            "qqq-history"
+          ]
+        },
+        {
+          "text": "Even winning years could be rough: the 2018 window was at one point 15.89% below its starting price, yet ended 11.97% higher.",
+          "source_ids": [
+            "qqq-history"
+          ]
+        },
+        {
+          "text": "The Fed's September 16 quarter-point hike to 3-3/4 to 4 percent means the window opens with higher borrowing costs, a backdrop history cannot account for.",
+          "source_ids": [
+            "fed-fomc-sep16"
+          ]
+        }
+      ],
+      "visual_decisions": [
+        {
+          "chart_id": "business-context",
+          "reader_value": "Shows the size of NVIDIA's latest reported quarter by segment, giving readers a concrete view of the business weight behind a top QQQ holding, separate from the seasonal charts."
+        }
+      ],
+      "omitted_chart_reasons": {}
+    },
+    "original_article_sha256": "4a015a4a09342a5faa4a0f82e9882d81ea2be00f138a443d8a7f38c75cbf79c2",
+    "card": {
+      "engine_results": {
+        "cohort": {
+          "years": [
+            2002,
+            2006,
+            2010,
+            2014,
+            2018,
+            2022
+          ]
+        },
+        "comparisons": [
+          {
+            "request": {
+              "years": "10"
+            },
+            "per_year": [
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          },
+          {
+            "request": {
+              "years": "20"
+            },
+            "per_year": [
+              {
+                "year": 2006
+              },
+              {
+                "year": 2007
+              },
+              {
+                "year": 2008
+              },
+              {
+                "year": 2009
+              },
+              {
+                "year": 2010
+              },
+              {
+                "year": 2011
+              },
+              {
+                "year": 2012
+              },
+              {
+                "year": 2013
+              },
+              {
+                "year": 2014
+              },
+              {
+                "year": 2015
+              },
+              {
+                "year": 2016
+              },
+              {
+                "year": 2017
+              },
+              {
+                "year": 2018
+              },
+              {
+                "year": 2019
+              },
+              {
+                "year": 2020
+              },
+              {
+                "year": 2021
+              },
+              {
+                "year": 2022
+              },
+              {
+                "year": 2023
+              },
+              {
+                "year": 2024
+              },
+              {
+                "year": 2025
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "bundle": {
+      "story_id": "QQQ",
+      "as_of": "2026-09-30T04:30:03.572032+00:00",
+      "sources": [
+        {
+          "id": "qqq-history",
+          "title": "TradeWave QQQ seasonal evidence",
+          "source_type": "engine_export",
+          "url": "evidence/qqq-history.json",
+          "payload": {
+            "window": {
+              "start_date": "2026-10-25",
+              "end_date": "2027-04-26",
+              "calendar_days": 184
+            }
+          },
+          "payload_sha256": "8eae5b615656201d65261bbd8933d1a981effc033860e5526441d21b8324d6c3",
+          "date": "2026-09-30",
+          "excerpt": "Unchanged TradeWave engine results for the exact production-selected study. Midterm samples are selected years, not consecutive years. Full-window results are not remaining returns. Raw price-change rows preserve signs; stats follow the engine-selected long/short side. Entry-relative extrema do not provide peak-to-trough drawdown or the order of price moves. Average Profit is winners-only; Average Profit - All is its rounded all-window mean. No client recalculation."
+        }
+      ]
+    }
+  }
+}

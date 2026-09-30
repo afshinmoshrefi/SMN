@@ -96,6 +96,8 @@ def validate_package(package, origin=ORIGIN, production=False):
         raise ValueError('Explicit supported target required')
     if m.get('target_origin')!=origin or m.get('production_allowed') is not production:
         raise ValueError('Package publication target mismatch')
+    if m.get('editorial_gate_version') != 1:
+        raise ValueError('Package predates required source-grounded editorial completion gate')
     date=m['edition_date'];commit=m['source_commit']
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch('[a-f0-9]{40}',commit):
         raise ValueError('Exact date and source commit required')
@@ -170,6 +172,7 @@ def prepare(package,source):
     (record/'nginx-after').write_bytes(newconf.encode('utf-8'))
     previous_code=str((CODE/'current').resolve()) if (CODE/'current').is_symlink() else None
     receipt={'id':ident,'source_commit':commit,'edition_date':m['edition_date'],'previous_web':str(old),
+        'editorial_gate_version':m['editorial_gate_version'],
         'candidate_web':str(web),'previous_code':previous_code,'candidate_code':str(code),
         'package':str(package),'urls':[e['url'] for e in entries],
         'previous_catalog_sha256':old_catalog_sha,'home_manifest_sha256':sha(web/'home-manifest.json'),
@@ -180,6 +183,7 @@ def prepare(package,source):
 
 def activate(record):
     record=Path(record);r=read(record/'receipt.json');guard()
+    if r.get('editorial_gate_version')!=1:raise ValueError('Prepared recovery predates required editorial completion gate')
     if r['status']!='prepared':raise ValueError('Candidate state changed')
     if str(CURRENT.resolve())!=r['previous_web'] or NGINX.read_bytes()!=(record/'nginx-before').read_bytes():
         raise ValueError('Active recovery changed during build; re-integrate')

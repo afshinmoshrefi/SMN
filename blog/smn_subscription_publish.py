@@ -32,6 +32,8 @@ def publish_edition(root, date):
         raise ValueError('Publisher requires unchanged committed source')
     if not (root/'publication-package/manifest.json').exists():
         package(root, date, commit, stages, target_origin=ORIGIN)
+    from subscription_publication import validate_staged_reviews
+    validate_staged_reviews(root)
     stage_path = root/'production-stage.json'
     if not stage_path.exists():
         prepared = installer.prepare(root/'publication-package')

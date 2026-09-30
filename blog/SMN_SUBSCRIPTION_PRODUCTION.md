@@ -108,3 +108,29 @@ Keep Claude's comparison output private. The public catalog accepts only
 ChatGPT/OpenAI subscription writer provenance. Review both saved editions after
 each of the two comparison days; retaining output is not evidence of a successful
 run. Amanda monitoring is outside this change.
+
+## Editorial completion contract (September30 correction)
+
+Research must capture the relevant management explanations, counterevidence and event calendars,
+then bind 1–8 material items to exact primary quotations before writing. Discovery attempts all
+four candidates instead of stopping at the first two pages. A missing required account holds
+research; a secondary summary is not evidence that the causal account is complete.
+
+The configured independent reviewer sees the raw captured primary text and returns coverage and
+claim ledgers. Required omissions, unsupported causal/event assertions, instrument errors and
+incorrect cohort overlap block even when labeled minor. Cohort checks compare engine-provided
+year identities only; no financial statistics are recalculated. Generic conditional outlook
+analysis does not establish an event calendar. Factual upcoming events need a future date in
+captured primary evidence.
+
+The controller permits one editorial correction and a fresh review, then holds on failure.
+Mechanical, editorial, rendered HTML, screenshot inputs and subscription job receipts must all
+match the current article before it counts as complete. Scheduled, resumed, manual finalize,
+packaging and activation paths enforce the gate. Old packages lacking gate version1 are held;
+do not retrofit approvals or overwrite historical evidence. Revise sources explicitly and run
+fresh review/visual jobs when the evidence or copy changes.
+
+Offline regressions verify known bad excerpts, clean control boundaries, custody failures and
+bounded recovery. They do not demonstrate that a live model detects every semantic omission.
+Actual provider qualification remains blocked by the missing saved ChatGPT login; no new
+production publication is approved by these offline checks.

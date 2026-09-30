@@ -188,6 +188,7 @@ class Edition:
         history_text=text(se.stats_html(native)+se.comparison_html(native)+se.methodology_html(native))
         path=card['price_path']
         evidence={'as_of':b['as_of'],'commission':{k:spec[k] for k in ('angle','question','brief')},
+            'material_context':spec.get('material_context',[]),
             'engine_results':card['engine_results'],'primary_per_year':card['story_cell']['per_year'],
             'history_source_id':hid,'history_method':history['excerpt'],'sources':spec['sources'],
             'additional_chart':chart,'chart_records':records,'displayed_history':history_text,
@@ -246,7 +247,9 @@ class Edition:
 
     def review(self,sym,stage='review'):
         out=self.result(sym);b=load_json(out/'bundle.json');a=load_json(out/'article.json');n=load_json(out/'seasonal-manifest.json')
-        schema=load_json(Path(__file__).parent/'schemas/subscription_review.schema.json')
+        import editorial_gate as gate
+        context=gate.context(self.root,sym,self.date)
+        schema=gate.review_schema(load_json(Path(__file__).parent/'schemas/subscription_review.schema.json'))
         prompt=('Independently review this SMN article as a demanding financial reader. No tools, commands, APIs, browsing, delegation or rewriting. '
             'Return the complete seven-check JSON schema. Use only supplied evidence; do not build a second calculator. '
             'Passing requires all checks true and no major/blocker issues.\n'+se.READER_REVIEW_RULES+
@@ -266,18 +269,24 @@ class Edition:
             'Pixel inspection is a separate later gate; do not claim it or fail because it is pending. Rate opening1-5.\nARTICLE:\n'+
             json.dumps(a,ensure_ascii=False)+'\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False,separators=(',',':'))+
             '\nMECHANICAL:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+
-            '\nACTUAL DISPLAYED TEXT:\n'+text((out/'article.html').read_text(encoding='utf-8')))
+            '\nACTUAL DISPLAYED TEXT:\n'+text(render_edition(a,b,load_json(out/'chart-manifest.json'),load_json(out/'hero-asset.json'),held=True,seasonal=n))+
+            '\n'+gate.RULES+'\n'+gate.MARKER+digest(context)+'\nSOURCE AUDIT CONTEXT:\n'+json.dumps(context,ensure_ascii=False))
         self._prepare(stage,self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'])
+        save_json(self.job(sym,stage)/'editorial-context.json',context)
 
     def repair(self,sym,issuefile,stage):
         out=self.result(sym);b=load_json(out/'bundle.json')
+        import editorial_gate as gate
+        context=gate.context(self.root,sym,self.date)
         prompt=('You are the final SMN financial editor. Return the COMPLETE repaired article JSON. No tools, commands, APIs, browsing or delegation. '
             'Make targeted corrections using only supplied evidence; preserve strong writing, every protected chart and exact study. '
             'Observe each source word cap. Do not calculate TradeWave metrics.\n'+se.RULES+
             '\nDEFECTS:\n'+Path(issuefile).read_text(encoding='utf-8')+
             '\nARTICLE:\n'+json.dumps(load_json(out/'article.json'),ensure_ascii=False)+
             '\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False)+
-            '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json')))
+            '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+
+            '\nPRIMARY SOURCE AND MATERIAL-COVERAGE CONTRACT:\n'+json.dumps(context,ensure_ascii=False)+
+            '\nIf source evidence cannot establish the requested correction, do not invent it. Remove unsupported assertions and explicitly qualify uncertainty; a fresh independent review is mandatory.')
         self._prepare(stage,self.root/'jobs',self.job(sym,stage).name,prompt,load_json(out/'article.schema.json'),as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'])
 
     def copyedit(self,sym,editfile):
@@ -339,9 +348,11 @@ class Edition:
 
     def finalize(self,sym,stage='review'):
         from subscription_publication import CHECKS
+        from editorial_gate import verify_review
         out=self.result(sym);b=load_json(out/'bundle.json');a=load_json(out/'article.json')
         review_path=self.job(sym,stage)/'output.json';r=load_json(review_path)
-        job=smn_models.verify(self.job(sym,stage));receipt=load_json(self.job(sym,stage)/'receipt.json')
+        editorial_audit=verify_review(out,review_path)
+        job=load_json(self.job(sym,stage)/'job.json');receipt=load_json(self.job(sym,stage)/'receipt.json')
         if receipt['output_sha256']!=sha256(review_path.read_bytes()) or job['evidence_sha256']!=b['evidence_sha256']:
             raise ValueError('Review custody changed')
         if r.get('passed') is not True or set(r['checks'])!=CHECKS or any(v.get('passed') is not True for v in r['checks'].values()):
@@ -370,6 +381,7 @@ class Edition:
         save_json(out/'generation.json',generation)
         (out/'article.html').write_text(rendered,encoding='utf-8')
         save_json(out/'review-binding.json',{'article_sha256':digest(a),'review_sha256':sha256(review_path.read_bytes()),
+            'editorial_audit':editorial_audit,'article_html_sha256':sha256(rendered.encode()),
             'price_path_sha256':n['price_path']['evidence_sha256'],
             'price_path_figure_sha256':sha256(se.figure_html(n,'price_projection').encode()),
             'engine_card_sha256':digest(n['card']),'review_stage':stage})

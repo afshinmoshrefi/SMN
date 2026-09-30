@@ -17,7 +17,7 @@ from subscription_writer import load_json, save_json, sha256
 
 SCHEMA = {
     'type': 'object', 'additionalProperties': False,
-    'required': ['company', 'angle', 'category', 'question', 'brief', 'hero_alt', 'sources', 'chart'],
+    'required': ['company', 'angle', 'category', 'question', 'brief', 'hero_alt', 'sources', 'chart', 'material_context'],
     'properties': {
         'company': {'type': 'string'},
         'angle': {'type': 'string'},
@@ -25,6 +25,14 @@ SCHEMA = {
         'question': {'type': 'string'},
         'brief': {'type': 'string'},
         'hero_alt': {'type': 'string'},
+        'material_context': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {
+            'type': 'object', 'additionalProperties': False,
+            'required': ['id','kind','source_id','quote','summary','required','event_date'],
+            'properties': {'id': {'type':'string'},
+                'kind': {'type':'string','enum':['cause','counterpoint','event','fact']},
+                'source_id': {'type':'string'}, 'quote': {'type':'string'},
+                'summary': {'type':'string'}, 'required': {'type':'boolean'},
+                'event_date': {'type':'string'}}}},
         'sources': {'type': 'array', 'items': {
             'type': 'object', 'additionalProperties': False,
             'required': ['id', 'title', 'url', 'date', 'excerpt'],
@@ -69,6 +77,14 @@ and recent, dated news. Pick 2-4 sources.
   changes do not establish attainable profits on futures, options or exchange-traded products.
 - hero_alt: alt text describing a conceptual illustration for the story (no numbers).
 - sources[].excerpt: a factual summary of what that source says (60-150 words), with its key numbers.
+- material_context: 1 to 8 immutable evidence items for the writer and reviewer. Each has a unique id,
+  kind cause|counterpoint|event|fact, source_id, quote (a complete verbatim primary-source statement),
+  summary, required (true for information needed to prevent a materially misleading article), and
+  event_date (YYYY-MM-DD when the primary source establishes the event date, otherwise an empty string).
+  Preserve ALL material management explanations of the story, including execution or deal delays and
+  offsetting strength, not only a convenient external-demand explanation. Causes require captured primary
+  evidence; do not substitute a news summary. Keep material counterevidence and confirmed event dates.
+  Do not invent missing explanations or calendar dates. Do not use this list for TradeWave calculations.
 - chart: one small bar chart of 2-6 REPORTED business values from one or two sources (not TradeWave seasonal
   numbers, not forecasts). Every record has the exact number, a unit (for example "USD billions"), a period,
   status "reported", its source_id, a locator, and "quote": the exact phrase from the saved text that
@@ -95,8 +111,15 @@ def evidence(root, date, sym, example):
     src = Path(root)/'production'/sym
     post = {k: _post(root, sym).get(k) for k in ('symbol', 'title', 'dek', 'direction', 'pattern_start_date',
                                                   'pattern_days', 'lookback_years', 'published_date')}
-    payload = load_json(src/'engine-payload.json')
-    study = {'meta': payload.get('meta'), 'stats': payload.get('stats')}
+    original = _post(root, sym)
+    if original.get('source_mode') == 'selected_inputs':
+        export = load_json(Path(root)/'production-engine-export.json')
+        selected = next(s for s in export['studies'] if s['identity']['symbol']==sym)
+        response = next(r for r in selected['responses'] if r['request']['years']==original['lookback_years'])
+        study = {'meta':selected['identity'],'stats':response['response']['stats']}
+    else:
+        payload = load_json(src/'engine-payload.json')
+        study = {'meta': payload.get('meta'), 'stats': payload.get('stats')}
     return ('EDITION DATE: ' + date + '\nPRODUCTION PICK (subject only, do not copy its prose):\n' + json.dumps(post) +
             '\nTRADEWAVE STUDY SUMMARY (context only):\n' + json.dumps(study)[:6000] +
             '\nEXAMPLE OF THE OUTPUT SHAPE (another subject, another day; do not reuse its facts):\n' +
@@ -220,6 +243,48 @@ def check(entry, root, date, sym):
     for row in entry['chart']['spec']['rows']:
         if row['record_id'] not in records:
             problems.append('chart row %s has no record' % row['record_id'])
+    problems.extend(check_material_context(entry, root, date, sym))
+    return problems
+
+
+def check_material_context(entry, root, date, sym):
+    """Validate the prewriter contract against independently captured primary text."""
+    items=entry.get('material_context')
+    if not isinstance(items,list) or not items or len(items)>8:
+        return ['material_context must be a list of 1 to 8 primary evidence items']
+    from editorial_gate import primary_sources
+    try:
+        documents=primary_sources(Path(root),sym,date)
+    except (OSError,KeyError,TypeError,ValueError) as exc:
+        return ['material_context primary custody invalid: '+str(exc)]
+    sources={s['id']:s for s in entry['sources']};problems=[];seen=set()
+    for item in items:
+        if not isinstance(item,dict):
+            problems.append('material_context items must be objects')
+            continue
+        identifier=item.get('id','')
+        if not isinstance(identifier,str) or not re.fullmatch(r'[a-z0-9-]{3,60}',identifier) or identifier in seen:
+            problems.append('material_context ids must be unique lowercase-hyphen identifiers')
+            identifier=str(identifier)
+        seen.add(identifier)
+        if item.get('kind') not in {'cause','counterpoint','event','fact'} or type(item.get('required')) is not bool:
+            problems.append('material_context %s has invalid kind/required flag' % identifier)
+        source=sources.get(item.get('source_id'))
+        document=documents.get(source['url']) if source else None
+        quote=item.get('quote','')
+        if not document or not isinstance(quote,str) or len(quote.strip())<20 or _spaced(quote) not in _spaced(document['text']):
+            problems.append('material_context %s quote is not verbatim captured primary text for its source_id' % identifier)
+        if not isinstance(item.get('summary'),str) or len(item['summary'].strip())<10:
+            problems.append('material_context %s needs a substantive summary' % identifier)
+        event_date=item.get('event_date')
+        if not isinstance(event_date,str):
+            problems.append('material_context %s event_date must be YYYY-MM-DD or empty' % identifier)
+        elif event_date:
+            try:
+                datetime.strptime(event_date,'%Y-%m-%d')
+                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',event_date):raise ValueError('format')
+            except ValueError:
+                problems.append('material_context %s event_date must be YYYY-MM-DD or empty' % identifier)
     return problems
 
 
@@ -229,7 +294,7 @@ def to_sources(entry):
     records = [{k: r[k] for k in ('id', 'value', 'unit', 'period', 'status', 'source_id', 'locator')}
                for r in entry['chart']['records']]
     sources = [dict(s, max_derived_words=200, excerpt_kind='verified_factual_summary') for s in entry['sources']]
-    return {**{k: entry[k] for k in ('company', 'angle', 'category', 'question', 'brief', 'hero_alt')},
+    return {**{k: entry[k] for k in ('company', 'angle', 'category', 'question', 'brief', 'hero_alt', 'material_context')},
             'sources': sources, 'chart': [spec, records]}
 
 

@@ -21,7 +21,8 @@ class RecoveryGuards(unittest.TestCase):
                             'published_date':date+'T07:00:00Z','market_family':'US','pattern_days':30})
         (root/'entries.json').write_text(json.dumps(entries))
         files['entries.json']=deploy.sha(root/'entries.json')
-        m={'edition_date':date,'source_commit':commit,'target_origin':deploy.ORIGIN,'production_allowed':False,'files':files}
+        m={'edition_date':date,'source_commit':commit,'target_origin':deploy.ORIGIN,'production_allowed':False,
+           'editorial_gate_version':1,'files':files}
         (root/'manifest.json').write_text(json.dumps(m));return m
 
     def test_exact_dev_package_and_changed_asset(self):
@@ -31,11 +32,19 @@ class RecoveryGuards(unittest.TestCase):
             (root/'editions/2026-09-10/HRL/article.html').write_text('substitution')
             with self.assertRaisesRegex(ValueError,'Changed'):deploy.validate_package(root)
 
+    def test_package_without_editorial_gate_version_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);manifest=self.package(root)
+            manifest.pop('editorial_gate_version')
+            (root/'manifest.json').write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError,'predates required source-grounded editorial completion gate'):
+                deploy.validate_package(root)
+
     def test_production_origin_never_accepted(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);m=self.package(root);m['target_origin']='https://seasonalmarketnews.com'
             (root/'manifest.json').write_text(json.dumps(m))
-            with self.assertRaisesRegex(ValueError,'Dev-only'):deploy.validate_package(root)
+            with self.assertRaisesRegex(ValueError,'Package publication target mismatch'):deploy.validate_package(root)
 
     def test_wrong_host_rejected_before_mutations(self):
         with patch.object(deploy.subprocess,'check_output',return_value='10.0.0.98'):

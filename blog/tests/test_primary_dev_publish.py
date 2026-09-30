@@ -31,7 +31,7 @@ class PrimaryPublicationTest(unittest.TestCase):
             entries.append({'url':p.ORIGIN+'/'+rel,'source_commit':'a'*40,'symbol':symbol,'edition_id':'2026-09-24','published_date':'2026-09-24','title':symbol})
         p.write(self.package/'entries.json',entries)
         files['entries.json']=p.sha(self.package/'entries.json')
-        p.write(self.package/'manifest.json',{'target_origin':p.ORIGIN,'production_allowed':False,'source_commit':'a'*40,'edition_date':'2026-09-24','files':files})
+        p.write(self.package/'manifest.json',{'target_origin':p.ORIGIN,'production_allowed':False,'editorial_gate_version':1,'source_commit':'a'*40,'edition_date':'2026-09-24','files':files})
     def tearDown(self):
         for x in reversed(self.patches):x.stop()
         self.tmp.cleanup()

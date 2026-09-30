@@ -191,6 +191,7 @@ def prepare(package):
     write(candidate/'home-manifest.json', home)
     files = {str(p.relative_to(candidate)):sha(p) for p in candidate.rglob('*') if p.is_file()}
     receipt = {'id':ident, 'status':'prepared', 'source_commit':manifest['source_commit'],
+               'editorial_gate_version':manifest['editorial_gate_version'],
                'edition_date':date, 'before':before, 'runtime_helpers':helpers, 'pins_sha256':pin_hash,
                'expected_pins':read(DASH/'pins.json').get('pins',[]) if pin_hash else [], 'files':files,
                'retained_articles':{k:v for k,v in articles.items() if not k.startswith('editions/'+date+'/')},
@@ -217,6 +218,8 @@ def activate(record):
     guard()
     record = Path(record)
     r = read(record/'receipt.json')
+    if r.get('editorial_gate_version') != 1:
+        raise ValueError('Prepared publication predates required editorial completion gate')
     if r['status'] != 'prepared':
         raise ValueError('Edition not prepared')
     lock = STATE/LOCK_NAME
