@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import re
+from datetime import date, datetime
 
 
 TOKEN_FIELDS = {
@@ -123,6 +124,136 @@ def _hold_reason(root: Path):
     reason = re.sub(r'(?i)\b(?:sk-[A-Za-z0-9_-]+|bearer\s+\S+|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})',
                     '[redacted]', reason)
     return ' '.join(reason.split())[:300] or None
+
+
+_PROVIDERS = {'chatgpt': 'reader', 'claude': 'comparison'}
+
+
+def _valid_day(value):
+    if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+        return False
+    try:
+        date.fromisoformat(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _comparison_state(path: Path):
+    """Recognize the fixed ChatGPT-reader/Claude-comparison controller state."""
+    state = _json_file(path / 'comparison-state.json')
+    if not isinstance(state, dict) or state.get('reader_provider') != 'chatgpt':
+        return False
+    dates = state.get('comparison_dates', [])
+    if (not isinstance(dates, list) or len(dates) > 2 or
+            any(not _valid_day(value) for value in dates) or len(set(dates)) != len(dates)):
+        return False
+    return state.get('target') in (None, 'dev', 'production')
+
+
+def subscription_primary_roots(state_root: Path):
+    """Return recognized fixed-controller roots under the configured state root.
+
+    The deployed default nests the controller under ``subscription-primary``.
+    A qualification run may configure its root directly; require its controller
+    marker so legacy date/job directories are not reclassified.
+    """
+    state_root = Path(state_root)
+    if not _safe_dir(state_root):
+        return []
+    roots = []
+    if _comparison_state(state_root):
+        return [state_root]
+    nested = state_root / 'subscription-primary'
+    if _safe_dir(nested) and nested.resolve().parent == state_root.resolve():
+        roots.append(nested)
+    return roots
+
+
+def primary_controller_root(state_root: Path):
+    """Resolve the status-file root, preferring an active direct state root."""
+    roots = subscription_primary_roots(state_root)
+    if roots:
+        return roots[0]
+    return Path(state_root) / 'subscription-primary'
+
+
+def primary_controller_active(state_root: Path):
+    return any(_comparison_state(root) for root in subscription_primary_roots(state_root))
+
+
+def _safe_text(value, limit=300):
+    if not isinstance(value, str):
+        return None
+    value = re.sub(r'(?i)\bbearer\s+\S+', 'Bearer [redacted]', value)
+    value = re.sub(r'(?i)\b(?:sk[-_]|smnd_)[A-Za-z0-9_-]+', '[redacted]', value)
+    value = re.sub(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', '[redacted]', value, flags=re.I)
+    value = re.sub(r'https?://\S+', '[url]', value)
+    value = re.sub(r'(?<![\w])(?:[A-Za-z]:[\\/]|/)(?:[^\s,;]+[\\/])*[^\s,;]*', '[path]', value)
+    return ' '.join(value.split())[:limit] or None
+
+
+def last_run_status(root: Path):
+    """Expose only small, sanitized controller status fields; never job paths/results."""
+    root = Path(root)
+    if not _safe_dir(root):
+        return None
+    path = root / 'last-run.json'
+    if path.is_symlink():
+        return None
+    raw = _json_file(path)
+    if not isinstance(raw, dict):
+        return None
+    result = {}
+    if isinstance(raw.get('utc'), str) and len(raw['utc']) <= 40:
+        try:
+            datetime.fromisoformat(raw['utc'].replace('Z', '+00:00'))
+            result['utc'] = raw['utc']
+        except ValueError:
+            pass
+    if _valid_day(raw.get('date')):
+        result['date'] = raw['date']
+    if raw.get('status') in {'running', 'waiting_for_selection', 'completed', 'held'}:
+        result['status'] = raw['status']
+    if raw.get('target') in {'production', 'dev'}:
+        result['target'] = raw['target']
+    if isinstance(raw.get('publish'), bool):
+        result['publish'] = raw['publish']
+    code = raw.get('exit_code')
+    if isinstance(code, int) and not isinstance(code, bool):
+        result['exit_code'] = code
+    reason = _safe_text(raw.get('reason'))
+    if reason:
+        result['reason'] = reason
+    providers = raw.get('result', {}).get('providers') if isinstance(raw.get('result'), dict) else None
+    if isinstance(providers, dict):
+        safe_providers = {}
+        for name in ('chatgpt', 'claude'):
+            item = providers.get(name)
+            if not isinstance(item, dict):
+                continue
+            row = {}
+            if isinstance(item.get('passed'), bool):
+                row['passed'] = item['passed']
+            if item.get('status') in {'ready', 'held', 'waiting_for_production', 'waiting_for_selection'}:
+                row['status'] = item['status']
+            why = _safe_text(item.get('reason'))
+            articles = item.get('articles')
+            if isinstance(articles, dict):
+                held = sorted(name for name, value in articles.items()
+                              if isinstance(name, str) and re.fullmatch(r'[A-Z0-9]{1,12}', name) and
+                              isinstance(value, dict) and value.get('status') == 'held')
+                if held:
+                    row['held_articles'] = held[:12]
+                    if not why:
+                        why = next((_safe_text(articles[name].get('reason')) for name in held
+                                    if _safe_text(articles[name].get('reason'))), None)
+            if why:
+                row['reason'] = why
+            safe_providers[name] = row
+        if safe_providers:
+            result['providers'] = safe_providers
+    return result or None
 
 
 def _job(job_dir: Path, *, parent_manifest=None, parent_receipt=None):
@@ -273,4 +404,31 @@ def discover_runs(state_root: Path) -> list[dict]:
         summary.pop('by_article')
         summary['kind'] = 'comparison' if root.parent == comparisons else 'daily'
         runs.append(summary)
+    for primary_root in subscription_primary_roots(state_root):
+        if not _safe_dir(primary_root):
+            continue
+        for day_root in sorted(primary_root.iterdir()):
+            if (not _safe_dir(day_root) or not _valid_day(day_root.name) or
+                    day_root.resolve().parent != primary_root.resolve()):
+                continue
+            for provider, role in _PROVIDERS.items():
+                provider_root = day_root / provider
+                if (not _safe_dir(provider_root) or provider_root.resolve().parent != day_root.resolve() or
+                        not _safe_dir(provider_root / 'jobs')):
+                    continue
+                summary = summarize_run(provider_root)
+                summary.pop('jobs')
+                summary.pop('by_model')
+                summary.pop('by_stage')
+                summary.pop('by_article')
+                summary.update({
+                    'run_id': day_root.name + '-' + provider,
+                    'label': day_root.name + ' · ' + ('ChatGPT reader' if provider == 'chatgpt'
+                                                       else 'Claude comparison'),
+                    'kind': 'subscription-primary-' + provider,
+                    'workflow': 'subscription-primary',
+                    'provider': provider,
+                    'role': role,
+                })
+                runs.append(summary)
     return runs

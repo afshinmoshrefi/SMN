@@ -65,6 +65,8 @@ VERSION = "1.0.0"
 BLOG_DIR = Path(__file__).resolve().parent
 BLOG_QUEUE_URL = os.environ.get("SMN_BLOG_QUEUE_URL", "http://127.0.0.1:7171")
 SMN_DAILY_STATE_ROOT = Path(os.environ.get("SMN_DAILY_STATE_ROOT", "/var/lib/tradewave/smn-daily"))
+SMN_SUBSCRIPTION_ACTIVATION = Path(os.environ.get(
+    "SMN_SUBSCRIPTION_ACTIVATION_FILE", "/etc/SMN/subscription-primary.json"))
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
 
@@ -534,14 +536,42 @@ GENERATION_OPTIONS = (
 )
 
 
+def _subscription_primary_active() -> bool:
+    """Use fixed provider policy after activation or when its state is present."""
+    marker = SMN_SUBSCRIPTION_ACTIVATION
+    if marker.is_file() and not marker.is_symlink() and marker.stat().st_size <= 65536:
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            if (isinstance(data, dict) and data.get("reader_provider") == "chatgpt" and
+                    re.fullmatch(r"[0-9a-fA-F]{40}", str(data.get("source_commit", ""))) and
+                    isinstance(data.get("record"), str) and data["record"].strip()):
+                return True
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
+    return smn_cost_report.primary_controller_active(SMN_DAILY_STATE_ROOT)
+
+
 @app.route("/api/generation/settings", methods=["GET", "PUT"])
 def api_generation_settings():
     if request.method == "GET":
+        primary = smn_cost_report.primary_controller_root(SMN_DAILY_STATE_ROOT)
+        last_run = smn_cost_report.last_run_status(primary)
+        if _subscription_primary_active():
+            return ok({
+                "mode": "subscription-primary",
+                "selector_enabled": False,
+                "selection": {"profile": "chatgpt", "comparison_profile": "claude",
+                              "comparison_editions": 2, "fixed": True,
+                              "applies_to": "subscription-primary"},
+                "options": GENERATION_OPTIONS,
+                "last_run": last_run,
+            })
         try:
             selected = smn_daily_control.selection(SMN_DAILY_STATE_ROOT)
         except (OSError, ValueError, KeyError) as exc:
             return fail("settings_unavailable", "Generation settings could not be read", 503)
-        return ok({"selection": selected, "options": GENERATION_OPTIONS})
+        return ok({"mode": "legacy", "selector_enabled": True, "selection": selected,
+                   "options": GENERATION_OPTIONS, "last_run": last_run})
 
     # The open LAN mode bypasses guard's session CSRF check. A custom header
     # also protects this new write there; browsers cannot send it cross-origin
@@ -551,6 +581,10 @@ def api_generation_settings():
     origin = request.headers.get("Origin")
     if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
         return fail("origin", "cross-origin settings update refused", 403)
+    if _subscription_primary_active():
+        return fail("fixed_subscription_workflow",
+                    "Subscription-primary fixes ChatGPT as reader and Claude for two comparison editions; provider selection is disabled.",
+                    409)
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or data.get("profile") not in ("claude", "chatgpt"):
         return fail("invalid_profile", "Choose an available subscription profile",
@@ -581,6 +615,10 @@ def api_generation_run(run_id):
         return fail("run_not_found", "Generation run was not found", 404)
     try:
         summary = smn_cost_report.summarize_run(root)
+        summary["run_id"] = run_id
+        summary["kind"] = kind
+        if kind.startswith("subscription-primary-"):
+            summary["provider"] = kind.rsplit("-", 1)[1]
         summary["previews"] = {symbol: request.script_root + "/api/generation/previews/" + kind + "/" + run_id +
                                "/" + symbol + "/article.html"
                                for symbol in _preview_symbols(root)}
@@ -590,6 +628,30 @@ def api_generation_run(run_id):
 
 
 def _generation_run_root(run_id, kind):
+    new_kinds = {"subscription-primary-chatgpt": "chatgpt",
+                 "subscription-primary-claude": "claude"}
+    if kind in new_kinds:
+        provider = new_kinds[kind]
+        match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-" + provider, run_id)
+        if not match:
+            return False
+        try:
+            from datetime import date
+            date.fromisoformat(match.group(1))
+        except ValueError:
+            return False
+        matches = [item for item in smn_cost_report.discover_runs(SMN_DAILY_STATE_ROOT)
+                   if item.get("run_id") == run_id and item.get("kind") == kind]
+        if len(matches) != 1:
+            return None
+        for base in smn_cost_report.subscription_primary_roots(SMN_DAILY_STATE_ROOT):
+            day = base / match.group(1)
+            root = day / provider
+            if (_safe_dashboard_dir(base, SMN_DAILY_STATE_ROOT) and
+                    _safe_dashboard_dir(day, base) and _safe_dashboard_dir(root, day) and
+                    _safe_dashboard_dir(root / "jobs", root)):
+                return root
+        return None
     if kind not in ("daily", "comparison") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,100}", run_id):
         return False
     matches = [item for item in smn_cost_report.discover_runs(SMN_DAILY_STATE_ROOT)
@@ -601,14 +663,45 @@ def _generation_run_root(run_id, kind):
     return root if root.parent == base else False
 
 
+def _safe_dashboard_dir(path, parent):
+    path = Path(path)
+    parent = Path(parent)
+    if path.absolute() == parent.absolute():
+        return path.is_dir() and not path.is_symlink()
+    return (path.is_dir() and not path.is_symlink() and parent.is_dir() and
+            not parent.is_symlink() and path.resolve().parent == parent.resolve())
+
+
+def _dashboard_path_safe(root, path):
+    """Require every component below a verified run root to be non-symlink."""
+    root, path = Path(root), Path(path)
+    if not root.is_dir() or root.is_symlink():
+        return False
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    current = root
+    for part in relative.parts:
+        if part in ("", ".", ".."):
+            return False
+        current = current / part
+        if current.is_symlink():
+            return False
+    try:
+        return path.resolve().is_relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+
+
 def _preview_ready(root, symbol):
     if not re.fullmatch(r"[A-Z0-9]{1,12}", symbol):
         return False
     result = root / "results" / symbol
-    if result.is_symlink() or not result.is_dir():
+    if not _dashboard_path_safe(root, result) or not result.is_dir():
         return False
     state_path = root / "smn-daily-state.json"
-    if state_path.is_symlink() or not state_path.is_file():
+    if not _dashboard_path_safe(root, state_path) or not state_path.is_file():
         return False
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -620,7 +713,7 @@ def _preview_ready(root, symbol):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
             return False
         review = root / "jobs" / (symbol + "-" + date.replace("-", "") + "-" + stage) / "output.json"
-        if review.is_symlink() or not review.is_file():
+        if not _dashboard_path_safe(root, review) or not review.is_file():
             return False
         subscription_publication.reviewed(result, review)
         return True
@@ -654,7 +747,7 @@ def api_generation_preview(kind, run_id, symbol, asset):
     else:
         return fail("invalid_asset", "Preview file is not public", 404)
     path = root / "results" / symbol / relative
-    if not path.is_file() or path.is_symlink() or (root / "results" / symbol / "assets").is_symlink():
+    if not _dashboard_path_safe(root, path) or not path.is_file():
         return fail("asset_not_found", "Preview file was not found", 404)
     response = send_file(path, conditional=True)
     response.headers["Content-Security-Policy"] = ("sandbox allow-scripts; default-src 'none'; "

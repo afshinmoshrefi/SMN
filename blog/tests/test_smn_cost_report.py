@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from smn_cost_report import discover_runs, summarize_run
+from smn_cost_report import discover_runs, last_run_status, summarize_run
 
 
 def saved(path, value):
@@ -14,6 +14,67 @@ def saved(path, value):
 
 
 class CostReportTests(unittest.TestCase):
+    def test_subscription_primary_nested_and_direct_roots_are_discovered_safely(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            primary = state / 'subscription-primary'
+            saved(primary / 'comparison-state.json', {'reader_provider': 'chatgpt',
+                  'comparison_dates': ['2026-09-30'], 'target': 'production'})
+            for provider, model in (('chatgpt', 'gpt-6-sol'), ('claude', 'claude-sonnet-5')):
+                job = primary / '2026-09-30' / provider / 'jobs' / (provider.upper()+'-20260930-write')
+                saved(job / 'job.json', {'job_id': job.name, 'stage': 'write', 'model': model})
+                saved(job / 'state.json', {'status': 'output_ready_for_smn_validation'})
+            runs = discover_runs(state)
+            self.assertEqual({(r['run_id'], r['kind'], r['provider'], r['role']) for r in runs}, {
+                ('2026-09-30-chatgpt', 'subscription-primary-chatgpt', 'chatgpt', 'reader'),
+                ('2026-09-30-claude', 'subscription-primary-claude', 'claude', 'comparison')})
+            self.assertTrue(all('path' not in r for r in runs))
+
+            direct = state / 'generator-qualification-v2'
+            saved(direct / 'comparison-state.json', {'reader_provider': 'chatgpt',
+                  'comparison_dates': [], 'target': 'dev'})
+            job = direct / '2026-09-30' / 'chatgpt' / 'jobs' / 'A-20260930-write'
+            saved(job / 'job.json', {'job_id': job.name, 'stage': 'write', 'model': 'gpt-6-sol'})
+            saved(job / 'state.json', {'status': 'output_ready_for_smn_validation'})
+            direct_runs = discover_runs(direct)
+            self.assertEqual([r['run_id'] for r in direct_runs], ['2026-09-30-chatgpt'])
+
+    def test_subscription_primary_discovery_ignores_symlinked_date_and_provider(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            primary = state / 'subscription-primary'
+            saved(primary / 'comparison-state.json', {'reader_provider': 'chatgpt',
+                  'comparison_dates': [], 'target': 'dev'})
+            outside = state / 'outside'
+            job = outside / 'jobs' / 'A-20260930-write'
+            saved(job / 'job.json', {'job_id': job.name, 'stage': 'write'})
+            saved(job / 'state.json', {'status': 'output_ready_for_smn_validation'})
+            day = primary / '2026-09-30'
+            day.mkdir()
+            try:
+                (day / 'claude').symlink_to(outside, target_is_directory=True)
+                (primary / '2026-09-29').symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest('symlinks unavailable')
+            self.assertEqual(discover_runs(state), [])
+
+    def test_last_run_status_is_allowlisted_and_redacted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            saved(root / 'last-run.json', {'utc': '2026-09-30T12:00:00Z', 'date': '2026-09-30',
+                  'status': 'held', 'target': 'production', 'publish': True, 'exit_code': 2,
+                  'reason': 'Auth failed for bearer secret-value sk-test-token at a@example.com /var/private/state',
+                  'result': {'providers': {'chatgpt': {'passed': True, 'status': 'ready',
+                                                       'reason': 'see /var/private/file'},
+                                           'claude': {'passed': False, 'status': 'held'}},
+                             'secret_path': '/var/private/path'}, 'extra': 'not allowed'})
+            status = last_run_status(root)
+            self.assertEqual(status['status'], 'held')
+            self.assertEqual(status['providers']['chatgpt']['status'], 'ready')
+            combined = json.dumps(status)
+            for secret in ('secret-value', 'sk-test-token', 'a@example.com', '/var/private', 'secret_path', 'extra'):
+                self.assertNotIn(secret, combined)
+
     def test_job_cost_counts_once_and_missing_usage_is_visible(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / '2026-09-26'

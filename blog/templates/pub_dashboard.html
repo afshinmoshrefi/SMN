@@ -152,9 +152,10 @@
 <main>
   <section class="panel" id="generation">
     <h2 style="font-size:17px;margin:0 0 8px">Generation</h2>
-    <div class="gen-note">Choose the subscription for new editions. A run already in progress keeps its saved profile. The selected provider must be signed in on the runner before a run starts; ChatGPT/Codex runner sign-in is pending verification.</div>
+    <div class="gen-note">Generation reports show server-side subscription runs and saved receipts. Existing editions keep their saved provider roles.</div>
     <div class="gen-options" id="gen-options" style="margin-top:10px">Loading generation settings…</div>
     <div class="row"><button class="primary" id="gen-save" disabled>Save selection</button><span class="gen-note" id="gen-selection-note"></span></div>
+    <div class="gen-note" id="gen-controller-status" style="margin-top:8px"></div>
     <div class="row" style="border-top:1px solid var(--line);padding-top:12px;margin-top:16px">
       <label for="gen-run" style="margin:0">Run</label>
       <select id="gen-run" style="width:min(100%,340px)"><option value="">Loading runs…</option></select>
@@ -474,12 +475,30 @@ function renderGeneration(report) {
 async function loadGenerationSettings() {
   try {
     const data = (await api("/api/generation/settings")).data;
+    const lastRun = data.last_run;
+    if (lastRun) {
+      const providers = Object.entries(lastRun.providers || {}).map(([name, item]) =>
+        name + ": " + (item.status || (item.passed === true ? "passed" : item.passed === false ? "held" : "unknown")));
+      const details = ["Last server run: " + (lastRun.date || "unknown date"), lastRun.status || "unknown status",
+        lastRun.target || ""].filter(Boolean).join(" · ");
+      $("gen-controller-status").textContent = details + (providers.length ? " · " + providers.join("; ") : "") +
+        (lastRun.reason ? " · " + lastRun.reason : "");
+    } else {
+      $("gen-controller-status").textContent = "No server controller status recorded yet.";
+    }
+    if (data.mode === "subscription-primary") {
+      $("gen-options").innerHTML = "<div class='gen-option'><span><b>ChatGPT subscription · reader edition</b> + " +
+        "<b>Claude subscription · up to two comparison editions</b><small>Fixed by the active subscription-primary controller.</small></span></div>";
+      $("gen-save").disabled = true;
+      $("gen-selection-note").textContent = "Provider selection is fixed for this workflow.";
+      return;
+    }
     $("gen-options").innerHTML = data.options.map(option =>
       "<label class='gen-option" + (option.available ? "" : " unavailable") + "'><input type='radio' name='gen-profile' value='" +
       escapeHtml(option.id) + "' " + (option.available ? "" : "disabled ") +
       (data.selection.profile === option.id ? "checked" : "") + "><span>" + escapeHtml(option.label) +
       "<small>" + escapeHtml(option.available ? "Subscription profile; login checked before running" : option.reason) + "</small></span></label>").join("");
-    $("gen-save").disabled = false;
+    $("gen-save").disabled = !data.selector_enabled;
     $("gen-selection-note").textContent = "Current: " + (data.options.find(x => x.id === data.selection.profile)?.label || data.selection.profile);
   } catch (error) { $("gen-options").textContent = error.message; }
 }
@@ -525,7 +544,7 @@ async function loadGenerationDetail() {
   } catch (error) { $("gen-run-note").textContent = error.message; }
 }
 $("gen-run").onchange = loadGenerationDetail;
-$("gen-refresh").onclick = loadGenerationRuns;
+$("gen-refresh").onclick = () => { loadGenerationSettings(); loadGenerationRuns(); };
 $("gen-csv").onclick = () => {
   if (!generationReport) return;
   const keys = ["article", "stage", "status", "models", "input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens", "reported_api_equivalent_usd", "missing_fields"];
