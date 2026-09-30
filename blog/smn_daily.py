@@ -413,19 +413,20 @@ class Day:
         if not (self.root/'primary-stage.json').exists():
             primary.stage(self.root, Path(repo))
         from subscription_publication import validate_staged_reviews
-        activation_attempted=(self.root/'primary-activation.json').exists() or (self.root/'live-verification.json').exists()
+        activation_attempted=any((self.root/name).exists() for name in
+                                 ('primary-activation-attempt.json','primary-activation.json','live-verification.json'))
         try:
             validate_staged_reviews(self.root)
             if not (self.root/'live-verification.json').exists():
-                activation_attempted=True
                 primary.activate(self.root, Path(repo), 'node', PLAYWRIGHT)
+                activation_attempted=True
             if not (self.root/'live-landing-visual-checks.json').exists():
                 record = smn_visual.landing(self.root, self.date, self.roles, CLIS, self.run_job)
                 if not record['passed']:
                     raise Hold('live landing check failed: %s' % record['defects'])
             return primary.finish(self.root, Path(repo))
         except BaseException as exc:
-            if activation_attempted:
+            if activation_attempted or (self.root/'primary-activation-attempt.json').exists():
                 try:primary.call(load_json(self.root/'primary-stage.json'),'rollback')
                 except Exception as rollback_error:
                     raise Hold('Publication failed (%s); rollback also failed (%s)' % (exc,rollback_error)) from exc

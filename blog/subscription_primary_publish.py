@@ -53,6 +53,9 @@ def activate(root, repo, node, playwright):
     _,head = shared.clean_main(repo)
     if head != receipt['source_commit']:
         raise ValueError('main moved after preparation')
+    shared.write(root/'primary-activation-attempt.json',
+                 {'record':receipt['record'],'source_commit':receipt['source_commit'],
+                  'phase':'activation_call_pending'})
     active = call(receipt,'activate')
     shared.write(root/'primary-activation.json',active)
     try:
