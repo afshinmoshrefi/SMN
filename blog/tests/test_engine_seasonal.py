@@ -22,6 +22,32 @@ def card(f):
 
 
 class EngineAuthorityTests(unittest.TestCase):
+    def test_vix_stats_labels_describe_index_movement_without_changing_values(self):
+        # Literal fields retained from the September 30 VIX engine evidence.
+        data={'card':{'symbol':'VIX','resource_id':'5'},'evidence':{
+            'stats':{'Trade Dir':'short','Num Winners':'8','Percent Profitable':'100.0%',
+                     'Median Profit':'23.67%','Avg Profit - All':'24.29%'},
+            'window':{'start_date':'2026-10-10','end_date':'2027-02-15','calendar_days':129},
+            'cohort':{'n':8,'label':'8 selected midterm-election years (1994–2022)'}}}
+        before=deepcopy(data);markup=e.stats_html(data)
+        for label,value in [('Windows favorable to the study direction','8'),
+                            ('Share favorable to the study direction','100.0%'),
+                            ('Median direction-adjusted index change','23.67%'),
+                            ('Average direction-adjusted index change','24.29%')]:
+            self.assertIn(label+'</th><td>'+value+'</td>',markup)
+        self.assertNotIn('Profitable',markup)
+        self.assertNotIn('short result',markup)
+        self.assertIn('not directly tradable',markup)
+        self.assertEqual(data,before)
+
+    def test_other_assets_keep_existing_profit_and_result_labels(self):
+        c=card(next(f for f in FIXTURES if f['original']['symbol']=='KDP'))
+        markup=e.stats_html({'card':c,'evidence':c['engine_results']})
+        self.assertIn('Profitable windows (TradeWave)',markup)
+        self.assertIn('Historical success rate',markup)
+        self.assertIn('Median full-window short result',markup)
+        self.assertIn('Average full-window short result',markup)
+
     def test_started_unfinished_window_uses_engine_completion_flag(self):
         f=json.loads((Path(__file__).parent/'fixtures/aph-completion-20260921.json').read_text())
         response=f['response'];before=deepcopy(response)

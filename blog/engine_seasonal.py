@@ -298,9 +298,11 @@ def stats_html(data):
     esc=html.escape; e=data['evidence'];s=e['stats'];w=e['window'];c=e['cohort']
     side='long' if s['Trade Dir']=='long' else 'short'
     spot_vix=data['card']['symbol']=='VIX' and str(data['card']['resource_id'])=='5'
-    values=[('Selected historical windows',str(c['n'])),('Profitable windows (TradeWave)',s['Num Winners']),
-        ('Historical success rate',s['Percent Profitable']),('Median full-window '+side+' result',s['Median Profit']),
-        ('Average full-window '+side+' result',s['Avg Profit - All'])]
+    values=[('Selected historical windows',str(c['n'])),
+        ('Windows favorable to the study direction' if spot_vix else 'Profitable windows (TradeWave)',s['Num Winners']),
+        ('Share favorable to the study direction' if spot_vix else 'Historical success rate',s['Percent Profitable']),
+        ('Median direction-adjusted index change' if spot_vix else 'Median full-window '+side+' result',s['Median Profit']),
+        ('Average direction-adjusted index change' if spot_vix else 'Average full-window '+side+' result',s['Avg Profit - All'])]
     return (f'<div class="pattern-meta"><span>{esc(data["card"]["symbol"])}</span><span>{w["start_date"]} to {w["end_date"]} · {w["calendar_days"]} calendar days</span><span>{esc(c["label"])}</span></div>'
         '<aside class="key-stats"><h3>TradeWave Key Stats</h3><table><tbody>'+''.join(f'<tr><th scope="row">{esc(k)}</th><td>{esc(v)}</td></tr>' for k,v in values)+
         '</tbody></table><p>Figures are supplied by TradeWave. '+

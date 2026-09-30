@@ -118,13 +118,14 @@ class GenerationProvenanceTests(unittest.TestCase):
             (root / 'sources.json').write_text('{}')
             ed = Edition(root, '2026-09-25', provider='claude', claude=fake_cli(root))
             until = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
-            for stage in ('write', 'review'):
+            for stage in ('write', 'review', 'rereview', 'research', 'hero-check'):
                 job = cw.prepare_job(root / 'jobs', 'ABC-20260925-' + stage, 'p', SCHEMA, as_of='x',
                                      valid_until=until, evidence_sha256='e' * 64, stage=stage)
                 cw.run_job(job, fake_cli(root))
             article = {'title': 'T'}
             g = ed.generation('ABC', 'review', article)
             self.assertEqual(g['article_sha256'], digest(article))
+            self.assertEqual([w['job_id'] for w in g['writers']],['ABC-20260925-write'])
             self.assertEqual(g['summary'], {'provider': 'anthropic', 'model': 'claude-opus-5-5',
                 'effort': 'medium', 'billing_source': 'subscription', 'api_fallback': False,
                 'reviewer': {'provider': 'anthropic', 'model': 'claude-opus-5-5', 'effort': 'medium',

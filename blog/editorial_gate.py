@@ -116,7 +116,7 @@ def object_schema(properties):
     return {'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}
 
 
-def review_schema(schema):
+def review_schema(schema, context):
     string = {'type':'string'}
     coverage = object_schema({'item_id':string,'status':{'type':'string','enum':['covered','missing','uncertain']},
                               'article_quote':string,'reason':string})
@@ -124,8 +124,14 @@ def review_schema(schema):
     claim = object_schema({'unit_id':string,'status':{'type':'string','enum':['supported','qualified_analysis','unsupported','uncertain']},
                            'source_url':string,'source_quote':string,'event_date':string,
                            'cohorts':{'type':'array','items':cohort},'reason':string})
+    material_ids = [item['id'] for item in context['material_context']]
+    unit_ids = [item['id'] for item in context['requirements']]
+    # Do not share the generic string schema when restricting only identifiers.
+    coverage['properties']['item_id'] = {'type':'string','enum':material_ids} if material_ids else {'type':'string'}
+    claim['properties']['unit_id'] = {'type':'string','enum':unit_ids} if unit_ids else {'type':'string'}
     schema['properties']['editorial_audit'] = object_schema({
-        'coverage': {'type':'array','items':coverage}, 'claims':{'type':'array','items':claim}})
+        'coverage': {'type':'array','items':coverage,'minItems':len(material_ids),'maxItems':len(material_ids)},
+        'claims': {'type':'array','items':claim,'minItems':len(unit_ids),'maxItems':len(unit_ids)}})
     schema['required'].append('editorial_audit')
     issue = schema['properties']['issues']['items']
     issue['properties']['category'] = {'type':'string','enum':['style','factual','temporal','instrument','coverage','numeric','other']}
@@ -139,7 +145,9 @@ article that communicates the fact/qualification. Required omissions fail even i
 Read management explanations for all material causes and counterevidence, not only the selected headline.
 Truncated captured pages do not prove that a management explanation is complete; require the relevant primary
 account for causal claims or hold for source repair. Secondary attribution alone cannot establish causality.
-For EVERY requirements unit provide one claims entry, even if unsupported. For causal claims cite an exact
+The claims array must contain EXACTLY the requirements unit IDs, one entry per ID, even if unsupported.
+When requirements is empty, claims must be []. Do not invent unit IDs or add other claims to this array;
+report any other factual concerns in issues and the seven checks. For causal claims cite an exact
 primary-source quote; qualified_analysis is allowed only for explicitly conditional analysis, not reported causes.
 For factual upcoming events supply a dated primary quotation containing the exact future event date. An old
 source's upcoming event is not current confirmation. Generic conditional analysis about what a future event

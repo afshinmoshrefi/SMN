@@ -249,7 +249,7 @@ class Edition:
         out=self.result(sym);b=load_json(out/'bundle.json');a=load_json(out/'article.json');n=load_json(out/'seasonal-manifest.json')
         import editorial_gate as gate
         context=gate.context(self.root,sym,self.date)
-        schema=gate.review_schema(load_json(Path(__file__).parent/'schemas/subscription_review.schema.json'))
+        schema=gate.review_schema(load_json(Path(__file__).parent/'schemas/subscription_review.schema.json'),context)
         prompt=('Independently review this SMN article as a demanding financial reader. No tools, commands, APIs, browsing, delegation or rewriting. '
             'Return the complete seven-check JSON schema. Use only supplied evidence; do not build a second calculator. '
             'Passing requires all checks true and no major/blocker issues.\n'+se.READER_REVIEW_RULES+
@@ -325,13 +325,16 @@ class Edition:
                 r=load_json(job/'receipt.json')
                 if r['output_sha256']!=sha256((job/'output.json').read_bytes()):raise ValueError('Receipt output changed')
                 receipts[r['stage']]=r
-        if review_stage not in receipts or not any(s!=review_stage and not s.startswith('review') for s in receipts):
+        def is_writer(stage):
+            return (stage != review_stage and not stage.endswith('review') and
+                    not stage.startswith(('research','primary-discovery','visual','hero-check','landing-visual')))
+        if review_stage not in receipts or not any(is_writer(s) for s in receipts):
             raise ValueError('Writer and reviewer receipts required for provenance')
         def role(r):
             return {'provider':r.get('provider','openai'),'model':r['model_requested'],'effort':r['effort_requested'],
                     'billing_source':r.get('billing_source','subscription'),'api_fallback':r['api_fallback'],
                     'job_id':r['job_id'],'output_sha256':r['output_sha256']}
-        writers=[role(r) for s,r in sorted(receipts.items(),key=lambda x:x[1]['finished_utc']) if s!=review_stage and not s.startswith('review')]
+        writers=[role(r) for s,r in sorted(receipts.items(),key=lambda x:x[1]['finished_utc']) if is_writer(s)]
         reviewer=role(receipts[review_stage])
         if any(x['api_fallback'] is not False for x in writers+[reviewer]):raise ValueError('API fallback recorded')
         last=writers[-1]

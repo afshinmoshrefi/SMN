@@ -117,6 +117,20 @@ class EditorialGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'pre-writer material-source contract'):
             gate.context(self.root,'SPY','2026-09-30')
 
+    def test_review_schema_restricts_ids_and_empty_claim_array(self):
+        original=json.loads((Path(gate.__file__).parent/'schemas/subscription_review.schema.json').read_text())
+        schema=gate.review_schema(copy.deepcopy(original),self.ctx)
+        audit=schema['properties']['editorial_audit']['properties']
+        self.assertEqual(audit['claims']['maxItems'],0)
+        self.assertEqual(audit['coverage']['items']['properties']['item_id']['enum'],['management-context'])
+        self.assertNotIn('enum',audit['coverage']['items']['properties']['reason'])
+        with self.assertRaises(ValueError):
+            gate.validate_schema([{'unit_id':'invented'}],audit['claims'])
+        ctx={**self.ctx,'requirements':[{'id':'sections.0.paragraphs.0'}]}
+        claims=gate.review_schema(copy.deepcopy(original),ctx)['properties']['editorial_audit']['properties']['claims']
+        self.assertEqual(claims['minItems'],1)
+        self.assertEqual(claims['items']['properties']['unit_id']['enum'],['sections.0.paragraphs.0'])
+
     def test_primary_crlf_page_bytes_are_preserved_and_mutations_rejected(self):
         path=self.root/'primary/SPY.txt';receipt=self.root/'primary/SPY.receipt.json'
         proof=json.loads(receipt.read_text());raw='';texts=[]
