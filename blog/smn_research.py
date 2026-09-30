@@ -97,10 +97,12 @@ def _text(path, limit=40000):
     return Path(path).read_text(encoding='utf-8', errors='replace')[:limit] if Path(path).exists() else ''
 
 
-def saved_text(root, sym, limit=40000):
+def saved_text(root, sym, limit=None):
     """Fresh primary-source pages (root/primary/SYM.txt) first, then production's saved news."""
     primary = Path(root)/'primary'/(sym + '.txt')
-    return (_text(primary, limit) + '\n' + _text(Path(root)/'production'/sym/'audit/research_context.txt', limit))
+    # Four bounded primary captures plus their headers must reach the researcher intact.
+    return (_text(primary, 128000 if limit is None else limit) + '\n' +
+            _text(Path(root)/'production'/sym/'audit/research_context.txt', 12000 if limit is None else limit))
 
 
 def _post(root, sym):

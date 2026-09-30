@@ -21,7 +21,7 @@ from subscription_writer import load_json, sha256
 
 MAX_SOURCES = 4
 MAX_PAGE_BYTES = 2_000_000
-MAX_TEXT_CHARS = 8_500  # Four complete source sections fit smn_research.saved_text's 40k cap.
+MAX_TEXT_CHARS = 24_000  # Preserve full release/commentary discussions; longer filings remain explicitly truncated.
 SCHEMA = {'type': 'object', 'additionalProperties': False,
           'required': ['sources'], 'properties': {'sources': {
               'type': 'array', 'minItems': 2, 'maxItems': MAX_SOURCES,

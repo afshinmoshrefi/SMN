@@ -43,6 +43,14 @@ class PrimarySourcesTests(unittest.TestCase):
         text=self.extracted('<div>Navigation</div><article><p>September 30, 2026</p><p>Visible report</p></article>')
         self.assertIn('September 30, 2026',text);self.assertNotIn('Navigation',text)
 
+    def test_research_receives_all_four_extended_primary_captures(self):
+        folder=self.root/'primary';folder.mkdir()
+        body='x'*(primary.MAX_TEXT_CHARS*4)+' Last material management qualification.'
+        (folder/'ABC.txt').write_text(body,encoding='utf-8')
+        supplied=smn_research.saved_text(self.root,'ABC')
+        self.assertIn('Last material management qualification.',supplied)
+        self.assertLessEqual(len(supplied),140001)
+
     def test_connection_pins_public_address_and_preserves_tls_hostname(self):
         conn = primary._PublicHTTPSConnection('example.com')
         conn._context = Mock()
