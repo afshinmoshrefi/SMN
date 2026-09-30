@@ -87,7 +87,7 @@ class EngineAuthorityTests(unittest.TestCase):
             with (Path(directory)/'assets/tradewave-observations.csv').open() as file:
                 exported=list(csv.DictReader(file))
             self.assertEqual(exported[6]['mfe'],'-0.26')
-            self.assertIn('A positive short result means a bet on falling prices worked',e.stats_html(data))
+            self.assertIn('A positive short result means the underlying price fell',e.stats_html(data))
             self.assertIn('Median full-window short result',e.stats_html(data))
             self.assertEqual(data['images'][0]['values_sha256'],digest(c['story_cell']['per_year']))
             for image in data['images']:

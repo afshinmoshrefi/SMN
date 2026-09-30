@@ -3,6 +3,9 @@ const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const R=path.resolve(process.argv[2]),read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
 const sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 const symbols=process.argv.slice(3);let browser;
+const statePath=path.join(R,'smn-daily-state.json');
+const production=fs.existsSync(statePath)&&read(statePath).publication_origin==='https://seasonalmarketnews.com';
+const robots=production?'index,follow':'noindex,nofollow';
 (async()=>{
  browser=await chromium.launch({...(process.env.SMN_BROWSER_CHANNEL==='bundled'?{}:{channel:process.env.SMN_BROWSER_CHANNEL||'chrome'}),headless:true});
  const page=await browser.newPage();
@@ -24,7 +27,7 @@ const symbols=process.argv.slice(3);let browser;
     nativeCharts:[...document.querySelectorAll('[data-native-chart]')].map(f=>f.dataset.nativeChart),
     evidenceRows:document.querySelector('[data-native-chart="bars"] tbody').rows.length,
     noindex:document.querySelector('meta[name="robots"]').content}));
-   if(state.pageWidth>width||state.title!==a.title||state.priceRole!=='outlook'||!state.priceHasIntroduction||state.businessRole!=='current_context'||state.studyLinks.length!==2||state.studyLinks.some(x=>x!==native.study_url)||state.evidenceRows!==native.card.story_cell.n||state.noindex!=='noindex,nofollow')throw Error(sym+' '+kind+' layout/contract failure '+JSON.stringify(state));
+   if(state.pageWidth>width||state.title!==a.title||state.priceRole!=='outlook'||!state.priceHasIntroduction||state.businessRole!=='current_context'||state.studyLinks.length!==2||state.studyLinks.some(x=>x!==native.study_url)||state.evidenceRows!==native.card.story_cell.n||state.noindex!==robots)throw Error(sym+' '+kind+' layout/contract failure '+JSON.stringify(state));
    if(kind==='mobile'&&!state.imageSources.filter(x=>x.includes('tradewave-')).every(x=>x.includes('-mobile.png')))throw Error('Responsive native source not selected');
    await page.screenshot({path:path.join(dir,'qa-'+kind+'-top.png')});
    await page.screenshot({path:path.join(dir,'qa-'+kind+'-full.png'),fullPage:true});

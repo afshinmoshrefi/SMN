@@ -79,16 +79,29 @@ CSS='''
 :root{--ink:#183140;--muted:#627781;--accent:#0066cc;--border:#dfe6e7;--soft:#f6f8fa}*{box-sizing:border-box}body{margin:0;font:16px/1.6 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff}header{border-bottom:1px solid var(--border);background:#fff}.header-content{max-width:1200px;margin:0 auto;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;gap:24px}.logo{display:flex;align-items:baseline;gap:2px;text-decoration:none}.logo-seasonal,.logo-market{font-size:22px;font-weight:700;letter-spacing:-.5px}.logo-seasonal{color:var(--accent)}.logo-market{color:var(--ink)}.logo-news{font-size:22px;font-weight:400;letter-spacing:-.5px;color:var(--muted)}nav{display:flex;gap:28px}nav a{color:#526873;text-decoration:none;font-size:14px;font-weight:500}nav a:hover,.edition-card h3 a:hover{text-decoration:underline}.smn-edition{max-width:1200px;margin:0 auto;padding:42px 24px 54px}.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--ink)}.section-title{font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase}.edition-intro{color:#526873;margin:0 0 24px}.edition-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.edition-card{display:block;border:1px solid var(--border);background:#fff;color:inherit;text-decoration:none;transition:box-shadow .2s ease,transform .2s ease}.edition-card:hover{box-shadow:0 8px 24px #15334418;transform:translateY(-2px)}.edition-card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--soft)}.edition-copy{padding:18px}.edition-meta{font:12px/1.4 "IBM Plex Mono",monospace;color:var(--muted);text-transform:uppercase}.edition-card h3{font-size:20px;line-height:1.3;letter-spacing:-.3px;margin:8px 0}.edition-card h3 a{color:var(--ink);text-decoration:none}.edition-copy p{font-size:14px;line-height:1.55;color:#526873;margin:0 0 14px}.read-more{color:var(--accent);font-size:14px;font-weight:600}.edition-proof{margin-top:14px;font-size:12px;color:var(--muted)}.edition-proof summary{cursor:pointer}.edition-proof a{color:var(--muted)}footer{border-top:1px solid var(--border);padding:28px 24px;background:var(--soft)}.footer-content{max-width:1200px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.footer-left,.footer-links a{font-size:13px;color:var(--muted);text-decoration:none}.footer-links{display:flex;gap:24px}@media(max-width:750px){.header-content{padding:16px 20px}.edition-grid{grid-template-columns:1fr}.smn-edition{padding:30px 20px 42px}.footer-content{flex-direction:column;text-align:center}.logo-seasonal,.logo-market,.logo-news{font-size:20px}}
 '''
 
-def edition_section(entries,date):
+def edition_section(entries,date,target_origin=DEV):
     esc=html.escape;cards=[]
     day=datetime.strptime(date,'%Y-%m-%d');label=day.strftime('%B')+' '+str(day.day)
+    if target_origin not in {DEV,'https://seasonalmarketnews.com'}:raise ValueError('Unknown publication origin')
     for p in entries:
-        require_dev(p['url']);require_dev(p['hero_image'])
-        cards.append('<article class="edition-card"><a href="'+esc(p['url'],quote=True)+'"><img src="'+esc(p['hero_image'],quote=True)+'" alt="'+esc(p['hero_alt'],quote=True)+'"></a><div class="edition-copy"><span class="edition-meta">'+esc(p['symbol'])+' · '+esc(p['market_family'])+'</span><h3><a href="'+esc(p['url'],quote=True)+'">'+esc(p['title'])+'</a></h3><p>'+esc(p['dek'])+'</p><a class="read-more" href="'+esc(p['url'],quote=True)+'">Read Analysis →</a><details class="edition-proof"><summary>Article details</summary><a href="'+esc(p['production_original'],quote=True)+'" target="_blank" rel="noopener">Original publication</a></details></div></article>')
+        for link in (p['url'],p['hero_image']):
+            u=urlparse(link)
+            if u.scheme!='https' or u.netloc!=urlparse(target_origin).netloc or u.username or u.query or u.fragment:
+                raise ValueError('Article link outside exact publication origin')
+        proof=''
+        if p.get('production_original'):
+            proof='<details class="edition-proof"><summary>Article details</summary><a href="'+esc(p['production_original'],quote=True)+'" target="_blank" rel="noopener">Original publication</a></details>'
+        cards.append('<article class="edition-card"><a href="'+esc(p['url'],quote=True)+'"><img src="'+esc(p['hero_image'],quote=True)+'" alt="'+esc(p['hero_alt'],quote=True)+'"></a><div class="edition-copy"><span class="edition-meta">'+esc(p['symbol'])+' · '+esc(p['market_family'])+'</span><h3><a href="'+esc(p['url'],quote=True)+'">'+esc(p['title'])+'</a></h3><p>'+esc(p['dek'])+'</p><a class="read-more" href="'+esc(p['url'],quote=True)+'">Read Analysis →</a>'+proof+'</div></article>')
     return '<main class="smn-edition" id="smn-subscription-edition"><div class="section-header"><span class="section-title">Market Analysis</span></div><h1>'+esc(label)+' market analysis</h1><p class="edition-intro">Data-backed coverage of seasonal market patterns and the current context around them.</p><div class="edition-grid">'+''.join(cards)+'</div></main>'
 
-def package(edition_root,date,source_commit,review_stages):
+def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
     root=Path(edition_root).resolve()
+    production = target_origin == 'https://seasonalmarketnews.com'
+    if target_origin not in {DEV, 'https://seasonalmarketnews.com'}:raise ValueError('Unknown publication origin')
+    if production:
+        state=read(root/'smn-daily-state.json')
+        if state.get('profile')!='chatgpt' or state.get('publication_origin')!=target_origin:
+            raise ValueError('Only the explicit ChatGPT reader edition can publish to production')
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch(r'[0-9a-f]{40}',source_commit):raise ValueError('Dated, committed edition required')
     target=root/'publication-package'
     if any((root/name).exists() for name in ('dev-stage.json','dev-activation.json','dev-publication-receipt.json')):
@@ -106,27 +119,34 @@ def package(edition_root,date,source_commit,review_stages):
         htmltext=(result/'article.html').read_text(encoding='utf-8')
         if 'Private draft · Editorial review has not passed.' in htmltext:raise ValueError('Unfinalized page')
         if 'Development preview · Not published' in htmltext:raise ValueError('Unfinalized footer')
-        if 'name="robots" content="noindex,nofollow"' not in htmltext:raise ValueError('Dev search-engine exclusion missing')
+        robots='index,follow' if production else 'noindex,nofollow'
+        if 'name="robots" content="'+robots+'"' not in htmltext:raise ValueError('Publication robots policy mismatch')
         assets=[]
         # Copy ONLY public article assets. Never audit, jobs, credentials or source prompts.
         for folder,extensions in [('assets',{'.png','.jpg','.jpeg','.webp','.svg','.csv'}),('evidence',{'.json'})]:
             for f in (result/folder).iterdir():
                 if not f.is_file() or f.is_symlink() or f.suffix.lower() not in extensions:continue
                 assets.append((f,Path(folder)/f.name))
-        url=DEV+'/'+rel.as_posix()+'/article.html'
+        url=target_origin+'/'+rel.as_posix()+'/article.html'
         entry={k:original.get(k) for k in ('resource_id','symbol','tickers','market_family','pattern_start_date','pattern_days','author_id','direction')}
         entry.update(title=a['title'],dek=a['dek'],slug=sym.lower()+'-subscription-'+date,
             url=url,path='/var/www/smn/'+rel.as_posix()+'/article.html',lookback_years=original['lookback_years'],
             published_date=original['published_date'],updated_date=asof,tags=['subscription-edition'],
-            hero_image=DEV+'/'+rel.as_posix()+'/'+hero['url'],hero_alt=hero['alt'],
+            hero_image=target_origin+'/'+rel.as_posix()+'/'+hero['url'],hero_alt=hero['alt'],
             seo_title=a['title'],meta_description=a['dek'][:155],publish_status='true',
-            production_original=original['url'],edition_id='subscription-'+date,source_commit=source_commit,
-            production_release_allowed=False,history_validation=commission['history_status'])
+            production_original='' if original.get('source_mode')=='selected_inputs' else original.get('url',''),edition_id='subscription-'+date,source_commit=source_commit,
+            production_release_allowed=production,history_validation=commission['history_status'])
+        if production and '<link rel="canonical" href="'+url+'">' not in htmltext:raise ValueError('Production canonical missing')
+        if production and not (result/'generation.json').exists():raise ValueError('Production subscription provenance required')
         if (result/'generation.json').exists():
             generation=read(result/'generation.json')
             if not sha256_equal(digest(a),generation.get('article_sha256')) or generation['summary'].get('api_fallback') is not False:
                 raise ValueError('Generation provenance is not bound to this exact article')
             if 'name="smn-generation"' not in htmltext:raise ValueError('Generation metadata missing from page')
+            if production:
+                roles=generation.get('writers',[])+[generation.get('reviewer',{}),generation['summary']]
+                if not generation.get('writers') or any(r.get('provider')!='openai' or not str(r.get('model','')).startswith('gpt-') or r.get('billing_source')!='subscription' or r.get('api_fallback') is not False for r in roles):
+                    raise ValueError('Production reader edition requires ChatGPT subscription provenance')
             entry['generation']=generation['summary']
         entries.append(entry)
         prepared.append((rel,htmltext,assets))
@@ -138,14 +158,14 @@ def package(edition_root,date,source_commit,review_stages):
         for source,relative in assets:
             d=dest/relative;d.parent.mkdir(exist_ok=True);shutil.copy2(source,d)
     entries.sort(key=lambda p:p['published_date'],reverse=True)
-    section=edition_section(entries,date)
+    section=edition_section(entries,date,target_origin)
     landing='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Seasonal Market News</title><style>'+CSS+'</style></head><body><header><div class="header-content"><a href="/" class="logo"><span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span></a><nav><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></nav></div></header>'+section+'<footer><div class="footer-content"><div class="footer-left">© '+str(datetime.now().year)+' <a href="https://taradataresearch.com" target="_blank" rel="noopener">Tara Data Research LLC</a>. All rights reserved.</div><div class="footer-links"><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></div></div></footer></body></html>'
     (target/'editions'/date/'index.html').write_text(landing,encoding='utf-8')
     write(target/'entries.json',entries)
     if (root/'archive-seed.json').exists():
         shutil.copy2(root/'archive-seed.json',target/'archive-seed.json')
     (target/'home-section.html').write_text('<style>'+CSS+'</style>'+section,encoding='utf-8')
-    manifest={'schema_version':1,'target_origin':DEV,'target_root':'/var/www/smn','edition_date':date,
-      'edition_id':'subscription-'+date,'source_commit':source_commit,'production_allowed':False,
+    manifest={'schema_version':1,'target_origin':target_origin,'target_root':'/var/www/smn','edition_date':date,
+      'edition_id':'subscription-'+date,'source_commit':source_commit,'production_allowed':production,
       'files':{p.relative_to(target).as_posix():digest_bytes(p.read_bytes()) for p in target.rglob('*') if p.is_file()}}
     write(target/'manifest.json',manifest);return manifest

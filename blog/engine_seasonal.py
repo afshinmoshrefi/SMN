@@ -5,6 +5,7 @@ results fail closed. Raw prices may be plotted but never converted into returns,
 sample summaries or projections here.
 """
 from copy import deepcopy
+from datetime import date, timedelta
 import csv
 import hashlib
 import html
@@ -137,8 +138,57 @@ def validate_card(card):
         raise ValueError('Price outlook uses a different study')
     if p['owner_function']!='site/lib/svg_wave_chart.py::compute_projection' or not p['projection_response']:
         raise ValueError('Existing TradeWave projection result missing')
-    if not card['provenance'].get('primary_chart_values_match_production'):
+    provenance=card['provenance']
+    selected=provenance.get('input_mode')=='selected_inputs'
+    if selected and not (provenance.get('selection_sha256') and provenance.get('primary_response_sha256')):
+        raise ValueError('Selected engine evidence binding missing')
+    if not selected and not provenance.get('primary_chart_values_match_production'):
         raise ValueError('Production fidelity check missing')
+    return card
+
+
+def make_selected_card(original, export, owner, captured_at, origin, angle):
+    """Bind an unpublished selected study directly to authoritative engine output."""
+    study=identity(original)
+    if original.get('source_mode')!='selected_inputs' or identity(export['identity'])!=study:
+        raise ValueError('Selected study identity differs from engine evidence')
+    queries=export['responses']
+    primary=[q for q in queries if q['request']['years']==study['years']]
+    if len(primary)!=1:
+        raise ValueError('Unique primary engine response required')
+    for query in queries:
+        request=query['request']
+        if (str(request['resource_id']),request['symbol'],request['anchor_date'],str(request['days_out']))!=(
+                study['resource_id'],study['symbol'],study['anchor_date'],str(study['days']-1)):
+            raise ValueError('Selected engine query identity differs')
+    response=primary[0]['response']; rows=decode_rows(response,study['anchor_date'])
+    if not rows:
+        raise ValueError('Completed authoritative history required')
+    comparisons=[]
+    for query in queries:
+        if query is primary[0]:continue
+        other=decode_rows(query['response'],study['anchor_date'])
+        if not other:raise ValueError('Completed comparison evidence required')
+        comparisons.append({'request':deepcopy(query['request']),'stats':deepcopy(query['response']['stats']),
+            'per_year':other,'label':cohort_label(query['request']['years'],[r['year'] for r in other]),
+            'raw_response_sha256':digest(query['response'])})
+    # Inclusive calendar endpoints label the requested study; session snapping
+    # and every financial result remain owned by the returned engine response.
+    end=(date.fromisoformat(study['anchor_date'])+timedelta(days=study['days']-1)).isoformat()
+    card={'schema_version':3,'calculation_authority':AUTHORITY,**{k:study[k] for k in ('symbol','resource_id')},
+          'angle':deepcopy(angle),'production_identity':study,'production_original':original['url'],
+          'story_cell':{**study,'per_year':rows,'n':len(rows)},
+          'engine_results':{'stats':deepcopy(response['stats']),
+              'window':{'start_date':study['anchor_date'],'end_date':end,'calendar_days':study['days']},
+              'cohort':{'label':cohort_label(study['years'],[r['year'] for r in rows]),
+                        'n':len(rows),'years':[r['year'] for r in rows]},'comparisons':comparisons},
+          'provenance':{**deepcopy(origin),'input_mode':'selected_inputs','engine_owner':deepcopy(owner),
+                        'captured_at':captured_at,'primary_response_sha256':digest(response)},
+          'price_path':deepcopy(export['price_path'])}
+    if study['symbol']=='VIX' and study['resource_id']=='5':
+        card['instrument']={'kind':'spot_volatility_index','directly_tradable':False,
+                            'source_url':'https://www.cboe.com/tradable-products/volatility-trading/'}
+    validate_card(card)
     return card
 
 
@@ -247,14 +297,17 @@ def render_price(card,assets):
 def stats_html(data):
     esc=html.escape; e=data['evidence'];s=e['stats'];w=e['window'];c=e['cohort']
     side='long' if s['Trade Dir']=='long' else 'short'
+    spot_vix=data['card']['symbol']=='VIX' and str(data['card']['resource_id'])=='5'
     values=[('Selected historical windows',str(c['n'])),('Profitable windows (TradeWave)',s['Num Winners']),
         ('Historical success rate',s['Percent Profitable']),('Median full-window '+side+' result',s['Median Profit']),
         ('Average full-window '+side+' result',s['Avg Profit - All'])]
     return (f'<div class="pattern-meta"><span>{esc(data["card"]["symbol"])}</span><span>{w["start_date"]} to {w["end_date"]} · {w["calendar_days"]} calendar days</span><span>{esc(c["label"])}</span></div>'
         '<aside class="key-stats"><h3>TradeWave Key Stats</h3><table><tbody>'+''.join(f'<tr><th scope="row">{esc(k)}</th><td>{esc(v)}</td></tr>' for k,v in values)+
         '</tbody></table><p>Figures are supplied by TradeWave. '+
-        ('A positive short result means a bet on falling prices worked. The bars show the actual price changes. ' if side=='short' else '')+
-        'These historical results cover each complete window before trading costs. They are not forecasts or expected returns from today.</p></aside>')
+        ('These are direction-adjusted spot VIX index changes. The VIX index is not directly tradable; these figures do not measure futures, options or ETP returns. ' if spot_vix else
+         'A positive short result means the underlying price fell. The bars show the actual price changes. ' if side=='short' else '')+
+        ('These historical figures cover each complete window. ' if spot_vix else 'These historical results cover each complete window before trading costs. ')+
+        'They are not forecasts or expected returns from today.</p></aside>')
 
 
 def figure_html(data,variant):

@@ -58,6 +58,15 @@ and recent, dated news. Pick 2-4 sources.
 - question: the reader question the article answers today.
 - brief: 120-250 words for the writer. State what is reported, what is forecast and what is upcoming as of
   the edition date, with dates. Say that business facts do not validate a future seasonal return.
+  Distinguish the edition date, last observation, future window entry and source publication date.
+  A current observation does not establish the condition at a future entry. Old news is dated background;
+  an event an old source called upcoming is not still upcoming without dated confirmation after the edition.
+  Preserve material causes and qualifications in primary management statements: execution failures,
+  delayed deals and offsetting segment strength must not become a story solely about external demand.
+  Give the writer the relevant causes, not just the most convenient headline explanation. If the saved
+  evidence cannot establish a current event or cause, state that limitation instead of inventing it.
+  Identify the actual instrument. A spot index level is not a directly investable security; its percentage
+  changes do not establish attainable profits on futures, options or exchange-traded products.
 - hero_alt: alt text describing a conceptual illustration for the story (no numbers).
 - sources[].excerpt: a factual summary of what that source says (60-150 words), with its key numbers.
 - chart: one small bar chart of 2-6 REPORTED business values from one or two sources (not TradeWave seasonal

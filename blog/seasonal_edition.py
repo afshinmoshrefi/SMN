@@ -11,6 +11,7 @@ import csv
 import hashlib
 import html
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
@@ -168,8 +169,10 @@ finding with any material contrary history, a concrete risk inside that period,
 and the current business or economic question. Avoid stacking several sample
 sizes and unexplained percentages into a single bullet. Use explicit completed
 year spans; "every year since 2016" must not imply an unfinished current year.
-For a short study, explain once that a positive short result means a bet on
-falling prices worked; the chart still shows the actual price movement. Describe
+For a short study of a directly investable security, explain once that a positive
+short result means falling prices favored that direction; the chart still shows
+the actual price movement. For an index, explain the direction as a declining
+index level, not an attainable investment profit. Describe
 an adverse rise as above the starting price, not as a profit for the short.
 The outlook should invite a specific next investigation in TradeWave, such as
 comparing this same window across histories or inspecting the range of outcomes.
@@ -177,6 +180,22 @@ Do not promise features or measurements absent from the evidence. Entry-based
 highs/lows are not peak-to-trough drawdown. Keep normalized trend-overlay meaning
 unchanged, while explaining it in everyday words. Match terminology to the
 instrument: an index has a level and constituents, not its own earnings or shares.
+For a spot index such as VIX, describe changes in its level. It cannot be bought
+or shorted directly, and the engine's short-direction statistics are not profits
+obtainable from futures, options or exchange-traded products. Do not say a bet
+worked or a short seller earned that percentage. Explain this distinction near
+the seasonal result rather than relying only on a distant methodology note.
+Compare the window entry with the edition date. Before entry, describe today's
+reading as today's reading, never as the future starting level or entry condition.
+Date old events as background. Confirm each upcoming checkpoint after the edition
+date; an event called upcoming by an older source may already have happened.
+Preserve material primary-source causes and qualifications, including execution
+failures, delayed deal closures and offsetting business strength. Do not reduce a
+multi-cause shortfall to external demand alone. If those facts are missing from
+the prepared evidence, request evidence repair instead of supplying guesses.
+Check overlaps separately for every comparison using the observed year lists.
+Do not use one overlap count for several different cohorts or call a comparison
+outside midterms when it includes midterm observations; say across all years.
 '''
 
 READER_REVIEW_RULES = '''Judge the headline and opening as a reader deciding
@@ -303,7 +322,26 @@ def check_article(article, bundle):
     words = sum(len(t.split()) for t in texts)
     if not 350 <= words <= 900:
         raise ValueError('Seasonal prose outside review bounds')
+    check_temporal_instrument_copy(texts, bundle)
     return {'passed':True,'words':words,'chart_ids':chosen,'native_chart_ids':native,'angle':delivery['angle']}
+
+
+def check_temporal_instrument_copy(texts, bundle):
+    """Block narrow, explicit contradictions; broader meaning still needs review."""
+    history = next((s.get('payload', {}) for s in bundle.get('sources', [])
+                    if s.get('source_type') == 'engine_export'), {})
+    start = history.get('window', {}).get('start_date')
+    as_of = str(bundle.get('as_of', ''))[:10]
+    if start and as_of and start > as_of:
+        for passage in texts:
+            if re.search(r'\b(?:starts|enters|opens)\s+(?:near|at|below|above)\s+[^.!?]{0,70}\b(?:low|high|range|level)\b', passage, re.I):
+                raise ValueError('Future window entry condition asserted before its start; date the current observation')
+    # Cboe defines VIX as a spot volatility index; it is not directly tradable.
+    # This guard does not generalize derivative-account returns from index moves.
+    if str(bundle.get('story_id', '')).upper() in {'VIX', '^VIX'}:
+        for passage in texts:
+            if re.search(r'\b(?:a bet on falling prices worked|short sellers? (?:earned|made|gained)|profits? from shorting (?:the )?VIX)\b', passage, re.I):
+                raise ValueError('Spot VIX index changes are not attainable trading profits')
 
 
 def stats_html(data):

@@ -65,19 +65,23 @@ def retry(step, fn, tries=3, wait=30):
 
 
 class Day:
-    def __init__(self, root, date, models=None, max_jobs=40, profile='claude', roles=None):
+    def __init__(self, root, date, models=None, max_jobs=40, profile='claude', roles=None,
+                 publication_origin=None):
         self.root = Path(root).resolve()
         self.date = date
         self.models = models
         self.profile = profile
+        self.publication_origin = publication_origin
         self.roles = roles if roles is not None else smn_models.load(models, profile)
         self.max_jobs = max_jobs
         self.state_path = self.root/'smn-daily-state.json'
         self.state = load_json(self.state_path) if self.state_path.exists() else {
             'date': date, 'created': now(), 'profile': profile if models is None else 'custom',
-            'roles': self.roles, 'articles': {}}
+            'roles': self.roles, 'articles': {}, 'publication_origin': publication_origin}
         if self.state.get('date') != date or self.state.get('roles') != self.roles:
             raise Hold('Edition date or model roles changed; resume with the original profile/settings')
+        if self.state.get('publication_origin') != publication_origin:
+            raise Hold('Publication target changed; preserve the original edition')
 
     def save(self):
         save_json(self.state_path, self.state)
@@ -147,10 +151,11 @@ class Day:
 
     def research(self):
         target = self.root/'sources.json'
-        if target.exists():
+        folder = self.root/'research'
+        if target.exists() and all((folder/(sym + '.json')).exists() or
+                self.state['articles'].get(sym, {}).get('held') for sym in self.symbols):
             return
         example = load_json(BLOG/'examples/subscription-sources-20260923.json')
-        folder = self.root/'research'
         folder.mkdir(exist_ok=True)
         for sym in self.symbols:
             if self.state['articles'].get(sym, {}).get('held') or (folder/(sym + '.json')).exists():
@@ -198,7 +203,7 @@ class Day:
     def articles(self):
         from engine_edition_workflow import Edition
         ed = Edition(self.root, self.date, provider='config', claude=CLIS['claude'],
-                     roles=self.roles)
+                     roles=self.roles, publication_origin=self.publication_origin or 'https://smn-dev.trxstat.com')
         ed.clis = CLIS
         for sym in self.symbols:
             s = self.state['articles'].setdefault(sym, {})

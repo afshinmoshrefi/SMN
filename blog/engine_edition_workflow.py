@@ -41,6 +41,33 @@ def text(value):
     p=Text();p.feed(value);return ' '.join(p.parts)
 
 
+def publication_head(rendered,origin,date,symbol):
+    """Set the production head before layout inspection binds the final bytes."""
+    if origin=='https://smn-dev.trxstat.com':return rendered
+    if origin!='https://seasonalmarketnews.com':raise ValueError('Unexpected publication origin')
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch(r'[A-Za-z0-9^._-]+',symbol):
+        raise ValueError('Invalid publication path')
+    rendered,count=re.subn(r'<meta name="robots" content="noindex,nofollow">',
+        '<meta name="robots" content="index,follow">',rendered,count=1)
+    if count!=1:raise ValueError('Expected private-preview robots marker missing')
+    canonical='<link rel="canonical" href="'+origin+'/editions/'+date+'/'+symbol+'/article.html">'
+    rendered,count=re.subn(r'</head\s*>',canonical+'\n</head>',rendered,count=1,flags=re.I)
+    if count!=1:raise ValueError('Rendered article has no head')
+    return rendered
+
+
+def selected_hero(root,symbol,post,date):
+    root=Path(root).resolve();source=root/'production'/symbol
+    receipt=load_json(root/'input-heroes.json');item=receipt['heroes'][symbol]
+    hero=root/item['path']
+    if (receipt['date']!=date or receipt['selection_sha256']!=sha256((root/'input-selection.json').read_bytes())
+            or hero.is_symlink() or source.resolve() not in hero.resolve().parents
+            or sha256(hero.read_bytes())!=item['sha256'] or receipt['files'].get(item['path'])!=item['sha256']
+            or item['url']!=post['hero_image']):
+        raise ValueError('Selected-input hero custody changed')
+    return hero,item['provider']
+
+
 def apply_copy_edits(article,request):
     """Explicit human/editor copy changes; never impersonate a writer receipt."""
     if request['base_article_sha256']!=digest(article):raise ValueError('Copyedit base changed')
@@ -65,11 +92,14 @@ WRITERS=('astra','config','claude')
 
 
 class Edition:
-    def __init__(self,root,date,codex=None,provider='astra',claude=None,models=None,roles=None):
+    def __init__(self,root,date,codex=None,provider='astra',claude=None,models=None,roles=None,publication_origin='https://smn-dev.trxstat.com'):
         self.root=Path(root).resolve(); self.date=date;self.codex=codex
         if provider not in WRITERS:raise ValueError('Unknown writer provider')
         self.provider=provider;self.roles=roles if roles is not None else (smn_models.ASTRA if provider=='astra' else smn_models.load(models))
         self.clis={'codex':codex,'claude':claude}
+        if publication_origin not in {'https://smn-dev.trxstat.com','https://seasonalmarketnews.com'}:
+            raise ValueError('Unexpected publication origin')
+        self.publication_origin=publication_origin
         w=self.roles['write'];self.account=('ChatGPT' if w['provider']=='codex' else 'Claude')+' subscription; '+w['model']+' '+w['effort']
         self.specs=load_json(self.root/'sources.json')
         self.expiry=(datetime.now(timezone.utc)+timedelta(hours=20)).isoformat()
@@ -102,12 +132,20 @@ class Edition:
         p=next(p for p in load_json(self.root/'production/posts.json') if p['symbol']==sym)
         if p['published_date'][:10]!=self.date:raise ValueError('Wrong production edition')
         spec=deepcopy(self.specs[sym]);source=self.root/'production'/sym
-        retained=load_json(source/'engine-payload.json'); export=load_json(self.root/'production-engine-export.json')
+        export=load_json(self.root/'production-engine-export.json')
         ex=next(x for x in export['studies'] if x['identity']['symbol']==sym)
-        card=make_card(p,retained,ex,export['owner'],export['captured_at'],
-            {'article_url':p['url'],'prompt_sha256':sha256((source/'audit/prompt.txt').read_bytes()),
-             'full_dataset_sha256':sha256((source/'dataset.json').read_bytes())},
-            {'name':spec['angle'],'reason':spec['question']},load_json(source/'dataset.json'))
+        if p.get('source_mode')=='selected_inputs':
+            from engine_seasonal import make_selected_card
+            card=make_selected_card(p,ex,export['owner'],export['captured_at'],
+                {'selection_sha256':sha256((self.root/'input-selection.json').read_bytes()),
+                 'selected_row_sha256':sha256((source/'selected-row.json').read_bytes())},
+                {'name':spec['angle'],'reason':spec['question']})
+        else:
+            retained=load_json(source/'engine-payload.json')
+            card=make_card(p,retained,ex,export['owner'],export['captured_at'],
+                {'article_url':p['url'],'prompt_sha256':sha256((source/'audit/prompt.txt').read_bytes()),
+                 'full_dataset_sha256':sha256((source/'dataset.json').read_bytes())},
+                {'name':spec['angle'],'reason':spec['question']},load_json(source/'dataset.json'))
         hid=sym.lower()+'-history'
         history={'id':hid,'title':'TradeWave '+sym+' seasonal evidence','source_type':'engine_export',
             'url':'evidence/'+hid+'.json','payload':card['engine_results'],'payload_sha256':digest(card['engine_results']),
@@ -183,14 +221,19 @@ class Edition:
             prompt+='\nEVIDENCE REVISION: Preserve this already reviewed draft wherever possible. Correct only the defect below or another demonstrable evidence error. Return the full article JSON bound to the corrected evidence; do not rewrite for novelty.\nDEFECT:\n'+Path(issues).read_text(encoding='utf-8')+'\nPREVIOUS DRAFT:\n'+json.dumps(previous,ensure_ascii=False)
         self._prepare(stage,self.root/'jobs',self.job(sym,stage).name,prompt,schema,as_of=b['as_of'],valid_until=self.expiry,evidence_sha256=b['evidence_sha256'])
         save_json(out/'commission.json',{'production_article':p,'angle':spec['angle'],'question':spec['question'],
-            'account_writer':self.account,'production_window_preserved':True,
-            'original_year_selection_preserved':True,'old_copy_supplied_to_writer':False,
-            'history_status':'verified_same_production_engine','target':'smn-dev.trxstat.com'})
-        hero=source/'assets'/Path(urlparse(p['hero_image']).path).name
-        request={'prompt':'Reuse the inspected production editorial illustration.', 'prompt_sha256':sha256(hero.read_bytes()),
+            'account_writer':self.account,'production_window_preserved':p.get('source_mode')!='selected_inputs',
+            'original_year_selection_preserved':p.get('source_mode')!='selected_inputs','old_copy_supplied_to_writer':False,
+            'history_status':'verified_selected_engine' if p.get('source_mode')=='selected_inputs' else 'verified_same_production_engine',
+            'target':urlparse(self.publication_origin).hostname})
+        if p.get('source_mode')=='selected_inputs':
+            hero,hero_provider=selected_hero(self.root,sym,p,self.date)
+        else:
+            hero=source/'assets'/Path(urlparse(p['hero_image']).path).name
+            hero_provider='SMN production archive'
+        request={'prompt':'Use the receipt-bound editorial illustration.' if p.get('source_mode')=='selected_inputs' else 'Reuse the inspected production editorial illustration.', 'prompt_sha256':sha256(hero.read_bytes()),
             'story_id':sym,'evidence_sha256':b['evidence_sha256'],'alt':spec['hero_alt'],
             'caption':'AI-generated conceptual illustration · Seasonal Market News','provenance':{'kind':'illustration','source':p['hero_image']}}
-        h=install_hero(request,{'path':str(hero),'prompt_sha256':request['prompt_sha256'],'provider':'SMN production archive'},out)
+        h=install_hero(request,{'path':str(hero),'prompt_sha256':request['prompt_sha256'],'provider':hero_provider},out)
         save_json(out/'hero-asset.json',h)
         print(json.dumps({'prepared':sym,'source_allowances':allowances,'study_verified':True}),flush=True)
 
@@ -213,6 +256,13 @@ class Edition:
             'Check why-now, seasonal value, useful takeaways, natural opening, properly explained risk example and completed dates, '
             'context graphic placement, comparison meaning, and the price chart introduced in outlook. '
             'Old quarter results must be dated background, not breaking news. All source caps include title/dek/takeaways, headings and chart text. '
+            'Audit causality against primary statements: preserve material execution failures, delayed deals and offsetting segment strength; '
+            'do not attribute a multi-cause miss solely to external spending or demand. If the prepared summaries omit a needed primary '
+            'qualification, fail the relevant check and request evidence repair rather than assuming the summary is complete. '
+            'Check every future checkpoint against the edition date, not the source publication date: an old source saying next week '
+            'does not establish an upcoming event today. A current reading cannot describe entry conditions before the window opens. '
+            'Check instrument tradability: spot-index changes are not attainable trading profits or derivative returns. '
+            'Check each comparison separately against its observed year list; overlap with one sample does not establish overlap with another. '
             'Pixel inspection is a separate later gate; do not claim it or fail because it is pending. Rate opening1-5.\nARTICLE:\n'+
             json.dumps(a,ensure_ascii=False)+'\nEVIDENCE:\n'+json.dumps(load_json(out/'writer-evidence.json'),ensure_ascii=False,separators=(',',':'))+
             '\nMECHANICAL:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+
@@ -300,12 +350,19 @@ class Edition:
         if m.get('passed') is not True or m['article_sha256']!=digest(a) or m['evidence_sha256']!=b['evidence_sha256']:raise ValueError('Mechanical review missing or stale')
         n=load_json(out/'seasonal-manifest.json');verify_assets(n,out)
         rendered=render_edition(a,b,load_json(out/'chart-manifest.json'),load_json(out/'hero-asset.json'),held=False,seasonal=n)
-        original=load_json(out/'commission.json')['production_article']['url']
-        if urlparse(original).hostname not in {'seasonalmarketnews.com','www.seasonalmarketnews.com'}:
+        post=load_json(out/'commission.json')['production_article']
+        selected=post.get('source_mode')=='selected_inputs'
+        original=post.get('url')
+        if not selected and urlparse(original or '').hostname not in {'seasonalmarketnews.com','www.seasonalmarketnews.com'}:
             raise ValueError('Unexpected production comparison destination')
-        nav='<nav class="reading-nav" style="max-width:1064px;margin:18px auto;padding:0 28px"><a href="/editions/'+self.date+'/">Market analysis</a> <details style="display:inline"><summary style="display:inline">Article details</summary><a href="'+html.escape(original,quote=True)+'" target="_blank" rel="noopener">Original publication</a></details></nav>'
+        home='/' if selected else '/editions/'+self.date+'/'
+        nav='<nav class="reading-nav" style="max-width:1064px;margin:18px auto;padding:0 28px"><a href="'+home+'">Market analysis</a>'
+        if not selected:
+            nav+=' <details style="display:inline"><summary style="display:inline">Article details</summary><a href="'+html.escape(original,quote=True)+'" target="_blank" rel="noopener">Original publication</a></details>'
+        nav+='</nav>'
         rendered=rendered.replace('<article><header',nav+'<article><header',1)
         rendered=rendered.replace('Development preview · Not published ·','© '+str(datetime.now().year)+' Tara Data Research LLC ·')
+        rendered=publication_head(rendered,self.publication_origin,self.date,sym)
         generation=self.generation(sym,stage,a)
         meta='<meta name="smn-generation" content="'+html.escape(json.dumps(generation['summary'],separators=(',',':')),quote=True)+'">'
         rendered,count=re.subn(r'</head\s*>',meta+'\n</head>',rendered,count=1,flags=re.I)

@@ -23,17 +23,34 @@ DASH = Path('/var/lib/smn-dashboard')
 BLOG = Path('/home/flask/blog')
 ORIGIN = 'https://smn-dev.trxstat.com'
 GENERATED = ('posts.json', 'index.html', 'suggest.json', 'home-manifest.json', 'search_index.json', 'search.html')
+PRODUCTION = False
+HOST_IP = '192.168.1.180'
+LOCK_NAME = 'dev-activation.lock'
+TARGET_NAME = 'SMN primary Dev'
+
+
+def configure_production():
+    """Explicit operator-installed activation; the default installer stays Dev-only."""
+    global ORIGIN, PRODUCTION, HOST_IP, LOCK_NAME, TARGET_NAME, GENERATED
+    activation = read('/etc/SMN/subscription-primary.json')
+    commit = subprocess.check_output(['git', '-C', str(Path(__file__).resolve().parent.parent),
+                                      'rev-parse', 'HEAD'], text=True).strip()
+    if activation.get('reader_provider') != 'chatgpt' or activation.get('source_commit') != commit:
+        raise ValueError('Human-installed production activation must match this committed release')
+    ORIGIN, PRODUCTION = 'https://seasonalmarketnews.com', True
+    HOST_IP, LOCK_NAME, TARGET_NAME = '209.182.216.112', 'smn-production-activation.lock', 'SMN production'
+    GENERATED = tuple(dict.fromkeys(GENERATED + ('sitemap.xml', 'sitemap-news.xml', 'rss.xml', 'robots.txt', 'llms.txt')))
 
 
 RETAINED_SAMPLE = 40  # retained files each publish verifies through the public site
 
 
 def guard():
-    if '192.168.1.180' not in subprocess.check_output(['hostname', '-I'], text=True).split():
-        raise ValueError('Primary SMN Dev .180 only')
+    if HOST_IP not in subprocess.check_output(['hostname', '-I'], text=True).split():
+        raise ValueError('Publication host mismatch')
     conf = Path('/etc/nginx/sites-enabled/smn.conf').read_text()
-    if 'server_name smn-dev.trxstat.com' not in conf or 'root /var/www/smn;' not in conf:
-        raise ValueError('Primary Dev nginx root changed')
+    if urlsplit(ORIGIN).netloc not in conf or 'root /var/www/smn;' not in conf:
+        raise ValueError('Publication nginx root changed')
     if WEB.is_symlink() or not (WEB/'posts.json').is_file():
         raise ValueError('Expected primary Dev catalog')
 
@@ -51,8 +68,8 @@ def catalog_lock():
 
 def local_path(url):
     u = urlsplit(url)
-    if u.netloc != 'smn-dev.trxstat.com' or u.scheme != 'https' or u.query or u.fragment:
-        raise ValueError('Catalog URL outside Dev')
+    if u.netloc not in ({'seasonalmarketnews.com','www.seasonalmarketnews.com'} if PRODUCTION else {'smn-dev.trxstat.com'}) or u.scheme != 'https' or u.query or u.fragment:
+        raise ValueError('Catalog URL outside publication origin')
     path = WEB/u.path.lstrip('/')
     if WEB not in path.resolve().parents or path.is_symlink() or not path.is_file():
         raise ValueError('Missing/unsafe archived article: '+u.path)
@@ -111,8 +128,8 @@ def render(candidate):
 def prepare(package):
     guard()
     package = Path(package).resolve()
-    manifest, entries = validate_package(package)
-    ident = 'smn-primary-'+manifest['edition_date']+'-'+manifest['source_commit'][:10]
+    manifest, entries = validate_package(package, ORIGIN, PRODUCTION)
+    ident = ('smn-production-' if PRODUCTION else 'smn-primary-')+manifest['edition_date']+'-'+manifest['source_commit'][:10]
     record = STATE/ident
     record.mkdir(parents=True)
     candidate = record/'candidate'
@@ -120,7 +137,10 @@ def prepare(package):
     with catalog_lock():
         previous = read(WEB/'posts.json')
         before = {n: sha(WEB/n) if (WEB/n).exists() else None for n in GENERATED}
-        helpers = {n:sha(BLOG/n) for n in ('rebuild_news_home.py','pin_store.py','article_index.py')}
+        helpers = {n:(sha(BLOG/n) if (BLOG/n).exists() else None)
+                   for n in ('rebuild_news_home.py','pin_store.py','article_index.py')}
+        if helpers['rebuild_news_home.py'] is None or (not PRODUCTION and None in helpers.values()):
+            raise ValueError('Required native renderer missing')
         pin_hash = sha(DASH/'pins.json') if (DASH/'pins.json').exists() else None
         articles = {str(local_path(p['url']).relative_to(WEB)): sha(local_path(p['url'])) for p in previous}
         heroes = {}
@@ -139,11 +159,29 @@ def prepare(package):
     date = manifest['edition_date']
     write(candidate/'editions'/date/'entries.json', entries)
     write(candidate/'editions'/date/'provenance.json', {'source_commit':manifest['source_commit'],
-          'publication_target':'SMN primary Dev', 'engine_authority':'TradeWave'})
+          'publication_target':TARGET_NAME, 'engine_authority':'TradeWave'})
     render(candidate)
     for name in ('index.html', 'search.html'):
         source = candidate/name if name == 'index.html' else WEB/name
-        (candidate/name).write_text(noindex_html(source.read_text(encoding='utf-8')), encoding='utf-8')
+        text = source.read_text(encoding='utf-8')
+        (candidate/name).write_text(text if PRODUCTION else noindex_html(text), encoding='utf-8')
+    if PRODUCTION:
+        # Reuse native sitemap/feed generation against the candidate, before activation.
+        import config
+        import publish_article
+        previous_root = config.news_root_folder
+        config.news_root_folder = str(candidate)
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                for name in ('generate_sitemap','generate_news_sitemap','generate_rss_feed','generate_llms_txt'):
+                    getattr(publish_article, name)()
+        finally:
+            config.news_root_folder = previous_root
+        shutil.copy2(WEB/'robots.txt', candidate/'robots.txt')
+        if any(not (candidate/n).is_file() for n in GENERATED):
+            # home-manifest is written below.
+            missing = [n for n in GENERATED if n != 'home-manifest.json' and not (candidate/n).is_file()]
+            if missing: raise ValueError('Native production outputs missing: '+str(missing))
     for e in entries:
         path = urlsplit(e['url']).path.lstrip('/')
         articles[path] = sha(candidate/path)
@@ -156,14 +194,14 @@ def prepare(package):
                'edition_date':date, 'before':before, 'runtime_helpers':helpers, 'pins_sha256':pin_hash,
                'expected_pins':read(DASH/'pins.json').get('pins',[]) if pin_hash else [], 'files':files,
                'retained_articles':{k:v for k,v in articles.items() if not k.startswith('editions/'+date+'/')},
-               'retained_heroes':heroes, 'production_written':False, 'target_host':'192.168.1.180', 'urls':[p['url'] for p in entries]}
+               'retained_heroes':heroes, 'production_written':False, 'target_host':HOST_IP, 'urls':[p['url'] for p in entries]}
     write(record/'receipt.json', receipt)
     return {'record':str(record), **receipt}
 
 
 def unchanged(receipt):
     for name, digest in receipt['runtime_helpers'].items():
-        if sha(BLOG/name) != digest:
+        if (sha(BLOG/name) if (BLOG/name).exists() else None) != digest:
             raise ValueError('Dashboard renderer changed during preparation')
     for n, digest in receipt['before'].items():
         if (sha(WEB/n) if (WEB/n).exists() else None) != digest:
@@ -181,7 +219,7 @@ def activate(record):
     r = read(record/'receipt.json')
     if r['status'] != 'prepared':
         raise ValueError('Edition not prepared')
-    lock = STATE/'dev-activation.lock'
+    lock = STATE/LOCK_NAME
     lock.mkdir()
     write(lock/'owner.json', {'task':r['id'], 'pid':os.getpid()})
     try:
@@ -216,7 +254,7 @@ def activate(record):
 
 
 def release_lock(r):
-    lock = STATE/'dev-activation.lock'
+    lock = STATE/LOCK_NAME
     if read(lock/'owner.json')['task'] != r['id']:
         raise ValueError('Activation lock owner changed')
     (lock/'owner.json').unlink()

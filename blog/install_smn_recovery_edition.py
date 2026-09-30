@@ -90,10 +90,12 @@ def home_config(conf):
     return updated
 
 
-def validate_package(package):
+def validate_package(package, origin=ORIGIN, production=False):
     package=Path(package).resolve();m=read(package/'manifest.json')
-    if m.get('target_origin')!=ORIGIN or m.get('production_allowed') is not False:
-        raise ValueError('Dev-only package required')
+    if origin not in {ORIGIN,'https://seasonalmarketnews.com'} or production != (origin=='https://seasonalmarketnews.com'):
+        raise ValueError('Explicit supported target required')
+    if m.get('target_origin')!=origin or m.get('production_allowed') is not production:
+        raise ValueError('Package publication target mismatch')
     date=m['edition_date'];commit=m['source_commit']
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch('[a-f0-9]{40}',commit):
         raise ValueError('Exact date and source commit required')
@@ -102,7 +104,7 @@ def validate_package(package):
     if not 1<=len(entries)<=6 or len({e['symbol'] for e in entries})!=len(entries):
         raise ValueError('One to six distinct reviewed articles required')
     for e in entries:
-        if e['url']!=ORIGIN+'/'+prefix+e['symbol']+'/article.html' or e['source_commit']!=commit:
+        if e['url']!=origin+'/'+prefix+e['symbol']+'/article.html' or e['source_commit']!=commit:
             raise ValueError('Article destination/provenance mismatch')
     for rel,expected in m['files'].items():
         p=package/rel
