@@ -216,5 +216,27 @@ class EditorialGateTests(unittest.TestCase):
         text='This is not the next earnings result. The next meeting is October 15.'
         self.assertTrue(any('future date' in e for e in self.problems(text,claim=stale)))
 
+    def test_analysis_limit_on_causal_inference_is_not_a_causal_assertion(self):
+        text=('This small sample shares 2018 and 2022 with the primary study, limiting '
+              'independent confirmation and offering no basis for attributing returns to elections.')
+        self.assertFalse(gate.asserts_causal_claim(text,'analysis'))
+        self.assertEqual(self.problems(text,'analysis'),[])
+        for limitation in ('There is no evidence for attributing returns to elections.',
+                           'The sample offers no grounds to attribute returns to elections.',
+                           'Consider historical shape without attributing returns to elections.'):
+            self.assertFalse(gate.asserts_causal_claim(limitation,'analysis'))
+            self.assertTrue(gate.asserts_causal_claim(limitation,'fact'))
+
+    def test_inference_limit_does_not_hide_positive_or_negative_causal_claims(self):
+        for text in ('There is no basis for attributing returns to elections. The decline was caused by demand.',
+                     'The decline was driven by demand, without attributing returns to elections.',
+                     'The decline was not caused by elections.',
+                     'Returns cannot be attributed to elections.',
+                     'There is no evidence that the decline was caused by elections.'):
+            for kind in ('analysis','fact'):
+                self.assertTrue(gate.asserts_causal_claim(text,kind))
+                self.assertTrue(any('causal explanation' in e for e in
+                                    self.problems(text,kind,claim=self.claim())))
+
 
 if __name__=='__main__':unittest.main()

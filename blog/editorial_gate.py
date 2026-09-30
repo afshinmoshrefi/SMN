@@ -14,6 +14,7 @@ from visual_evidence import digest
 VERSION = 1
 MARKER = 'EDITORIAL_CONTEXT_SHA256: '
 CAUSAL = re.compile(r'\b(blam\w*|attribut\w*|due to|driven by|caused by|resulted from)\b', re.I)
+INFERENCE_LIMIT = re.compile(r'\b(?:no\s+(?:basis|evidence|grounds|support|justification)\s+(?:for|to)|without)\s*$', re.I)
 FUTURE = re.compile(r'\b(upcoming|next\s+(?:\w+\s+){0,3}(?:tests?|meeting|decision|release|earnings|report|week|month))\b', re.I)
 NEGATED_FUTURE = re.compile(r'\b(?:not|never|neither)\s+(?:(?:a|an|the|about|of|forecast|prediction|predict|predicts|predicting|forecasting|represent|represents|representing)\s+)*$', re.I)
 COUNT = re.compile(r'\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:midterm\s+)?years?\s+(?:appear|overlap|are shared|in common)', re.I)
@@ -70,13 +71,20 @@ def asserts_future_event(text):
                for match in FUTURE.finditer(text))
 
 
+def asserts_causal_claim(text, kind):
+    return any(not (kind == 'analysis' and
+                    re.match(r'(?:attribut|blam)', match[0], re.I) and
+                    INFERENCE_LIMIT.search(text[:match.start()]))
+               for match in CAUSAL.finditer(text))
+
+
 def requirements(article, card):
     result = []
     samples = {str(c['request']['years']): [r['year'] for r in c['per_year']]
                for c in card['engine_results']['comparisons']}
     for unit in units(article):
         kinds = []
-        if CAUSAL.search(unit['text']): kinds.append('causal')
+        if asserts_causal_claim(unit['text'], unit['kind']): kinds.append('causal')
         if asserts_future_event(unit['text']): kinds.append('upcoming')
         match = COUNT.search(unit['text'])
         if match: kinds.append('cohort_overlap')
