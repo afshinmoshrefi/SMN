@@ -50,6 +50,8 @@ headlines/deks. Earnings do not need seasonal support: history concerns the
 shares' timing, while earnings provide a development to watch within that
 period. Connect them without making one validate the other. A readable
 business-led opening is welcome when its seasonal purpose is clear by paragraph two.
+By then, state the selected study's concrete finding and the investor question it
+raises; naming an approaching window alone is not the seasonal finding.
 
 Use 4-6 short sections with roles: opening, seasonal_record, current_context,
 risk, comparison, outlook. Opening comes first and outlook last. Current_context is the second or third
@@ -89,8 +91,10 @@ earnings dates, analyst opinions, consensus, interviews or causal mechanisms.
 Use one focused paragraph for a comparison when its chart notes already explain
 the samples. For a secondary election-cycle comparison, usually two or three
 short sentences (roughly 45-65 words) are enough: explain whether the result
-changes the main reading, the small matched sample if relevant, and the reuse
-of annual observations. The renderer provides an expandable sample table with
+changes the main reading, how the limited sample constrains confidence, and how
+reused observations limit independent confirmation. Put these qualifications beside
+the comparison conclusion; a later table disclosure does not replace their meaning.
+The renderer provides an expandable sample table with
 counts, exact observed years and overlap notes. Do not recite its full inventory
 in the prose. A commissioned cycle-led story may need more explanation. Never
 hide a material conflict in a collapsed table. Retain era sensitivity and the
