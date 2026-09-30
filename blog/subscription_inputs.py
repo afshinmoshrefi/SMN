@@ -79,6 +79,23 @@ def fetch_selection(edition):
     return _remote(REMOTE_SELECTION,(edition,))
 
 
+def _selected_years(row, edition):
+    """Preserve the existing workflow's PE metadata mapping at the frozen date."""
+    years=str(row['pat_years']).strip().lower()
+    mode=str(row.get('pat_mode') or 'consecutive').strip().lower()
+    if mode not in ('pe','consecutive'):
+        raise Held('unsupported selected pattern mode')
+    phase=_date(edition).year % 4
+    prefixed=re.fullmatch(r'pe([0-3])-(\d+)',years)
+    if prefixed:
+        if mode!='pe' or int(prefixed[1])!=phase or int(prefixed[2])<1:
+            raise Held('selected PE phase and mode are inconsistent with edition')
+        return years,mode
+    if not years.isdigit() or int(years)<1:
+        raise Held('invalid selected lookback')
+    return (f'pe{phase}-{years}' if mode=='pe' else years),mode
+
+
 def selection_posts(package, edition):
     """Map selected CSV identities to the native post contract, no financial math."""
     if package['date']!=edition:
@@ -92,7 +109,7 @@ def selection_posts(package, edition):
         if not re.fullmatch(r'[A-Z0-9]{1,12}',symbol):
             raise Held('unsupported selected symbol')
         rid=str(row['pat_resource_id']).strip(); start=str(row['pat_start_date']).strip()
-        _date(start); days=int(row['pat_days']); years=str(row['pat_years']).strip()
+        _date(start); days=int(row['pat_days']); years,mode=_selected_years(row,edition)
         direction=str(row['pat_direction']).strip().lower()
         if days<1 or direction not in ('long','short') or not re.fullmatch(r'(?:\d+|pe[0-3]-\d+)',years):
             raise Held('invalid selected study')
@@ -112,7 +129,7 @@ def selection_posts(package, edition):
                       'author_id':str(package['selection']['config']['USERID']),
                       'hero_image':'https://seasonalmarketnews.com'+directory+f'/hero_{symbol}_{aid}.jpg',
                       'article_id':aid,'publish_status':'true','featured_score':row.get('featured_score',0),
-                      'pattern_mode':row.get('pat_mode') or 'consecutive','tags':[]})
+                      'pattern_mode':mode,'tags':[]})
     if len({p['symbol'] for p in posts})!=len(posts):
         raise Held('duplicate selected subject')
     return posts
@@ -206,7 +223,8 @@ def prepare_heroes(root, edition, callback=None):
         receipt=json.loads(receipt_path.read_bytes()); _verify(root,receipt)
         if receipt['date']!=edition or receipt['selection_sha256']!=_sha((root/'input-selection.json').read_bytes()):
             raise Held('hero selection binding changed')
-        return {'status':'captured','idempotent':True,'symbols':list(receipt['heroes'])}
+        return {'status':'captured','idempotent':True,'symbols':list(receipt['heroes']),
+                'api_cost_stage':receipt['api_cost_stage']}
     heroes={}; files={}
     for post in json.loads((root/'production/posts.json').read_bytes()):
         sym=post['symbol']; one=root/f'production/{sym}/hero-receipt.json'
@@ -225,6 +243,7 @@ def prepare_heroes(root, edition, callback=None):
         heroes[sym]=item; files[item['path']]=item['sha256']; files[one.relative_to(root).as_posix()]=_sha(one.read_bytes())
     receipt={'schema_version':1,'date':edition,'heroes':heroes,'files':files,
              'selection_sha256':_sha((root/'input-selection.json').read_bytes()),
-             'api_cost_stage':True,'paid_article_writer_called':False,'public_runtime_writes':False}
+             'api_cost_stage':any(item.get('api_cost_stage') is True for item in heroes.values()),
+             'paid_article_writer_called':False,'public_runtime_writes':False}
     _write_once(receipt_path,_json(receipt))
-    return {'status':'captured','symbols':list(heroes),'api_cost_stage':True}
+    return {'status':'captured','symbols':list(heroes),'api_cost_stage':receipt['api_cost_stage']}
