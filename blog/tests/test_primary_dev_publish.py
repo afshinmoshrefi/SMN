@@ -74,6 +74,10 @@ class PrimaryPublicationTest(unittest.TestCase):
         record=self.prepared();r=p.activate(record)
         p.write(record/'live-verification.json',{'passed':True,'source_commit':'a'*40,'public_files':[]})
         with self.assertRaisesRegex(ValueError,'verification missing'):p.finish(record)
+        # New files verified but no retained sample: still refused.
+        p.write(record/'live-verification.json',{'passed':True,'source_commit':'a'*40,'public_files':[{'rel':k,'sha256':v,'passed':True} for k,v in r['files'].items()]})
+        if r['retained_articles'] or r['retained_heroes']:
+            with self.assertRaisesRegex(ValueError,'verification missing'):p.finish(record)
         p.write(record/'live-verification.json',{'passed':True,'source_commit':'a'*40,'public_files':[{'rel':k,'sha256':v,'passed':True} for k,v in {**r['files'],**r['retained_articles'],**r['retained_heroes']}.items()]})
         self.assertEqual(p.finish(record)['status'],'live_verified')
     def test_rollback_refuses_to_overwrite_peer_edit(self):

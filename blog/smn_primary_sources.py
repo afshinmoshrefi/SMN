@@ -165,10 +165,17 @@ def _validate_sources(sources, edition):
             raise Held('primary discovery has an incomplete source')
         if any(not isinstance(row[k], str) or not row[k].strip() for k in row):
             raise Held('primary discovery has a blank field')
+        # Sept 30 MU: "2026-05-28 (period end; exact filing date not verified)" held the whole
+        # article. Take a leading YYYY-MM-DD and drop the note; a page with no readable date is
+        # dropped, not held. The page-date check in _capture_rows still verifies the date.
+        found = re.match(r'\s*(\d{4}-\d{2}-\d{2})', row['date'])
         try:
-            published = Date.fromisoformat(row['date'])
-        except ValueError as exc:
-            raise Held('primary discovery has an invalid published date') from exc
+            published = Date.fromisoformat(found.group(1)) if found else None
+        except ValueError:
+            published = None
+        if published is None:
+            continue
+        row = dict(row, date=published.isoformat())
         url = row['url']
         if url in seen:
             raise Held('primary discovery returned duplicate URLs')

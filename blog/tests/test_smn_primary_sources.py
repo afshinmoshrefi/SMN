@@ -103,11 +103,16 @@ class PrimarySourcesTests(unittest.TestCase):
                          smn_research.check(entry, self.root, '2026-09-26', 'ABC'))
 
     def test_missing_evidence_and_bad_discovery_hold(self):
+        # An impossible date drops that page (Sept 30 fix); with one page left and a retry that
+        # also fails, the subject still holds and no partial evidence is written.
         self.rows[0]['date'] = '2026-09-31'
-        job = self.root/'jobs/ABC-20260926-primary-discovery'
-        job.mkdir(parents=True)
-        (job/'output.json').write_text(json.dumps({'sources': self.rows}))
-        with self.assertRaisesRegex(primary.Held, 'invalid published date'):
+        for name in ('ABC-20260926-primary-discovery', 'ABC-20260926-primary-discovery-two'):
+            job = self.root/'jobs'/name
+            job.mkdir(parents=True)
+            (job/'output.json').write_text(json.dumps({'sources': self.rows}))
+        fetch = lambda url: (url, 'Filing ' + self.rows[1]['date'] + ' reported results. ' * 30)
+        with patch.object(primary, 'fetch_page', side_effect=fetch), \
+             self.assertRaisesRegex(primary.Held, 'fewer than two accessible primary pages'):
             primary.collect(self.root, '2026-09-26', ['ABC'], {}, {}, lambda job: None)
         self.assertFalse((self.root/'primary/ABC.txt').exists())
 
@@ -179,6 +184,13 @@ class PrimarySourcesTests(unittest.TestCase):
             primary._capture_rows(self.rows, cache, path)
         self.assertEqual(list(cache['pages']), [sec])
         self.assertIn('published date not visible', cache['failed_urls'][sec.replace('0076', '0073')])
+
+    def test_date_with_a_note_is_read_and_undated_rows_are_dropped(self):
+        # Sept 30 MU: a date followed by a note held the whole article.
+        rows = [dict(self.rows[0], date='2026-09-24 (period end; exact filing date not verified)'),
+                dict(self.rows[1], date='not stated')]
+        kept = primary._validate_sources(rows, '2026-09-26')
+        self.assertEqual([r['date'] for r in kept], ['2026-09-24'])
 
     def test_private_and_non_https_urls_rejected(self):
         with self.assertRaises(primary.Held):

@@ -25,6 +25,9 @@ ORIGIN = 'https://smn-dev.trxstat.com'
 GENERATED = ('posts.json', 'index.html', 'suggest.json', 'home-manifest.json', 'search_index.json', 'search.html')
 
 
+RETAINED_SAMPLE = 40  # retained files each publish verifies through the public site
+
+
 def guard():
     if '192.168.1.180' not in subprocess.check_output(['hostname', '-I'], text=True).split():
         raise ValueError('Primary SMN Dev .180 only')
@@ -253,9 +256,19 @@ def finish(record):
     if (sha(DASH/'pins.json') if (DASH/'pins.json').exists() else None) != r['pins_sha256']:
         raise ValueError('Pin state changed during publication')
     verified = {p['rel']:p['sha256'] for p in proof.get('public_files',[]) if p.get('passed')}
-    for rel, digest in {**r['files'], **r['retained_articles'], **r.get('retained_heroes',{})}.items():
+    # Every file of this edition must be verified through the public site. Retained archive files
+    # must still match on disk, and a sample of them through the public site: hashing all ~1,400
+    # publicly ran ~20 h and exhausted Dev (Sept 29-30); this publish does not modify them.
+    for rel, digest in r['files'].items():
         if sha(WEB/rel) != digest or verified.get(rel) != digest:
             raise ValueError('Public verification missing/changed: '+rel)
+    for group in ('retained_articles', 'retained_heroes'):
+        retained = r.get(group, {})
+        for rel, digest in retained.items():
+            if sha(WEB/rel) != digest or (rel in verified and verified[rel] != digest):
+                raise ValueError('Public verification missing/changed: '+rel)
+        if sum(rel in verified for rel in retained) < min(RETAINED_SAMPLE, len(retained)):
+            raise ValueError('Public verification missing/changed: too few %s sampled' % group)
     r['status'] = 'live_verified'
     write(record/'receipt.json', r)
     release_lock(r)

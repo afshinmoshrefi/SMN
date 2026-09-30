@@ -28,9 +28,15 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  assert((await page.locator('footer').innerText()).includes('Tara Data Research LLC'),'SMN site footer');
  const landingText=await page.locator('body').innerText();
  assert(!/\bDev\b|Development edition|Updated SMN Edition|recreated with the updated editorial workflow/i.test(landingText),'Production presentation copy');
- await page.evaluate(async()=>{for(const i of document.images)i.loading='eager';await Promise.all([...document.images].map(i=>i.decode()));});
- await page.screenshot({path:path.join(R,'live-edition-desktop.png'),fullPage:true});
- await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(R,'live-edition-mobile.png'),fullPage:true});
+ // Only the top of the cumulative homepage (where the new edition sits): forcing every image of
+ // hundreds of past articles to decode, plus full-page shots, exhausted Dev's memory on Sept 29.
+ const TOP=3200;
+ await page.evaluate(async(top)=>{const near=[...document.images].filter(i=>i.getBoundingClientRect().top+scrollY<top);
+   for(const i of near)i.loading='eager';
+   await Promise.race([Promise.all(near.map(i=>i.decode().catch(()=>null))),new Promise(r=>setTimeout(r,20000))]);},TOP);
+ const clip=async(w)=>({x:0,y:0,width:w,height:Math.min(TOP,await page.evaluate(()=>document.documentElement.scrollHeight))});
+ await page.screenshot({path:path.join(R,'live-edition-desktop.png'),fullPage:true,clip:await clip(1440)});
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(R,'live-edition-mobile.png'),fullPage:true,clip:await clip(390)});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile homepage fits viewport');
  await page.goto(base+'/search.html',{waitUntil:'domcontentloaded'});
  await page.waitForFunction(()=>document.querySelectorAll('#resultsList a[href]').length>0);
@@ -67,10 +73,14 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  }
  const homeManifestBytes=await page.evaluate(async ()=>Array.from(new Uint8Array(await (await fetch('/home-manifest.json',{cache:'no-store'})).arrayBuffer())));
  const homeManifestHash=crypto.createHash('sha256').update(Buffer.from(homeManifestBytes)).digest('hex');
- const files=Object.entries({...activation.files,...activation.retained_articles,...activation.retained_heroes});
+ // Every file of this edition, plus a fixed sample of the retained archive. Hashing all ~1,400
+ // retained articles and heroes through the public site ran ~20 h and exhausted Dev (Sept 29-30);
+ // this publish does not modify them, and earlier editions already verified them.
+ const sample=(o,n)=>{const e=Object.entries(o).sort(([a],[b])=>a<b?-1:1);const step=Math.max(1,Math.floor(e.length/n));return e.filter((_,i)=>i%step===0).slice(0,n);};
+ const files=[...Object.entries(activation.files),...sample(activation.retained_articles,40),...sample(activation.retained_heroes,40)];
  const checked=[];
  for(let i=0;i<files.length;i+=6){
-  const results=await page.evaluate(async ({batch,base,retained})=>Promise.all(batch.map(async ([rel,expected])=>{
+  const results=await page.evaluate(async ({batch,base,retained})=>Promise.race([new Promise((_,no)=>setTimeout(()=>no(new Error('public asset batch timed out')),90000)),Promise.all(batch.map(async ([rel,expected])=>{
    const response=await fetch(base+'/'+rel,{cache:'no-store'});const bytes=await response.arrayBuffer();
    const sha=async b=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b))).map(b=>b.toString(16).padStart(2,'0')).join('');
    const publicHash=await sha(bytes);let hash=publicHash,normalization=null;
@@ -84,7 +94,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
     hash=await sha(new TextEncoder().encode(text));normalization='cloudflare-email-link';
    }
    return {rel,status:response.status,passed:response.status===200&&hash===expected,sha256:hash,public_sha256:publicHash,normalization};
-  })),{batch:files.slice(i,i+6),base,retained:Object.keys(activation.retained_articles)});
+  }))]),{batch:files.slice(i,i+6),base,retained:Object.keys(activation.retained_articles)});
   for(const r of results)assert(r.passed,'Public asset hash: '+r.rel);checked.push(...results);
  }
  const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');
