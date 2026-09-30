@@ -233,6 +233,23 @@ class Day:
             raise Hold('Saved repair request differs; preserve the attempt and create an explicit evidence revision')
         return path
 
+    def _receive_article_draft(self,ed,sym,s):
+        draft=s.get('draft','write')
+        checks=ed.receive(sym,draft)
+        if not checks['passed'] and draft=='repair-two':
+            issues=self._issues(sym+'-review-mechanical.txt',mechanical_problems(checks))
+            if not ed.job(sym,'repair-three').exists():
+                if self.jobs_used() >= self.max_jobs:
+                    raise Hold('model-job budget of %d exhausted' % self.max_jobs)
+                ed.repair(sym,issues,'repair-three')
+            self.run_job(ed.job(sym,'repair-three'))
+            # Persist before receive replaces article bytes; resume the new draft,
+            # and require review of it rather than reusing the prior draft's approval.
+            s.update(draft='repair-three',mechanical_ok=False,review_stage='rereview')
+            self.save()
+            checks=ed.receive(sym,'repair-three')
+        return checks
+
     def _article(self, ed, sym):
         from editorial_gate import verify_complete, verify_review
         s = self.state['articles'].setdefault(sym, {})
@@ -252,7 +269,7 @@ class Day:
                 raise Hold('Saved mechanical approval is stale; explicit revision required')
         if not s.get('mechanical_ok'):
             draft = s.get('draft', 'write')
-            checks = ed.receive(sym, draft)
+            checks = self._receive_article_draft(ed,sym,s)
             if not checks['passed'] and draft == 'write':
                 issues = self._issues(sym + '-mechanical.txt', mechanical_problems(checks))
                 if not ed.job(sym, 'repair').exists():
@@ -283,9 +300,10 @@ class Day:
             # resumes its mechanical check, never the approval of the prior draft.
             s.update(draft='repair-two', mechanical_ok=False, review_stage='rereview')
             self.save()
-            checks = ed.receive(sym, 'repair-two')
+            checks = self._receive_article_draft(ed,sym,s)
             if not checks['passed']:
-                raise Hold('%s review repair broke mechanical checks' % sym)
+                raise Hold('%s review repair mechanical checks still fail after one correction: %s'
+                           % (sym,'; '.join(mechanical_problems(checks))))
             s['mechanical_ok'] = True
             stage = 'rereview'
             self.save()

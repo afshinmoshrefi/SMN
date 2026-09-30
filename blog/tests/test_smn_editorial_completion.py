@@ -93,5 +93,50 @@ class CompletionTests(unittest.TestCase):
                 Edition.finalize(self.ed,'AMD','review')
         self.assertFalse((out/'review-binding.json').exists())
 
+    def failed_mechanical(self):
+        return {'passed':False,'structure':{'passed':True},'source_words':{'issuer':{
+            'passed':False,'total':201,'prose':171,'chart':20,'headings_and_citation':10,'maximum':200}}}
+
+    def test_editorial_repair_over_cap_gets_one_correction_and_fresh_review(self):
+        self.ed.receive.side_effect=lambda sym,stage:self.failed_mechanical() if stage=='repair-two' else {'passed':True}
+        with patch('smn_daily.editorial_review_problems',side_effect=[['unsupported cause'],[]]) as review:
+            self.day._article(self.ed,'AMD')
+        self.assertEqual([call.args[2] for call in self.ed.repair.call_args_list],['repair-two','repair-three'])
+        self.assertEqual(review.call_count,2)
+        self.ed.finalize.assert_called_once_with('AMD','rereview')
+        self.assertEqual(self.day.state['articles']['AMD']['draft'],'repair-three')
+
+    def test_editorial_mechanical_correction_crash_resumes_without_extra_attempt(self):
+        def receive(sym,stage):
+            if stage=='repair-two':return self.failed_mechanical()
+            if stage=='repair-three':raise RuntimeError('crash replacing mechanical correction')
+            return {'passed':True}
+        self.ed.receive.side_effect=receive
+        with patch('smn_daily.editorial_review_problems',return_value=['unsupported cause']):
+            with self.assertRaisesRegex(RuntimeError,'crash replacing'):self.day._article(self.ed,'AMD')
+        self.assertEqual(self.day.state['articles']['AMD']['draft'],'repair-three')
+        self.assertFalse(self.day.state['articles']['AMD']['mechanical_ok'])
+        run=self.day.run_job
+        self.day=smn_daily.Day(self.day.root,self.day.date)
+        self.day.run_job=run
+        self.ed.receive.side_effect=None
+        with patch('smn_daily.editorial_review_problems',return_value=[]):self.day._article(self.ed,'AMD')
+        self.assertEqual([call.args[2] for call in self.ed.repair.call_args_list],['repair-two','repair-three'])
+        self.ed.finalize.assert_called_once_with('AMD','rereview')
+
+    def test_continued_mechanical_failure_holds_without_review_or_fourth_repair(self):
+        self.ed.receive.side_effect=lambda sym,stage:{'passed':True} if stage=='write' else self.failed_mechanical()
+        with patch('smn_daily.editorial_review_problems',return_value=['unsupported cause']) as review:
+            with self.assertRaisesRegex(smn_daily.Hold,'still fail after one correction'):self.day._article(self.ed,'AMD')
+        self.assertEqual(review.call_count,1)
+        self.assertEqual([call.args[2] for call in self.ed.repair.call_args_list],['repair-two','repair-three'])
+        self.ed.finalize.assert_not_called()
+
+    def test_extra_mechanical_repair_respects_job_budget(self):
+        self.day.max_jobs=0;self.day.state['articles']['AMD']={'draft':'repair-two','review_stage':'rereview'}
+        self.ed.receive.return_value=self.failed_mechanical()
+        with self.assertRaisesRegex(smn_daily.Hold,'budget'):self.day._article(self.ed,'AMD')
+        self.ed.repair.assert_not_called();self.ed.finalize.assert_not_called()
+
 
 if __name__=='__main__':unittest.main()

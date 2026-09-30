@@ -75,5 +75,27 @@ class WriterPreventionContextTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'not verbatim'):
             workflow.writer_primary_context(self.root,'ABC','2026-09-30',self.spec)
 
+    def test_repair_prompt_has_actual_remaining_allowance_and_metric_scope(self):
+        out=self.root/'results/ABC';out.mkdir(parents=True)
+        bundle={'as_of':'2026-09-30','evidence_sha256':'engine','sources':[
+            {'id':'issuer','title':'Official release','max_derived_words':200}]}
+        article={'title':'Title','title_source_ids':['issuer'],'dek':'Dek','dek_source_ids':['issuer'],
+            'sections':[{'heading':'Current context','paragraphs':[{'text':'word '*184,'source_ids':['issuer']}]}],
+            'takeaways':[]}
+        for name,value in [('bundle.json',bundle),('article.json',article),('chart-words.json',{'issuer':10}),
+                           ('writer-evidence.json',{}),('mechanical-checks.json',{}),('article.schema.json',{})]:self.write(out/name,value)
+        issue=self.root/'issue.txt';issue.write_text('Correct the causal metric scope.',encoding='utf-8')
+        edition=workflow.Edition(self.root,'2026-09-30',roles={'write':{'provider':'codex','model':'gpt-test','effort':'low'}})
+        with patch('editorial_gate.context',return_value={}),patch.object(edition,'_prepare') as prepare:
+            edition.repair('ABC',issue,'repair-two')
+        prompt=prepare.call_args.args[3]
+        allowances=json.loads(prompt.split('SOURCE PROSE ALLOWANCES:\n',1)[1].split('\n',1)[0])[0]
+        self.assertEqual(allowances['maximum_all_surfaces'],200)
+        self.assertEqual(allowances['current_total'],200)
+        self.assertEqual(allowances['remaining_additional_words'],0)
+        self.assertEqual(allowances['maximum_prose_with_current_headings'],186)
+        self.assertEqual(allowances['recommended_prose_target'],166)
+        self.assertIn('Do not transfer causality by proximity',prompt)
+
 
 if __name__=='__main__':unittest.main()

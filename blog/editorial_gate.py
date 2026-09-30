@@ -15,6 +15,7 @@ VERSION = 1
 MARKER = 'EDITORIAL_CONTEXT_SHA256: '
 CAUSAL = re.compile(r'\b(blam\w*|attribut\w*|due to|driven by|caused by|resulted from)\b', re.I)
 FUTURE = re.compile(r'\b(upcoming|next\s+(?:\w+\s+){0,3}(?:tests?|meeting|decision|release|earnings|report|week|month))\b', re.I)
+NEGATED_FUTURE = re.compile(r'\b(?:not|never|neither)\s+(?:(?:a|an|the|about|of|forecast|prediction|predict|predicts|predicting|forecasting|represent|represents|representing)\s+)*$', re.I)
 COUNT = re.compile(r'\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:midterm\s+)?years?\s+(?:appear|overlap|are shared|in common)', re.I)
 CALENDAR_DATE = re.compile(r'\b(?:20\d{2}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2})\b', re.I)
 NUMBERS = {word: n for n, word in enumerate('zero one two three four five six seven eight nine ten'.split())}
@@ -63,6 +64,12 @@ def units(article):
     return rows
 
 
+def asserts_future_event(text):
+    # Check each occurrence: a nearby disclaimer cannot suppress another assertion.
+    return any(not NEGATED_FUTURE.search(text[:match.start()])
+               for match in FUTURE.finditer(text))
+
+
 def requirements(article, card):
     result = []
     samples = {str(c['request']['years']): [r['year'] for r in c['per_year']]
@@ -70,7 +77,7 @@ def requirements(article, card):
     for unit in units(article):
         kinds = []
         if CAUSAL.search(unit['text']): kinds.append('causal')
-        if FUTURE.search(unit['text']): kinds.append('upcoming')
+        if asserts_future_event(unit['text']): kinds.append('upcoming')
         match = COUNT.search(unit['text'])
         if match: kinds.append('cohort_overlap')
         if not kinds: continue

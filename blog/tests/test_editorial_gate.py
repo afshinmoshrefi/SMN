@@ -192,5 +192,29 @@ class EditorialGateTests(unittest.TestCase):
         self.assertEqual(self.problems('The next test is whether earnings could support prices.','analysis',claim),[])
         self.assertTrue(self.problems('The next tests are the ones Reuters named.','fact',claim,symbol='VIX'))
 
+    def test_outlook_disclaimer_does_not_assert_an_upcoming_event(self):
+        text=('It covers the next 60 weekdays, September 30–December 22, a separate horizon '
+              'from October 23–November 6. It illustrates historical shape, not the next '
+              'earnings result or a price target.')
+        self.assertFalse(gate.asserts_future_event(text))
+        self.assertEqual(self.problems(text,'analysis'),[])
+        for disclaimer in ('This does not predict the next earnings report.',
+                           'This is not a forecast of the upcoming meeting.'):
+            self.assertFalse(gate.asserts_future_event(disclaimer))
+
+    def test_negated_event_does_not_hide_positive_event_in_same_paragraph(self):
+        for text in ('It illustrates historical shape, not the next earnings result. '
+                     'The next meeting is October 15.',
+                     'The next meeting is October 15; this is not the next earnings result.',
+                     'It is not the next earnings result but the upcoming release that matters.',
+                     'Not only the next meeting matters.'):
+            self.assertTrue(gate.asserts_future_event(text))
+            self.assertTrue(any('future date' in e for e in self.problems(text,claim=self.claim())))
+        stale=self.claim(source_url='https://issuer.example/calendar',
+                         source_quote='The next meeting is scheduled for October 15, 2026.',
+                         event_date='2026-09-15')
+        text='This is not the next earnings result. The next meeting is October 15.'
+        self.assertTrue(any('future date' in e for e in self.problems(text,claim=stale)))
+
 
 if __name__=='__main__':unittest.main()
