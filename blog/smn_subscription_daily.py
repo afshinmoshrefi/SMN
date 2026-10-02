@@ -9,6 +9,9 @@ from datetime import date as Date, datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import operational_settings
 
 from subscription_writer import load_json, save_json
 from smn_daily import Day, CLIS, now
@@ -20,6 +23,59 @@ AUTH_FAILURE = ('login', 'auth', 'quota', 'rate limit', 'rate_limit', 'usage lim
 def edition_date():
     # Production's 02:00 selector names its CSV for the UTC publication date.
     return datetime.now(timezone.utc).date().isoformat()
+
+
+def scheduled_window(root, date, current=None):
+    """Hold scheduled editions that start early or reuse overnight sources."""
+    snapshot = root/date/'schedule-settings.json'
+    if snapshot.exists():
+        bound = json.loads(snapshot.read_text())
+        if bound.get('date') != date:
+            raise ValueError('Scheduled settings snapshot date mismatch')
+        setting = bound['daily_generation']
+    else:
+        setting = operational_settings.for_date(date)['daily_generation']
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        with snapshot.open('x') as output:
+            json.dump({'date': date, 'daily_generation': setting,
+                       'created_utc': datetime.now(timezone.utc).isoformat()}, output)
+    local = (current or datetime.now(timezone.utc)).astimezone(ZoneInfo(setting['timezone']))
+    if local.date().isoformat() != date or local.weekday() >= 5:
+        raise ValueError('Scheduled edition must run on its local weekday')
+    start = datetime.combine(local.date(), datetime.strptime(setting['start_time'], '%H:%M').time(),
+                             ZoneInfo(setting['timezone']))
+    if local < start:
+        raise ValueError('Scheduled edition cannot start before the morning generation window')
+    cutoff = start.timestamp()
+    source_paths = [root/date/'inputs'/'input-selection.json',
+                    root/date/'inputs'/'production-engine-export.json']
+    for profile in ('chatgpt', 'claude'):
+        edition = root/date/profile
+        source_paths.append(edition/'sources.json')
+        for folder in ('primary', 'research', 'jobs'):
+            if (edition/folder).exists():
+                source_paths.extend(path for path in (edition/folder).rglob('*') if path.is_file())
+    if any(path.is_file() and path.stat().st_mtime < cutoff for path in source_paths):
+        raise ValueError('Pre-window inputs or research cannot be reused for a scheduled edition')
+    for profile in ('chatgpt', 'claude'):
+        primary = root/date/profile/'primary'
+        if not primary.exists():
+            continue
+        for receipt_path in primary.glob('*.receipt.json'):
+            receipt = json.loads(receipt_path.read_text())
+            fetched = datetime.fromisoformat(receipt['fetched_utc'])
+            text_path = primary/(receipt_path.name[:-len('.receipt.json')] + '.txt')
+            if (receipt.get('edition_date') != date or fetched.tzinfo is None or
+                    fetched.timestamp() < cutoff or not text_path.is_file() or
+                    hashlib.sha256(text_path.read_bytes()).hexdigest() != receipt.get('text_sha256')):
+                raise ValueError('Primary source receipt predates the morning window or changed')
+        for cache_path in primary.glob('*.fetch-cache.json'):
+            cache = json.loads(cache_path.read_text())
+            for page in cache.get('pages', {}).values():
+                fetched = datetime.fromisoformat(page['fetched_utc'])
+                if fetched.tzinfo is None or fetched.timestamp() < cutoff:
+                    raise ValueError('Primary source page predates the morning window')
+    return start
 
 
 def outcome(result):
@@ -109,12 +165,14 @@ def run_profile(root, date, profile, canonical, publication_origin=ORIGIN):
     return day.check()
 
 
-def run(root, date, publish=False, target='production'):
+def run(root, date, publish=False, target='production', scheduled=False):
     Date.fromisoformat(date)
     root = Path(root).resolve()
     if target not in {'production','dev'}:
         raise ValueError('Unsupported publication target')
     with lock(root):
+        if scheduled:
+            scheduled_window(root, date)
         path = root/'comparison-state.json'
         state = load_json(path) if path.exists() else {'reader_provider': 'chatgpt', 'comparison_dates': []}
         if state.get('reader_provider') != 'chatgpt':
@@ -157,6 +215,8 @@ def run(root, date, publish=False, target='production'):
                 outcomes[profile] = (run_profile(edition, date, profile, canonical) if target == 'production' else
                     run_profile(edition, date, profile, canonical, publication_origin=None))
                 if profile == 'chatgpt' and publish:
+                    if scheduled:
+                        scheduled_window(root, date)
                     if target == 'production':
                         from smn_subscription_publish import publish_edition
                         outcomes[profile]['publication'] = publish_edition(edition, date)
@@ -181,12 +241,13 @@ def main():
     parser.add_argument('--date', default=edition_date())
     parser.add_argument('--publish', action='store_true')
     parser.add_argument('--target', choices=['production','dev'], default='production')
+    parser.add_argument('--scheduled', action='store_true', help='Enforce morning source and publication window')
     args = parser.parse_args()
     last_run = args.root/'last-run.json'
     try:
         save_json(last_run, {'utc': now(), 'date': args.date, 'status': 'running',
                             'target': args.target, 'publish': args.publish})
-        result = run(args.root, args.date, args.publish, args.target)
+        result = run(args.root, args.date, args.publish, args.target, args.scheduled)
         status, code = outcome(result)
         save_json(last_run, {'utc': now(), 'date': args.date, 'status': status,
                             'exit_code': code, 'target': args.target, 'publish': args.publish,
