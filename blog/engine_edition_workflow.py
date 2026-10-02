@@ -340,6 +340,11 @@ class Edition:
             'Stay below the recommended prose target to leave room for changed headings. Preserve the corrected factual '
             'meaning and required material causes/counterpoints while cutting repetition; never relabel citations to evade a cap. '+
             '\nDEFECTS:\n'+Path(issuefile).read_text(encoding='utf-8')+
+            '\nFor each requested missing forecast or qualification, search the captured primary pages in the '
+            'source audit context, check its period and measure against the reviewer issue, and cite that primary '
+            'source. The prepared brief and material-context list may be incomplete. Keep related GAAP and adjusted '
+            'outlooks together when the source reports both; distinguish guidance from reported results. '
+            'Replace less useful source prose to stay within the cap.\n'+
             '\nARTICLE:\n'+json.dumps(article,ensure_ascii=False)+
             '\nEVIDENCE:\n'+json.dumps(review_writer_evidence(out),ensure_ascii=False)+
             '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+

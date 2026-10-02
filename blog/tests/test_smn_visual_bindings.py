@@ -121,6 +121,10 @@ class VisualBindingsTests(unittest.TestCase):
         self.assertFalse(self._article(run)['passed']);self.assertEqual(len(calls),1)
         with self.assertRaises(ValueError):visual.verify_inconsistent_visual_hold(self.root,'SPY')
 
+    def test_landing_prompt_recognizes_native_compact_links_and_contiguous_tiles(self):
+        self.assertIn('compact headline links',visual.LANDING_RULES)
+        self.assertIn('crop boundary alone',visual.LANDING_RULES)
+
     def test_reinspection_is_bounded_and_budget_is_not_increased(self):
         failed={'passed':False,'defects':[]};calls=[]
         def run(job):calls.append(job.name);return self._run(job,failed)

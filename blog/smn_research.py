@@ -67,6 +67,9 @@ and recent, dated news. Pick 2-4 sources.
 - question: the reader question the article answers today.
 - brief: 120-250 words for the writer. State what is reported, what is forecast and what is upcoming as of
   the edition date, with dates. Say that business facts do not validate a future seasonal return.
+  If the question turns on a management outlook, include the material forecast ranges and comparable
+  reported baselines. Keep GAAP and adjusted forecasts together when both qualify the same profitability
+  claim, and include a growth forecast when reported growth is central to the question.
   Distinguish the edition date, last observation, future window entry and source publication date.
   A current observation does not establish the condition at a future entry. Old news is dated background;
   an event an old source called upcoming is not still upcoming without dated confirmation after the edition.
@@ -85,6 +88,8 @@ and recent, dated news. Pick 2-4 sources.
   Preserve ALL material management explanations of the story, including execution or deal delays and
   offsetting strength, not only a convenient external-demand explanation. Causes require captured primary
   evidence; do not substitute a news summary. Keep material counterevidence and confirmed event dates.
+  Include source-backed forecast qualifications needed to answer the commissioned question; a favorable
+  forecast must not crowd out a companion adjusted measure or a slower growth outlook.
   Do not invent missing explanations or calendar dates. Do not use this list for TradeWave calculations.
 - chart: one small bar chart of 2-6 REPORTED business values from one or two sources (not TradeWave seasonal
   numbers, not forecasts). Every record has the exact number, a unit (for example "USD billions"), a period,

@@ -26,7 +26,7 @@ import smn_research
 import smn_visual
 import subscription_capture as capture
 from subscription_publication import CHECKS
-from subscription_writer import load_json, save_json
+from subscription_writer import load_json, save_json, sha256
 
 BLOG = Path(__file__).resolve().parent
 CLIS = {'claude': os.environ.get('SMN_CLAUDE', '/root/.local/bin/claude'), 'codex': os.environ.get('SMN_CODEX')}
@@ -139,6 +139,70 @@ class Day:
             del s['held']
             self.save()
             log(step='article_released', symbol=sym)
+
+    def prepare_editorial_recovery(self, sym):
+        """Explicitly permit one source-backed repair after a second failed review."""
+        from engine_edition_workflow import Edition
+        from editorial_gate import primary_sources
+        ledger = self.root/('editorial-recovery-'+sym+'.json')
+        if ledger.exists():
+            raise Hold('Editorial recovery already prepared for '+sym)
+        if any((self.root/'jobs'/(sym+'-'+self.date.replace('-','')+'-'+stage)).exists()
+               for stage in ('repair-review-three','third-review')):
+            raise Hold('Editorial recovery stages already exist for '+sym)
+        state = self.state['articles'].get(sym, {})
+        if (state.get('finalized') or state.get('review_stage') != 'rereview' or
+                state.get('draft') != 'repair-two' or state.get('mechanical_ok') is not True or
+                'failed review twice' not in (state.get('held') or {}).get('reason', '')):
+            raise Hold('Only a held second-review failure permits editorial recovery')
+        review_job = self.root/'jobs'/(sym+'-'+self.date.replace('-','')+'-rereview')
+        review_path = review_job/'output.json'
+        receipt = load_json(review_job/'receipt.json')
+        if receipt.get('output_sha256') != sha256(review_path.read_bytes()):
+            raise Hold('Second-review receipt or output changed')
+        review = load_json(review_path)
+        if review.get('passed') is not False or not review_problems(review):
+            raise Hold('Second review does not contain repairable issues')
+        primary_sources(self.root,sym,self.date)
+        issues = self._issues(sym+'-review-three.txt',review_problems(review))
+        ed = Edition(self.root,self.date,provider='config',claude=CLIS['claude'],
+                     roles=self.roles,publication_origin=self.publication_origin or 'https://smn-dev.trxstat.com')
+        ed.repair(sym,issues,'repair-review-three')
+        approved = {}
+        for other, row in self.state['articles'].items():
+            if other == sym or not row.get('finalized') or row.get('held'):
+                continue
+            approved[other] = self._approved_snapshot(other)
+        save_json(ledger, {'utc':now(),'symbol':sym,'prior_state':state.copy(),
+                           'second_review_sha256':sha256(review_path.read_bytes()),
+                           'second_review_receipt_sha256':sha256((review_job/'receipt.json').read_bytes()),
+                           'repair_issues_sha256':sha256(issues.read_bytes()),
+                           'approved_articles':approved,'new_stages':['repair-review-three','third-review'],
+                           'prepared_without_model_jobs':True})
+        state.update(draft='repair-review-three',mechanical_ok=False,review_stage='third-review')
+        state.pop('held',None)
+        self.save()
+        return ledger
+
+    def _approved_snapshot(self, sym):
+        files = {}
+        results = self.root/'results'/sym
+        jobs = self.root/'jobs'
+        paths = list(results.rglob('*')) + [p for job in jobs.glob(sym+'-'+self.date.replace('-','')+'-*')
+                                                  for p in job.rglob('*')]
+        for path in paths:
+            if path.is_symlink():
+                raise Hold('Approved evidence contains a symlink: '+str(path))
+            if path.is_file():
+                files[path.relative_to(self.root).as_posix()] = sha256(path.read_bytes())
+        return files
+
+    def verify_editorial_recovery(self):
+        for ledger_path in self.root.glob('editorial-recovery-*.json'):
+            ledger = load_json(ledger_path)
+            for sym, files in ledger['approved_articles'].items():
+                if self._approved_snapshot(sym) != files:
+                    raise Hold('Approved article changed during editorial recovery: '+sym)
 
     # ---- steps -----------------------------------------------------
     def capture(self):
@@ -269,6 +333,8 @@ class Day:
                 raise Hold('Saved mechanical approval is stale; explicit revision required')
         if not s.get('mechanical_ok'):
             draft = s.get('draft', 'write')
+            if draft == 'repair-review-three' and s.get('review_stage') == 'third-review':
+                self.run_job(ed.job(sym,draft))
             checks = self._receive_article_draft(ed,sym,s)
             if not checks['passed'] and draft == 'write':
                 issues = self._issues(sym + '-mechanical.txt', mechanical_problems(checks))
@@ -290,8 +356,8 @@ class Day:
         review = load_json(ed.job(sym, stage)/'output.json')
         problems = editorial_review_problems(ed,sym,stage)
         if problems:
-            if stage == 'rereview':
-                raise Hold('%s failed review twice: %s' % (sym, problems))
+            if stage in {'rereview','third-review'}:
+                raise Hold('%s failed %s: %s' % (sym,'editorial recovery review' if stage=='third-review' else 'review twice',problems))
             issues = self._issues(sym + '-review.txt', problems)
             if not ed.job(sym, 'repair-two').exists():
                 ed.repair(sym, issues, 'repair-two')
@@ -484,12 +550,24 @@ def main():
     ap.add_argument('--publish-only', action='store_true',
                     help='publish an edition another host already wrote and checked (Dev shows the prod shadow); '
                          'no capture, research, writing or checks run here')
+    ap.add_argument('--prepare-editorial-recovery', metavar='SYMBOL',
+                    help='prepare one explicit third repair after a held second review; run no model job')
     a = ap.parse_args()
     a.root.mkdir(parents=True, exist_ok=True)
+    if a.prepare_editorial_recovery:
+        try:
+            day = Day(a.root,a.date,a.models,a.max_jobs,a.profile)
+            ledger = day.prepare_editorial_recovery(a.prepare_editorial_recovery)
+            log(status='editorial_recovery_prepared',ledger=str(ledger),jobs=day.jobs_used())
+            return 0
+        except Exception as exc:
+            log(status='hold',reason=str(exc)[:500])
+            return 2
     if a.publish_only:
         try:
             state = load_json(a.root/'smn-daily-state.json')
             day = Day(a.root, a.date, max_jobs=a.max_jobs, roles=state['roles'])
+            day.verify_editorial_recovery()
             day.symbols=list(state['articles'])
             day.check()
             ready = [s for s, v in day.state['articles'].items() if v.get('finalized') and not v.get('held')]
@@ -504,6 +582,7 @@ def main():
             return 2
     try:
         day = Day(a.root, a.date, a.models, a.max_jobs, a.profile)
+        day.verify_editorial_recovery()
         day.release_transient_holds()
         if not day.capture():
             log(status='waiting_for_production')

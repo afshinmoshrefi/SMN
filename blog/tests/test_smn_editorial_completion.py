@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import smn_daily
-from subscription_writer import save_json
+from subscription_writer import save_json, sha256
 
 
 class CompletionTests(unittest.TestCase):
@@ -137,6 +137,40 @@ class CompletionTests(unittest.TestCase):
         self.ed.receive.return_value=self.failed_mechanical()
         with self.assertRaisesRegex(smn_daily.Hold,'budget'):self.day._article(self.ed,'AMD')
         self.ed.repair.assert_not_called();self.ed.finalize.assert_not_called()
+
+    def test_explicit_second_review_recovery_preserves_approved_article_and_requires_new_review(self):
+        root=self.day.root;self.day.state['articles']['AMD']={
+            'draft':'repair-two','review_stage':'rereview','mechanical_ok':True,'finalized':False,
+            'held':{'reason':'AMD failed review twice: missing material forecast'}}
+        other=root/'results'/ 'SPY';other.mkdir(parents=True)
+        for name in ('article.html','review-binding.json','visual-checks.json','completion-check.json'):
+            (other/name).write_text(name)
+        self.day.state['articles']['SPY']={'finalized':True}
+        job=root/'jobs'/'AMD-20260930-rereview';job.mkdir(parents=True)
+        save_json(job/'output.json',{'passed':False,'checks':{'reader_value':{'passed':False,'reason':'missing forecast'}},'issues':[]})
+        save_json(job/'receipt.json',{'output_sha256':sha256((job/'output.json').read_bytes())})
+        with patch('editorial_gate.primary_sources'),patch('engine_edition_workflow.Edition') as edition:
+            ledger=self.day.prepare_editorial_recovery('AMD')
+        edition.return_value.repair.assert_called_once()
+        self.assertTrue(ledger.exists())
+        self.assertEqual(self.day.state['articles']['AMD']['review_stage'],'third-review')
+        self.assertNotIn('held',self.day.state['articles']['AMD'])
+        self.day.verify_editorial_recovery()
+        (other/'article.html').write_text('changed')
+        with self.assertRaisesRegex(smn_daily.Hold,'Approved article changed'):
+            self.day.verify_editorial_recovery()
+        with self.assertRaisesRegex(smn_daily.Hold,'already prepared'):
+            self.day.prepare_editorial_recovery('AMD')
+
+    def test_prepared_third_repair_gets_fresh_review_and_no_fourth_retry(self):
+        self.day.state['articles']['AMD']={'draft':'repair-review-three','review_stage':'third-review',
+                                            'mechanical_ok':False,'finalized':False}
+        with patch('smn_daily.editorial_review_problems',return_value=['missing guidance']):
+            with self.assertRaisesRegex(smn_daily.Hold,'editorial recovery review'):
+                self.day._article(self.ed,'AMD')
+        self.ed.receive.assert_called_once_with('AMD','repair-review-three')
+        self.ed.repair.assert_not_called()
+        self.ed.finalize.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

@@ -44,10 +44,11 @@ def _page_prompt(job,stage,names):
         saved=(Path(job)/'prompt.txt').read_text(encoding='utf-8')
         if saved==base:return base  # Preserve verifiable legacy assignments.
     return current
-LANDING_RULES = ('You check screenshots of a news site edition landing page (desktop and mobile): {names}. '
-    'It should show a header and {count} article cards, each with an image, a symbol label, a headline and a '
-    'summary. Report broken or missing images, overlapping or cut-off text, missing cards, or layout that '
-    'runs off the screen. passed is true only when there is no major defect.')
+LANDING_RULES = ('You check full-page screenshots of a news site homepage (desktop and mobile): {names}. '
+    'The native homepage can show the current edition as {count} compact headline links in Latest Patterns, '
+    'alongside a featured story and older coverage in other sections. Compact links need not repeat an image '
+    'or summary. Report genuinely broken or missing images, overlapping or cut-off text, missing current-edition '
+    'links, or layout that runs off the screen. passed is true only when there is no major defect.') + TILE_RULES
 HERO_RULES = ('This is the hero illustration for a financial news article about {company} ({symbol}). List all '
     'visible text in the image exactly as drawn (letters, words, logos, numbers). List any word that is '
     'misspelled, garbled or looks like fake lettering, and any company name that is wrong. passed is true '
