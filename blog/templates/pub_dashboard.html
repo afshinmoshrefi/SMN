@@ -143,6 +143,7 @@
   <div class="who" id="me-box" style="display:none"><span id="me" class="muted"></span>
     <a id="logout" href="{{ base }}/logout">Log out</a></div>
   <button id="btn-keys" style="display:none">API keys</button>
+  <button id="btn-settings" style="display:none">Operational settings</button>
   <button id="btn-sched">Scheduled</button>
   <button id="btn-new" class="primary">+ New article</button>
   <button id="btn-order">Home page order</button>
@@ -150,6 +151,33 @@
 </header>
 
 <main>
+  <section class="panel" id="operational-settings" style="display:none">
+    <h2 style="font-size:17px;margin:0 0 8px">Operational settings</h2>
+    <div class="gen-note" id="ops-status"></div>
+    <div class="gen-note" id="ops-alert-status"></div>
+    <div class="filters" style="margin-top:12px">
+      <div><label for="ops-recipients">Alert recipients (one per line)</label>
+        <textarea id="ops-recipients" style="min-height:80px"></textarea></div>
+      <div><label for="ops-daily-time">Fresh research and generation start</label>
+        <input id="ops-daily-time" type="time"><label for="ops-target-time">Approximate publication target</label>
+        <input id="ops-target-time" type="time"><label for="ops-daily-zone">Timezone (IANA)</label>
+        <input id="ops-daily-zone" value="UTC"></div>
+      <div><label for="ops-sunday-time">Sunday weekly email recap time</label>
+        <input id="ops-sunday-time" type="time"><label for="ops-sunday-zone">Timezone (IANA)</label>
+        <input id="ops-sunday-zone" value="UTC"></div>
+    </div>
+    <div class="row"><label><input id="ops-alerts" type="checkbox" style="width:auto"> Enable operational alerts when delivery is ready</label>
+      <label><input id="ops-sunday-enabled" type="checkbox" style="width:auto"> Send existing Sunday weekly recap</label></div>
+    <div class="filters" style="margin-top:12px">
+      <div><label for="ops-no-start-grace">No-start alert grace (minutes, optional)</label>
+        <input id="ops-no-start-grace" type="number" min="1" max="1440" placeholder="Not set"></div>
+      <div><label for="ops-stall-minutes">Stall alert threshold (minutes, optional)</label>
+        <input id="ops-stall-minutes" type="number" min="1" max="1440" placeholder="Not set"></div>
+    </div>
+    <div class="gen-note">Publication proceeds as soon as the edition passes review, even after the target time. A scheduled run requires fresh morning sources. No-start and stall alerts remain off until their thresholds are set. Alert delivery also requires an active monitor and mail relay. Sunday sends the existing weekly recap to MailerLite subscribers.</div>
+    <div class="gen-note">The existing weekday subscriber email currently runs before this new generation window; its schedule has not been changed.</div>
+    <div class="row"><button id="ops-save" class="primary">Save for future runs</button></div>
+  </section>
   <section class="panel" id="generation">
     <h2 style="font-size:17px;margin:0 0 8px">Generation</h2>
     <div class="gen-note">Generation reports show server-side subscription runs and saved receipts. Existing editions keep their saved provider roles.</div>
@@ -594,6 +622,54 @@ async function api(path, options) {
   }
   return body;
 }
+
+async function loadOperationalSettings() {
+  const data = (await api('/api/operational-settings')).data;
+  const settings = data.settings;
+  $('ops-alerts').checked = settings.alerts_enabled;
+  $('ops-recipients').value = settings.alert_recipients.join('\n');
+  $('ops-daily-time').value = settings.daily_generation.start_time;
+  $('ops-target-time').value = settings.daily_generation.target_time;
+  $('ops-daily-zone').value = settings.daily_generation.timezone;
+  $('ops-no-start-grace').value = settings.daily_generation.no_start_grace_minutes ?? '';
+  $('ops-stall-minutes').value = settings.daily_generation.stall_minutes ?? '';
+  $('ops-sunday-enabled').checked = settings.sunday_summary.enabled;
+  $('ops-sunday-time').value = settings.sunday_summary.time;
+  $('ops-sunday-zone').value = settings.sunday_summary.timezone;
+  const dates = settings.effective_from;
+  $('ops-status').textContent = data.schedule_note + (dates ?
+    ' Daily schedule applies from ' + dates.daily_generation + ' in its timezone; Sunday recap from ' + dates.sunday_summary + ' in its timezone.' :
+    ' Stored defaults: 05:30 start, about 07:00 publication target (America/New_York); 09:00 UTC Sunday.');
+  const delivery = data.alert_delivery;
+  $('ops-alert-status').textContent = !delivery ? 'Alert delivery has not been verified by the monitor.' :
+    delivery.send_ready ? 'Alert delivery ready; last checked ' + delivery.last_checked_utc + '.' :
+    'Alert delivery unavailable; last checked ' + delivery.last_checked_utc +
+    (delivery.last_delivery_error ? ' · ' + delivery.last_delivery_error : '.');
+}
+$('btn-settings').onclick = async () => {
+  const panel = $('operational-settings');
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  if (panel.style.display !== 'none') {
+    try { await loadOperationalSettings(); } catch (error) { toast(error.message, true); }
+  }
+};
+$('ops-save').onclick = async () => {
+  const settings = {
+    alerts_enabled: $('ops-alerts').checked,
+    alert_recipients: $('ops-recipients').value.split(/\r?\n/).map(x => x.trim()).filter(Boolean),
+    daily_generation: {start_time: $('ops-daily-time').value, target_time: $('ops-target-time').value,
+                       timezone: $('ops-daily-zone').value.trim(),
+                       no_start_grace_minutes: $('ops-no-start-grace').value ? Number($('ops-no-start-grace').value) : null,
+                       stall_minutes: $('ops-stall-minutes').value ? Number($('ops-stall-minutes').value) : null},
+    sunday_summary: {enabled: $('ops-sunday-enabled').checked, time: $('ops-sunday-time').value,
+                     timezone: $('ops-sunday-zone').value.trim()}
+  };
+  try {
+    await api('/api/operational-settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(settings)});
+    await loadOperationalSettings();
+    toast('Operational settings saved for future runs.');
+  } catch (error) { toast(error.message, true); }
+};
 
 const ICON_IMAGE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
   'stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/>' +
@@ -1182,6 +1258,7 @@ async function loadIdentity() {
   $("me-box").style.display = open ? "none" : "";
   $("me").textContent = open ? "" : `${IDENTITY.name}${IDENTITY.env ? " · " + IDENTITY.env : ""}`;
   $("btn-keys").style.display = (open || IDENTITY.kind === "admin") ? "" : "none";
+  $("btn-settings").style.display = (open || IDENTITY.kind === "admin") ? "" : "none";
 }
 
 async function loadKeys() {

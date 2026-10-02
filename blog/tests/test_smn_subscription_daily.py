@@ -84,7 +84,7 @@ class SubscriptionDailyTests(unittest.TestCase):
                         patch.object(controller,'run',return_value=result) as run, \
                         patch('builtins.print'):
                     self.assertEqual(controller.main(),code)
-                    run.assert_called_once_with(root,'2026-09-30',False,'production')
+                run.assert_called_once_with(root,'2026-09-30',False,'production',False)
                 receipt=controller.load_json(root/'last-run.json')
                 self.assertEqual((receipt['date'],receipt['status'],receipt['exit_code']),
                                  ('2026-09-30',status,code))
@@ -240,19 +240,21 @@ class SubscriptionDailyTests(unittest.TestCase):
         self.assertEqual(installer.HOST_IP, '192.168.1.180')
 
     def test_cron_cutover_preserves_other_jobs_and_gates_quote_updates(self):
-        selector = '*/5 * * * * root /usr/local/bin/smn-daily profile'
+        selector = '0 2 * * 1-5 root cd /home/flask/blog && python select_news_articles.py'
         email = '0 7 * * 1-5 root cd /home/flask/blog && python send_smn_emails.py daily'
+        sunday = '0 9 * * 0 root cd /home/flask/blog && python send_smn_emails.py'
         queue = '0 3 * * 1-5 root cd /home/flask/blog && python daily_article_queue.py'
         quote = '*/10 * * * * root cd /home/flask/blog && python update_news_quotes.py'
-        original = '\n'.join((selector, email, queue, quote)) + '\n'
+        original = '\n'.join((selector, email, sunday, queue, quote)) + '\n'
 
         changed = subscription_installer.cron_text(original)
         lines = changed.splitlines()
-        self.assertEqual(lines[0], selector)
+        self.assertEqual(lines[0], '# Subscription schedule replaces this entry: ' + selector)
         self.assertEqual(lines[1], email)
-        self.assertEqual(lines[2], '# Subscription primary replaces this queue: ' + queue)
+        self.assertEqual(lines[2], '# Subscription schedule replaces this entry: ' + sunday)
+        self.assertEqual(lines[3], '# Subscription schedule replaces this entry: ' + queue)
         gate = '[ ! -d /var/lib/tradewave/release-state/smn-production-activation.lock ] && '
-        self.assertEqual(lines[3], quote.replace('cd /home/flask/blog && ',
+        self.assertEqual(lines[4], quote.replace('cd /home/flask/blog && ',
                                                  'cd /home/flask/blog && ' + gate, 1))
         self.assertEqual(sum('python daily_article_queue.py' in line and not line.startswith('#')
                              for line in lines), 0)
@@ -262,17 +264,20 @@ class SubscriptionDailyTests(unittest.TestCase):
     def test_cron_cutover_rejects_missing_or_duplicate_scheduler_lines(self):
         queue = '0 3 * * 1-5 root cd /home/flask/blog && python daily_article_queue.py'
         quote = '*/10 * * * * root cd /home/flask/blog && python update_news_quotes.py'
-        selector = '*/5 * * * * root /usr/local/bin/smn-daily profile'
+        selector = '0 2 * * 1-5 root cd /home/flask/blog && python select_news_articles.py'
         email = '0 7 * * 1-5 root cd /home/flask/blog && python send_smn_emails.py daily'
+        sunday = '0 9 * * 0 root cd /home/flask/blog && python send_smn_emails.py'
         cases = {
-            'missing queue': [quote, selector, email],
-            'missing quote updater': [queue, selector, email],
-            'duplicate queue': [queue, queue, quote],
-            'duplicate quote updater': [queue, quote, quote],
+            'missing queue': [quote, selector, email, sunday],
+            'missing quote updater': [queue, selector, email, sunday],
+            'missing selector': [queue, quote, email, sunday],
+            'missing Sunday recap': [queue, quote, selector, email],
+            'duplicate queue': [queue, queue, quote, selector, email, sunday],
+            'duplicate quote updater': [queue, quote, quote, selector, email, sunday],
         }
         for name, lines in cases.items():
             with self.subTest(name=name), self.assertRaisesRegex(
-                    ValueError, 'exactly one daily API queue and quote updater'):
+                    ValueError, 'one legacy selector, daily API queue, Sunday recap and quote updater'):
                 subscription_installer.cron_text('\n'.join(lines) + '\n')
 
         with patch.object(installer, 'read', side_effect=FileNotFoundError('no activation')):

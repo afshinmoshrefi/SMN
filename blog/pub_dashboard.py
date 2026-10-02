@@ -57,6 +57,7 @@ import pin_store
 import schedule_store
 import smn_cost_report
 import smn_daily_control
+import operational_settings
 import subscription_publication
 from article_index import NEWS_ROOT, POSTS_JSON, TRASH_DIR
 from pin_store import iso, parse_dt, utcnow
@@ -230,6 +231,51 @@ def _admin_only():
     if (g.identity or {}).get("kind") not in ("admin", "open"):
         return fail("admin_only", "only a logged-in TradeWave admin can manage keys", 403)
     return None
+
+
+@app.route('/api/operational-settings', methods=['GET', 'PUT'])
+def api_operational_settings():
+    blocked = _admin_only()
+    if blocked:
+        return blocked
+    if request.method == 'GET':
+        try:
+            settings = operational_settings.load()
+        except (OSError, ValueError, json.JSONDecodeError):
+            return fail('settings_unavailable', 'Operational settings could not be read', 503)
+        active = False
+        try:
+            marker = json.loads(SMN_SUBSCRIPTION_ACTIVATION.read_text())
+            active = marker.get('schedule_mode') == 'operational_schedule' and subprocess.run(
+                ['systemctl', 'is-active', '--quiet', 'smn-subscription.timer'],
+                check=False, timeout=3).returncode == 0
+        except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            pass
+        alert_status = None
+        try:
+            status_file = operational_settings.STATE_DIR / 'operational-alerts-status.json'
+            alert_status = json.loads(status_file.read_text())
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        return ok({'settings': settings,
+                   'schedule_activation': 'active' if active else 'pending',
+                   'alert_delivery': alert_status,
+                   'schedule_note': ('The configurable subscription scheduler is active.' if active else
+                       'Saved times require the matching scheduler activation. Production is unchanged until a separately authorized release.')})
+    if request.headers.get('X-SMN-Dashboard') != '1':
+        return fail('csrf', 'missing X-SMN-Dashboard header', 403)
+    origin = request.headers.get('Origin')
+    if origin and origin.rstrip('/') != request.host_url.rstrip('/'):
+        return fail('origin', 'cross-origin settings update refused', 403)
+    value = request.get_json(silent=True)
+    try:
+        settings = operational_settings.save(value, actor())
+    except ValueError as exc:
+        return fail('invalid_settings', str(exc))
+    except OSError:
+        return fail('settings_unavailable', 'Operational settings could not be saved', 503)
+    audit('operational_settings', '', actor(), effective_from=settings['effective_from'])
+    return ok({'settings': settings, 'schedule_activation': 'pending'})
 
 
 @app.route("/api/keys", methods=["GET"])

@@ -37,11 +37,15 @@ def write(path, value):
 
 def cron_text(text):
     lines = text.splitlines()
+    selectors = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and 'python select_news_articles.py' in line]
     queues = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and 'python daily_article_queue.py' in line]
+    sundays = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and
+               'python send_smn_emails.py' in line and len(line.split()) >= 5 and line.split()[4] == '0']
     quotes = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and 'python update_news_quotes.py' in line]
-    if len(queues) != 1 or len(quotes) != 1:
-        raise ValueError('Expected exactly one daily API queue and quote updater; inspect scheduler drift')
-    lines[queues[0]] = '# Subscription primary replaces this queue: '+lines[queues[0]]
+    if any(len(group) != 1 for group in (selectors, queues, sundays, quotes)):
+        raise ValueError('Expected one legacy selector, daily API queue, Sunday recap and quote updater; inspect scheduler drift')
+    for index in (*selectors, *queues, *sundays):
+        lines[index] = '# Subscription schedule replaces this entry: '+lines[index]
     line = lines[quotes[0]]
     needle = 'cd /home/flask/blog && '
     if needle not in line:
@@ -86,6 +90,8 @@ def activate(args):
     state = {'source_commit': commit, 'before': before, 'paths': [str(p) for p in files],
              'shadow_enabled': subprocess.run(['systemctl','is-enabled','--quiet','smn-shadow.timer']).returncode == 0,
              'shadow_active': subprocess.run(['systemctl','is-active','--quiet','smn-shadow.timer']).returncode == 0,
+             'old_timer_enabled': subprocess.run(['systemctl','is-enabled','--quiet',TIMER]).returncode == 0,
+             'old_timer_active': subprocess.run(['systemctl','is-active','--quiet',TIMER]).returncode == 0,
              'dev_proof_sha256': digest(args.dev_proof), 'snapshots': snapshots, 'status': 'prepared'}
     write(record/'receipt.json', json.dumps(state, indent=2))
     service = f'''[Unit]
@@ -96,6 +102,7 @@ After=network-online.target
 Type=oneshot
 Environment=HOME=/root
 Environment=TZ=UTC
+EnvironmentFile=/etc/tradewave/secrets.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=SMN_CAPTURE_LOCAL=1
 Environment=SMN_CODEX={args.codex}
@@ -104,7 +111,7 @@ Environment=SMN_PLAYWRIGHT=/opt/smn-playwright/node_modules/playwright
 Environment=SMN_BROWSER_CHANNEL=bundled
 Environment=PATH=/opt/smn-shadow/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory={repo}/blog
-ExecStart=/home/flask/venv/bin/python {repo}/blog/smn_subscription_daily.py --root /var/lib/tradewave/smn-daily/subscription-primary --publish
+ExecStart=/home/flask/venv/bin/python {repo}/blog/operational_schedule.py --target production
 Nice=15
 CPUWeight=10
 MemoryHigh=450M
@@ -114,18 +121,22 @@ OOMScoreAdjust=800
 TimeoutStartSec=6h
 '''
     timer = '''[Unit]
-Description=SMN subscription edition and resumable retry
+Description=SMN configurable daily edition and Sunday recap
 [Timer]
-OnCalendar=Mon..Fri *-*-* 03:00:00 UTC
-OnCalendar=Mon..Fri *-*-* 06:00:00 UTC
+OnCalendar=*-*-* *:*:00 UTC
+AccuracySec=1s
 Persistent=false
 [Install]
 WantedBy=timers.target
 '''
     try:
+        if state['old_timer_enabled'] or state['old_timer_active']:
+            subprocess.run(['systemctl','disable','--now',TIMER], check=True)
         BASE.mkdir(parents=True, exist_ok=True)
         (BASE/'current').symlink_to(repo)
-        write(ACTIVATION, json.dumps({'reader_provider':'chatgpt','source_commit':commit,'record':str(record)}, indent=2))
+        write(ACTIVATION, json.dumps({'reader_provider':'chatgpt','source_commit':commit,
+                                      'schedule_mode':'operational_schedule',
+                                      'record':str(record)}, indent=2))
         write(CRON, candidate_cron)
         write(UNITS/SERVICE, service)
         write(UNITS/TIMER, timer)
@@ -162,6 +173,8 @@ def rollback(record):
     subprocess.run(['systemctl','daemon-reload'], check=True)
     if state['shadow_enabled']: subprocess.run(['systemctl','enable','smn-shadow.timer'], check=True)
     if state['shadow_active']: subprocess.run(['systemctl','start','smn-shadow.timer'], check=True)
+    if state.get('old_timer_enabled'): subprocess.run(['systemctl','enable',TIMER], check=True)
+    if state.get('old_timer_active'): subprocess.run(['systemctl','start',TIMER], check=True)
     state['status'] = 'rolled_back'
     write(record/'receipt.json', json.dumps(state, indent=2))
     return {'status':'rolled_back','record':str(record)}
