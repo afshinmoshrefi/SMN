@@ -76,6 +76,17 @@
   .badge.off{background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)}
   .badge.held{background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
   #dlg-order{width:min(980px,96vw)}
+  #dlg-chat-editor{width:min(1500px,98vw);height:min(94vh,1000px)}
+  #dlg-chat-editor form{height:100%;display:flex;flex-direction:column}
+  .editor-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(320px,1fr);gap:14px;height:100%;min-height:0}
+  .editor-preview{width:100%;height:100%;min-height:420px;border:1px solid var(--line);border-radius:8px;background:white}
+  .editor-side{display:flex;flex-direction:column;min-height:0;gap:9px}
+  .editor-chat{overflow:auto;flex:1;border:1px solid var(--line);border-radius:8px;padding:10px;min-height:180px}
+  .editor-msg{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px;margin:5px 0;border-radius:7px;background:var(--bg)}
+  .editor-msg[data-role="user"]{border-left:3px solid var(--accent)}
+  .editor-controls{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .editor-controls textarea{min-height:75px}
+  @media(max-width:850px){#dlg-chat-editor{height:96vh}.editor-layout{grid-template-columns:1fr;grid-template-rows:minmax(280px,1fr) minmax(300px,1fr)}.editor-preview{min-height:0}}
   .order-list{list-style:none;margin:0;padding:0}
   .order-list li{display:flex;gap:10px;align-items:center;padding:7px 8px;
                  border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:var(--panel)}
@@ -303,6 +314,23 @@
     <button value="cancel">Cancel</button>
     <button class="primary" id="pin-save" value="save">Pin it</button>
   </div>
+</form></dialog>
+
+<dialog id="dlg-chat-editor"><form method="dialog">
+  <div class="dlg-head" id="ce-title">Article editor</div>
+  <div class="dlg-body" style="flex:1;min-height:0;max-height:none">
+    <div class="editor-layout">
+      <iframe id="ce-preview" class="editor-preview" title="Rendered article preview" sandbox="allow-scripts"></iframe>
+      <section class="editor-side" aria-label="Article editing chat">
+        <div class="editor-controls"><button type="button" data-provider="chatgpt">Edit with ChatGPT</button><button type="button" data-provider="claude">Edit with Claude</button><span id="ce-status" class="muted"></span></div>
+        <div id="ce-chat" class="editor-chat" aria-live="polite"></div>
+        <div><label for="ce-input">Tell the editor what to change</label><textarea id="ce-input" placeholder="Describe an edit…"></textarea></div>
+        <div class="editor-controls"><button type="button" id="ce-dictate">Start dictation</button><button type="button" id="ce-send" class="primary">Send</button><span id="ce-speech" class="muted"></span></div>
+        <div><b>Versions</b><div id="ce-versions" class="editor-controls"></div></div>
+      </section>
+    </div>
+  </div>
+  <div class="dlg-foot" style="justify-content:space-between"><div class="editor-controls"><button type="button" id="ce-undo">Undo</button><button type="button" id="ce-discard" class="danger">Discard draft</button></div><div class="editor-controls"><button value="close">Close</button><button type="button" id="ce-publish" class="primary">Publish update</button></div></div>
 </form></dialog>
 
 <dialog id="dlg-edit"><form method="dialog">
@@ -873,7 +901,7 @@ $("rows").onclick = (event) => {
   const row = state.rows.find((r) => r.slug === slug);
   if (button.dataset.act === "pin") openPin(row);
   if (button.dataset.act === "unpin") unpin(slug);
-  if (button.dataset.act === "edit") openEdit(row);
+  if (button.dataset.act === "edit") openArticleEditor(row);
   if (button.dataset.act === "delete") remove(row);
   if (button.dataset.act === "hero") openHero(row);
   if (button.dataset.act === "unpublish") openAct(row, "unpublish");
@@ -984,7 +1012,96 @@ async function unpin(slug) {
   } catch (error) { toast(error.message, true); }
 }
 
-// edit / new dialog
+// Chat editor for existing articles. New articles keep the manual form below.
+const ce = { id: null, slug: null, version: null, provider: "chatgpt", poll: null,
+             generation: 0, busy: false, recognition: null, dictating: false, state: null, providerInitialized:false };
+async function openArticleEditor(row) {
+  if (ce.poll) clearInterval(ce.poll);
+  ce.poll = null; ce.generation++; ce.id = null; ce.slug = row.slug; ce.state=null; ce.version=null; ce.busy=true; ce.providerInitialized=false;
+  document.querySelectorAll("#dlg-chat-editor [data-provider]").forEach((b) => { b.disabled=true; b.classList.remove("primary"); b.setAttribute("aria-pressed","false"); });
+  $("ce-undo").disabled=true; $("ce-discard").disabled=true; $("ce-publish").disabled=true; $("ce-send").disabled=true; $("ce-input").disabled=true; $("ce-dictate").disabled=true;
+  $("ce-title").textContent = row.title || row.slug;
+  $("ce-chat").replaceChildren(); $("ce-versions").replaceChildren();
+  $("ce-preview").removeAttribute("src");
+  $("ce-input").value = "";
+  $("ce-status").textContent = "Opening draft…";
+  $("dlg-chat-editor").showModal();
+  const gen = ce.generation;
+  try {
+    const result = await api("/api/articles/" + encodeURIComponent(row.slug) + "/editor", {method:"POST"});
+    if (gen !== ce.generation || !$("dlg-chat-editor").open) return;
+    ce.id = result.data.id; renderEditor(result.data); if (ce.busy) editorPoll(gen);
+  } catch (e) { if (gen === ce.generation) $("ce-status").textContent = e.message; }
+}
+function renderEditor(s) {
+  ce.state = s; ce.version = s.version; ce.busy = s.status === "running";
+  const frame = $("ce-preview");
+  const src = s.preview_url || "";
+  if (src && frame.src !== new URL(src, location.href).href) frame.src = src;
+  if (!ce.providerInitialized && s.provider) ce.provider=s.provider;
+  ce.providerInitialized=true;
+  const terminal = s.status === "published" || s.status === "discarded";
+  $("ce-status").textContent = s.status === "running" ? "Working…" : s.status === "failed" ? (s.error || "The last edit failed") : s.status === "published" ? "Published · read only" : s.status === "discarded" ? "Draft discarded · read only" : s.dirty ? "Draft has unpublished changes" : "Current article";
+  const chat = $("ce-chat"), priorTop = chat.scrollTop, atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 30;
+  chat.replaceChildren();
+  (s.messages || []).forEach((m) => { const el = document.createElement("div"); el.className = "editor-msg"; el.dataset.role = m.role; el.textContent = (m.provider ? m.provider + ": " : "") + (m.content || ""); chat.appendChild(el); });
+  if (atBottom) chat.scrollTop = chat.scrollHeight; else chat.scrollTop = priorTop;
+  const versions = $("ce-versions"); versions.replaceChildren();
+  (s.revisions || []).slice().reverse().forEach((rev) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "v" + rev.version + (rev.summary ? " · " + rev.summary : ""); b.title = "Restore this version";
+    b.dataset.restoreVersion = rev.version; b.disabled = ce.busy || terminal || String(rev.version) === String(s.version); versions.appendChild(b);
+  });
+  $("ce-undo").disabled = ce.busy || terminal || !s.can_undo;
+  $("ce-discard").disabled = ce.busy || terminal || !s.dirty;
+  $("ce-publish").disabled = ce.busy || terminal || !s.dirty;
+  $("ce-send").disabled = ce.busy || terminal; $("ce-input").disabled=ce.busy || terminal; $("ce-dictate").disabled=ce.busy || terminal;
+  document.querySelectorAll("#dlg-chat-editor [data-provider]").forEach((b) => { b.disabled=ce.busy || terminal; b.classList.toggle("primary",b.dataset.provider===ce.provider); b.setAttribute("aria-pressed",String(b.dataset.provider===ce.provider)); });
+}
+function editorPoll(gen) {
+  if (ce.poll) clearInterval(ce.poll);
+  let inFlight=false;
+  ce.poll = setInterval(async () => {
+    if (gen !== ce.generation || !ce.id || !$("dlg-chat-editor").open || inFlight) return;
+    inFlight=true;
+    try { const r = await api("/api/editor/" + encodeURIComponent(ce.id)); if (gen !== ce.generation) return; renderEditor(r.data); if (!ce.busy) { clearInterval(ce.poll); ce.poll = null; } }
+    catch (e) { if (gen === ce.generation) { $("ce-status").textContent = e.message; clearInterval(ce.poll); ce.poll = null; } }
+    finally { inFlight=false; }
+  }, 2000);
+}
+document.querySelectorAll("#dlg-chat-editor [data-provider]").forEach((b) => b.onclick = () => { ce.provider = b.dataset.provider; document.querySelectorAll("#dlg-chat-editor [data-provider]").forEach(x=>{x.classList.toggle("primary",x===b);x.setAttribute("aria-pressed",String(x===b));}); $("ce-status").textContent = "Selected " + (ce.provider === "chatgpt" ? "ChatGPT" : "Claude"); });
+$("ce-send").onclick = async () => {
+  const message = $("ce-input").value.trim(); if (!message || !ce.id || ce.busy) return;
+  if (ce.poll) clearInterval(ce.poll); ce.poll=null; const gen = ++ce.generation; ce.busy=true; $("ce-send").disabled = true; $("ce-input").disabled=true; $("ce-dictate").disabled=true;
+  try {
+    const r = await api("/api/editor/" + encodeURIComponent(ce.id) + "/messages", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({version:ce.version,provider:ce.provider,message})});
+    if (gen !== ce.generation) return; $("ce-input").value = ""; renderEditor(r.data); if (ce.busy) editorPoll(gen);
+  } catch (e) { if (gen === ce.generation) { ce.busy=false; if (ce.state) renderEditor(ce.state); $("ce-status").textContent = e.message; } }
+};
+$("ce-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("ce-send").click(); } });
+$("ce-versions").onclick = async (e) => { const b = e.target.closest("[data-restore-version]"); if (!b || ce.busy) return; await editorAction("restore", {restore_version:Number(b.dataset.restoreVersion)}); };
+async function editorAction(action, extra) {
+  if (!ce.id || ce.busy) return; if (ce.poll) clearInterval(ce.poll); ce.poll=null; const gen = ++ce.generation;
+  const priorState=ce.state; ce.busy=true; renderEditor(Object.assign({},priorState,{status:"running"}));
+  try { const r = await api("/api/editor/" + encodeURIComponent(ce.id) + "/" + action, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({version:ce.version},extra||{}))}); if (gen !== ce.generation) return; renderEditor(r.data); if (ce.busy) editorPoll(gen); return r.data; }
+  catch (e) { if (gen === ce.generation) { ce.busy=false; renderEditor(priorState); $("ce-status").textContent = e.message; toast(e.message,true); } return null; }
+}
+$("ce-undo").onclick = () => { const prev = (ce.state.revisions || []).filter(r => Number(r.version) < Number(ce.version)).sort((a,b)=>Number(b.version)-Number(a.version))[0]; if (prev) editorAction("restore",{restore_version:Number(prev.version)}); };
+$("ce-discard").onclick = async () => { if (confirm("Discard this editor draft?")) { const result=await editorAction("discard"); if(result) { if(ce.poll) clearInterval(ce.poll); ce.poll=null; $("dlg-chat-editor").close(); } } };
+$("ce-publish").onclick = async () => { const summary = (ce.state.revisions || []).filter(r => String(r.version)===String(ce.version)).map(r=>r.summary).filter(Boolean)[0] || "Publish the current draft changes"; if (confirm(summary + "?")) { const result=await editorAction("publish"); if(result) { load(); } } };
+$("ce-dictate").onclick = () => {
+  if (ce.dictating) { ce.recognition.stop(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $("ce-speech").textContent = "Dictation is unavailable in this browser. Type your prompt instead."; return; }
+  try { ce.recognition = new SR(); ce.recognition.lang = document.documentElement.lang || "en-US"; ce.recognition.interimResults = true; ce.recognition.continuous = true; ce.dictating = true;
+  $("ce-dictate").textContent = "Stop dictation"; $("ce-speech").textContent = "Listening…";
+  ce.recognition.onresult = (e) => { let text = ""; for (let i=e.resultIndex;i<e.results.length;i++) if (e.results[i].isFinal) text += e.results[i][0].transcript; if (text) $("ce-input").value = ($("ce-input").value + " " + text).trim(); };
+  ce.recognition.onerror = (e) => { $("ce-speech").textContent = "Dictation stopped: " + e.error + ". You can type your prompt."; };
+  ce.recognition.onend = () => { ce.dictating = false; $("ce-dictate").textContent = "Start dictation"; if (!$("ce-speech").textContent.startsWith("Dictation stopped:")) $("ce-speech").textContent = "Dictation stopped."; };
+  ce.recognition.start(); } catch (_) { ce.dictating=false; $("ce-dictate").textContent="Start dictation"; $("ce-speech").textContent="Dictation could not start in this browser. Type your prompt instead."; }
+};
+$("dlg-chat-editor").addEventListener("close", () => { ce.generation++; if (ce.poll) clearInterval(ce.poll); ce.poll = null; if (ce.dictating) ce.recognition.stop(); });
+
+// edit / new dialog (manual creation remains unchanged)
 function openEdit(row) {
   state.editing = row ? row.slug : null;
   $("edit-head").textContent = row ? "Edit article" : "New article";
