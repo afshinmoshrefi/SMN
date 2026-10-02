@@ -19,10 +19,35 @@ class OperationalSettingsTest(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         state = Path(temp.name)
+        self.state = state
         binding = patch.object(operational_settings, 'FILE', state/'operational-settings.json')
         binding.start()
         self.addCleanup(binding.stop)
         self.client = pub_dashboard.app.test_client()
+
+    def test_first_admin_save_of_alert_preferences_without_schedule_change(self):
+        settings = operational_settings.load()
+        settings['alerts_enabled'] = True
+        settings['alert_recipients'] = ['ops@example.com']
+        identity = {'kind': 'admin', 'name': 'Operator', 'user_id': 'test'}
+        with patch.object(dashboard_auth, 'auth_required', return_value=True), \
+                patch.object(dashboard_auth, 'check_bearer', return_value=None), \
+                patch.object(pub_dashboard, '_session_identity', return_value=identity), \
+                patch.object(pub_dashboard, 'AUDIT_LOG', self.state/'audit.jsonl'):
+            response = self.client.put('/api/operational-settings', json=settings,
+                headers={'X-SMN-Dashboard': '1', 'Origin': 'http://localhost'})
+            self.assertEqual(response.status_code, 200, response.get_json())
+            saved = response.get_json()['data']['settings']
+            self.assertNotIn('effective_from', saved)
+            self.assertEqual(operational_settings.load()['alert_recipients'], ['ops@example.com'])
+            self.assertEqual(operational_settings.load()['daily_generation'],
+                             operational_settings.DEFAULTS['daily_generation'])
+            for bad in (None, [], {'alerts_enabled': 'yes'},
+                        {**settings, 'daily_generation': []}):
+                with self.subTest(bad=bad):
+                    response = self.client.put('/api/operational-settings', json=bad,
+                        headers={'X-SMN-Dashboard': '1'})
+                    self.assertEqual(response.status_code, 400, response.get_json())
 
     def test_defaults_and_future_schedule(self):
         default = operational_settings.load()

@@ -270,11 +270,11 @@ def api_operational_settings():
     value = request.get_json(silent=True)
     try:
         settings = operational_settings.save(value, actor())
-    except ValueError as exc:
+    except (ValueError, TypeError, KeyError) as exc:
         return fail('invalid_settings', str(exc))
     except OSError:
         return fail('settings_unavailable', 'Operational settings could not be saved', 503)
-    audit('operational_settings', '', actor(), effective_from=settings['effective_from'])
+    audit('operational_settings', '', actor(), effective_from=settings.get('effective_from'))
     return ok({'settings': settings, 'schedule_activation': 'pending'})
 
 
