@@ -18,6 +18,8 @@ UNITS = Path('/etc/systemd/system')
 BASE = Path('/opt/smn-subscription')
 SERVICE = 'smn-subscription.service'
 TIMER = 'smn-subscription.timer'
+EMAIL_SERVICE = 'smn-weekday-newsletter.service'
+EMAIL_TIMER = 'smn-weekday-newsletter.timer'
 
 
 def run(*args):
@@ -41,10 +43,12 @@ def cron_text(text):
     queues = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and 'python daily_article_queue.py' in line]
     sundays = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and
                'python send_smn_emails.py' in line and len(line.split()) >= 5 and line.split()[4] == '0']
+    weekdays = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and
+                'python send_smn_emails.py' in line and len(line.split()) >= 5 and line.split()[4] == '1-5']
     quotes = [i for i, line in enumerate(lines) if not line.lstrip().startswith('#') and 'python update_news_quotes.py' in line]
-    if any(len(group) != 1 for group in (selectors, queues, sundays, quotes)):
-        raise ValueError('Expected one legacy selector, daily API queue, Sunday recap and quote updater; inspect scheduler drift')
-    for index in (*selectors, *queues, *sundays):
+    if any(len(group) != 1 for group in (selectors, queues, sundays, weekdays, quotes)):
+        raise ValueError('Expected one legacy selector, daily API queue, weekday email, Sunday recap and quote updater; inspect scheduler drift')
+    for index in (*selectors, *queues, *sundays, *weekdays):
         lines[index] = '# Subscription schedule replaces this entry: '+lines[index]
     line = lines[quotes[0]]
     needle = 'cd /home/flask/blog && '
@@ -63,6 +67,8 @@ def activate(args):
         raise ValueError('Clean committed candidate required')
     if ACTIVATION.exists() or (BASE/'current').exists():
         raise ValueError('Existing activation requires explicit inspected upgrade/rollback')
+    if (UNITS/EMAIL_SERVICE).exists() or (UNITS/EMAIL_TIMER).exists():
+        raise ValueError('Existing weekday newsletter unit requires inspected upgrade')
     proof = json.loads(args.dev_proof.read_text())
     snapshots = json.loads(args.snapshots.read_text())
     today = datetime.now(timezone.utc).date().isoformat()
@@ -83,7 +89,7 @@ def activate(args):
     candidate_cron = cron_text(CRON.read_text())
     record = Path('/var/lib/tradewave/release-state')/('smn-subscription-'+commit[:12]+'-'+today)
     record.mkdir(parents=True)
-    files = [CRON, UNITS/SERVICE, UNITS/TIMER, ACTIVATION]
+    files = [CRON, UNITS/SERVICE, UNITS/TIMER, UNITS/EMAIL_SERVICE, UNITS/EMAIL_TIMER, ACTIVATION]
     before = {str(path): digest(path) for path in files}
     for number, path in enumerate(files):
         if path.exists(): shutil.copy2(path, record/str(number))
@@ -129,6 +135,28 @@ Persistent=false
 [Install]
 WantedBy=timers.target
 '''
+    email_service = f'''[Unit]
+Description=SMN verified weekday subscriber email
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+EnvironmentFile=/etc/tradewave/secrets.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory={repo}/blog
+ExecStart=/home/flask/venv/bin/python {repo}/blog/operational_schedule.py --target production --newsletter-only
+TimeoutStartSec=30m
+'''
+    email_timer = '''[Unit]
+Description=SMN verified weekday subscriber email check
+[Timer]
+OnCalendar=*-*-* *:*:00 UTC
+AccuracySec=1s
+Persistent=false
+[Install]
+WantedBy=timers.target
+'''
     try:
         if state['old_timer_enabled'] or state['old_timer_active']:
             subprocess.run(['systemctl','disable','--now',TIMER], check=True)
@@ -140,10 +168,14 @@ WantedBy=timers.target
         write(CRON, candidate_cron)
         write(UNITS/SERVICE, service)
         write(UNITS/TIMER, timer)
+        write(UNITS/EMAIL_SERVICE, email_service)
+        write(UNITS/EMAIL_TIMER, email_timer)
         subprocess.run(['systemctl','disable','--now','smn-shadow.timer'], check=True)
         subprocess.run(['systemctl','daemon-reload'], check=True)
         subprocess.run(['systemctl','enable','--now',TIMER], check=True)
         subprocess.run(['systemctl','is-active','--quiet',TIMER], check=True)
+        subprocess.run(['systemctl','enable','--now',EMAIL_TIMER], check=True)
+        subprocess.run(['systemctl','is-active','--quiet',EMAIL_TIMER], check=True)
         state['status'] = 'active'
         state['after'] = {str(path):digest(path) for path in files}
         write(record/'receipt.json', json.dumps(state, indent=2))
@@ -162,6 +194,10 @@ def rollback(record):
     for name, expected in state['after'].items():
         if digest(Path(name)) != expected:
             raise ValueError('Scheduler changed after cutover; preserve peer edits: '+name)
+    subprocess.run(['systemctl','disable','--now',EMAIL_TIMER], check=False)
+    subprocess.run(['systemctl','stop',EMAIL_SERVICE], check=False)
+    if subprocess.run(['systemctl','is-active','--quiet',EMAIL_SERVICE]).returncode == 0:
+        raise ValueError('Weekday newsletter is still running; preserve its send state before rollback')
     subprocess.run(['systemctl','disable','--now',TIMER], check=False)
     for number, name in enumerate(state['paths']):
         path = Path(name)

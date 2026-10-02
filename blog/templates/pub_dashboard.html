@@ -165,6 +165,9 @@
       <div><label for="ops-sunday-time">Sunday weekly email recap time</label>
         <input id="ops-sunday-time" type="time"><label for="ops-sunday-zone">Timezone (IANA)</label>
         <input id="ops-sunday-zone" value="UTC"></div>
+      <div><label for="ops-newsletter-time">Weekday subscriber email (earliest send)</label>
+        <input id="ops-newsletter-time" type="time"><label for="ops-newsletter-zone">Timezone (IANA)</label>
+        <input id="ops-newsletter-zone" value="America/New_York"></div>
     </div>
     <div class="row"><label><input id="ops-alerts" type="checkbox" style="width:auto"> Enable operational alerts when delivery is ready</label>
       <label><input id="ops-sunday-enabled" type="checkbox" style="width:auto"> Send existing Sunday weekly recap</label></div>
@@ -175,7 +178,7 @@
         <input id="ops-stall-minutes" type="number" min="1" max="1440" placeholder="Not set"></div>
     </div>
     <div class="gen-note">Publication proceeds as soon as the edition passes review, even after the target time. A scheduled run requires fresh morning sources. No-start and stall alerts remain off until their thresholds are set. Alert delivery also requires an active monitor and mail relay. Sunday sends the existing weekly recap to MailerLite subscribers.</div>
-    <div class="gen-note">The existing weekday subscriber email currently runs before this new generation window; its schedule has not been changed.</div>
+    <div class="gen-note">The weekday email waits for the complete, verified reader edition. If publication is late, the email waits too.</div>
     <div class="row"><button id="ops-save" class="primary">Save for future runs</button></div>
   </section>
   <section class="panel" id="generation">
@@ -636,10 +639,13 @@ async function loadOperationalSettings() {
   $('ops-sunday-enabled').checked = settings.sunday_summary.enabled;
   $('ops-sunday-time').value = settings.sunday_summary.time;
   $('ops-sunday-zone').value = settings.sunday_summary.timezone;
+  $('ops-newsletter-time').value = settings.weekday_newsletter.time;
+  $('ops-newsletter-zone').value = settings.weekday_newsletter.timezone;
   const dates = settings.effective_from;
-  $('ops-status').textContent = data.schedule_note + (dates ?
-    ' Daily schedule applies from ' + dates.daily_generation + ' in its timezone; Sunday recap from ' + dates.sunday_summary + ' in its timezone.' :
-    ' Stored defaults: 05:30 start, about 07:00 publication target (America/New_York); 09:00 UTC Sunday.');
+  $('ops-status').textContent = data.schedule_note + ' Weekday subscriber email scheduler: ' +
+    data.newsletter_activation + '.' + (dates ?
+    ' Daily schedule applies from ' + dates.daily_generation + '; weekday email from ' + (dates.weekday_newsletter || 'now') + '; Sunday recap from ' + dates.sunday_summary + ' (each in its timezone).' :
+    ' Stored defaults: 05:30 start, about 07:00 publication target and earliest weekday email (America/New_York); 09:00 UTC Sunday.');
   const delivery = data.alert_delivery;
   $('ops-alert-status').textContent = !delivery ? 'Alert delivery has not been verified by the monitor.' :
     delivery.send_ready ? 'Alert delivery ready; last checked ' + delivery.last_checked_utc + '.' :
@@ -662,7 +668,9 @@ $('ops-save').onclick = async () => {
                        no_start_grace_minutes: $('ops-no-start-grace').value ? Number($('ops-no-start-grace').value) : null,
                        stall_minutes: $('ops-stall-minutes').value ? Number($('ops-stall-minutes').value) : null},
     sunday_summary: {enabled: $('ops-sunday-enabled').checked, time: $('ops-sunday-time').value,
-                     timezone: $('ops-sunday-zone').value.trim()}
+                     timezone: $('ops-sunday-zone').value.trim()},
+    weekday_newsletter: {time: $('ops-newsletter-time').value,
+                         timezone: $('ops-newsletter-zone').value.trim()}
   };
   try {
     await api('/api/operational-settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(settings)});

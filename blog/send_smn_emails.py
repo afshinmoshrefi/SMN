@@ -26,8 +26,9 @@ import re
 import sys
 import argparse
 import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, '/home/flask')
 import config
@@ -471,13 +472,25 @@ def _create_and_schedule(group_id, subject, html, campaign_name):
 # Daily send  (Mon–Fri)
 # =============================================================================
 
-def daily_send(force=False):
-    today = date.today()
+def daily_send(force=False, verified_urls=None, edition_date=None):
+    today = edition_date or date.today()
 
     state = _load_state()
     posts = _load_posts()
 
-    if force:
+    if verified_urls is not None:
+        selected = [p for p in posts if p.get('url') in verified_urls]
+        if len(selected) != len(verified_urls) or {p.get('url') for p in selected} != verified_urls:
+            raise ValueError('Verified reader lineup is missing from the email catalog')
+        sent = set(state.get('daily_sent', []))
+        remaining = [p for p in selected if p.get('slug') not in sent]
+        if not remaining:
+            print('Verified reader edition already included in a daily email. Nothing sent.')
+            return
+        if len(remaining) != len(selected):
+            raise ValueError('Verified reader edition was partly emailed; inspect before retry')
+        articles = sorted(remaining, key=lambda x: x.get('published_date', ''), reverse=True)
+    elif force:
         # Dev/test: grab most recent unsent articles regardless of date
         sent     = set(state.get('daily_sent', []))
         articles = [p for p in posts if p.get('slug') not in sent]
@@ -652,12 +665,27 @@ if __name__ == '__main__':
                         help='Re-send even if already sent today (for testing)')
     parser.add_argument('--test', metavar='EMAIL',
                         help='Send a single test email to the given address (no state changes)')
+    parser.add_argument('--verified-reader-date', metavar='YYYY-MM-DD',
+                        help='Require the complete verified production reader edition')
     args = parser.parse_args()
 
     today = date.today()
     print(f'SEND SMN EMAILS  —  Started {datetime.now():%Y-%m-%d %H:%M:%S}  —  {today.strftime("%A %B %d, %Y")}')
 
-    if args.test:
+    if args.verified_reader_date:
+        import operational_settings
+        setting = operational_settings.for_instant(datetime.now(timezone.utc))['weekday_newsletter']
+        local_now = datetime.now(timezone.utc).astimezone(ZoneInfo(setting['timezone']))
+        local_today = local_now.date()
+        if (args.test or args.force or args.verified_reader_date != local_today.isoformat() or
+                local_today.weekday() >= 5 or local_now.strftime('%H:%M') < setting['time']):
+            parser.error('verified reader send requires the current weekday without --test or --force')
+        from operational_schedule import CONTROLLER_ROOT, verified_reader_urls
+        urls = verified_reader_urls(CONTROLLER_ROOT, args.verified_reader_date)
+        if not urls:
+            raise ValueError('Complete verified reader edition is not ready')
+        daily_send(verified_urls=urls, edition_date=local_today)
+    elif args.test:
         test_send(args.test)
     elif args.force:                # --force always sends daily regardless of day
         daily_send(force=True)

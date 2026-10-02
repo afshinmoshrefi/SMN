@@ -244,11 +244,16 @@ def api_operational_settings():
         except (OSError, ValueError, json.JSONDecodeError):
             return fail('settings_unavailable', 'Operational settings could not be read', 503)
         active = False
+        newsletter_active = False
         try:
             marker = json.loads(SMN_SUBSCRIPTION_ACTIVATION.read_text())
             active = marker.get('schedule_mode') == 'operational_schedule' and subprocess.run(
                 ['systemctl', 'is-active', '--quiet', 'smn-subscription.timer'],
                 check=False, timeout=3).returncode == 0
+            if active:
+                newsletter_active = subprocess.run(
+                    ['systemctl', 'is-active', '--quiet', 'smn-weekday-newsletter.timer'],
+                    check=False, timeout=3).returncode == 0
         except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
             pass
         alert_status = None
@@ -259,6 +264,7 @@ def api_operational_settings():
             pass
         return ok({'settings': settings,
                    'schedule_activation': 'active' if active else 'pending',
+                   'newsletter_activation': 'active' if newsletter_active else 'pending',
                    'alert_delivery': alert_status,
                    'schedule_note': ('The configurable subscription scheduler is active.' if active else
                        'Saved times require the matching scheduler activation. Production is unchanged until a separately authorized release.')})

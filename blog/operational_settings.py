@@ -21,6 +21,7 @@ DEFAULTS = {
                          'timezone': 'America/New_York',
                          'no_start_grace_minutes': None, 'stall_minutes': None},
     'sunday_summary': {'enabled': True, 'time': '09:00', 'timezone': 'UTC'},
+    'weekday_newsletter': {'time': '07:00', 'timezone': 'America/New_York'},
 }
 EMAIL = re.compile(r'^[A-Za-z0-9.!#$%&\'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$')
 TIME = re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
@@ -30,6 +31,7 @@ def load():
     if not FILE.exists():
         return json.loads(json.dumps(DEFAULTS))
     value = json.loads(FILE.read_text(encoding='utf-8'))
+    value.setdefault('weekday_newsletter', dict(DEFAULTS['weekday_newsletter']))
     return validate(value)
 
 
@@ -48,7 +50,8 @@ def validate(value):
         raise ValueError('alert_recipients contains a duplicate')
     for name, keys in [('daily_generation', {'start_time', 'target_time', 'timezone',
                                             'no_start_grace_minutes', 'stall_minutes'}),
-                       ('sunday_summary', {'enabled', 'time', 'timezone'})]:
+                       ('sunday_summary', {'enabled', 'time', 'timezone'}),
+                       ('weekday_newsletter', {'time', 'timezone'})]:
         item = value[name]
         if not isinstance(item, dict) or set(item) != keys:
             raise ValueError(name + ' fields are invalid')
@@ -83,6 +86,18 @@ def validate(value):
                 (utc_start - timedelta(hours=1)).date() != day or
                 utc_start.astimezone(zone).strftime('%H:%M') != daily['start_time']):
             raise ValueError('daily_generation.start_time must keep selection and generation on the same local and UTC date')
+    newsletter = value['weekday_newsletter']
+    newsletter_zone = ZoneInfo(newsletter['timezone'])
+    newsletter_clock = datetime.strptime(newsletter['time'], '%H:%M').time()
+    ny = ZoneInfo('America/New_York')
+    for offset in range(370):
+        day = first + timedelta(days=offset)
+        if day.weekday() >= 5:
+            continue
+        mail = datetime.combine(day, newsletter_clock, newsletter_zone).astimezone(timezone.utc)
+        seven_ny = datetime.combine(day, datetime.strptime('07:00', '%H:%M').time(), ny)
+        if mail < seven_ny.astimezone(timezone.utc) or mail.astimezone(zone).date() != day:
+            raise ValueError('weekday_newsletter.time must be at or after 07:00 America/New_York on the edition date')
     for field in ('no_start_grace_minutes', 'stall_minutes'):
         minutes = daily[field]
         if minutes is not None and (type(minutes) is not int or not 1 <= minutes <= 1440):
@@ -94,13 +109,14 @@ def save(value, who, now=None):
     cleaned = validate(value)
     now = now or datetime.now(timezone.utc)
     current = load()
-    schedule_changed = any(cleaned[key] != current[key] for key in ('daily_generation', 'sunday_summary'))
+    schedule_changed = any(cleaned[key] != current[key] for key in ('daily_generation', 'sunday_summary',
+                                                                     'weekday_newsletter'))
     # Future dates only: a time edit cannot schedule a second run today.
     result = {key: cleaned[key] for key in DEFAULTS}
     if schedule_changed:
         previous = {}
         effective = {}
-        for key in ('daily_generation', 'sunday_summary'):
+        for key in ('daily_generation', 'sunday_summary', 'weekday_newsletter'):
             local_date = now.astimezone(ZoneInfo(cleaned[key]['timezone'])).date().isoformat()
             old_from = current.get('effective_from', {}).get(key)
             if old_from and local_date < old_from:
@@ -145,7 +161,7 @@ def for_instant(now):
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError('aware datetime required')
     value = load()
-    for key in ('daily_generation', 'sunday_summary'):
+    for key in ('daily_generation', 'sunday_summary', 'weekday_newsletter'):
         effective = value.get('effective_from', {}).get(key)
         if not effective:
             continue

@@ -250,7 +250,7 @@ class SubscriptionDailyTests(unittest.TestCase):
         changed = subscription_installer.cron_text(original)
         lines = changed.splitlines()
         self.assertEqual(lines[0], '# Subscription schedule replaces this entry: ' + selector)
-        self.assertEqual(lines[1], email)
+        self.assertEqual(lines[1], '# Subscription schedule replaces this entry: ' + email)
         self.assertEqual(lines[2], '# Subscription schedule replaces this entry: ' + sunday)
         self.assertEqual(lines[3], '# Subscription schedule replaces this entry: ' + queue)
         gate = '[ ! -d /var/lib/tradewave/release-state/smn-production-activation.lock ] && '
@@ -272,12 +272,13 @@ class SubscriptionDailyTests(unittest.TestCase):
             'missing quote updater': [queue, selector, email, sunday],
             'missing selector': [queue, quote, email, sunday],
             'missing Sunday recap': [queue, quote, selector, email],
+            'missing weekday email': [queue, quote, selector, sunday],
             'duplicate queue': [queue, queue, quote, selector, email, sunday],
             'duplicate quote updater': [queue, quote, quote, selector, email, sunday],
         }
         for name, lines in cases.items():
             with self.subTest(name=name), self.assertRaisesRegex(
-                    ValueError, 'one legacy selector, daily API queue, Sunday recap and quote updater'):
+                    ValueError, 'one legacy selector, daily API queue, weekday email, Sunday recap and quote updater'):
                 subscription_installer.cron_text('\n'.join(lines) + '\n')
 
         with patch.object(installer, 'read', side_effect=FileNotFoundError('no activation')):
@@ -294,6 +295,23 @@ class SubscriptionDailyTests(unittest.TestCase):
         self.assertFalse(installer.PRODUCTION)
         self.assertEqual(installer.ORIGIN, 'https://smn-dev.trxstat.com')
         self.assertEqual(installer.HOST_IP, '192.168.1.180')
+
+    def test_rollback_stops_newsletter_before_restoring_schedules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            record = Path(directory)
+            (record/'receipt.json').write_text(json.dumps({
+                'after': {}, 'before': {}, 'paths': [], 'shadow_enabled': False,
+                'shadow_active': False, 'old_timer_enabled': False,
+                'old_timer_active': False}))
+            calls = []
+            def systemctl(args, **kwargs):
+                calls.append(args)
+                return types.SimpleNamespace(returncode=1)
+            with patch.object(subscription_installer, 'BASE', record/'unused'), \
+                    patch.object(subscription_installer.subprocess, 'run', side_effect=systemctl):
+                subscription_installer.rollback(record)
+            self.assertLess(calls.index(['systemctl', 'stop', subscription_installer.EMAIL_SERVICE]),
+                            calls.index(['systemctl', 'daemon-reload']))
 
 
 if __name__ == '__main__':

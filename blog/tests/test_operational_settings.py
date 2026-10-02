@@ -1,4 +1,5 @@
 import json
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -57,6 +58,7 @@ class OperationalSettingsTest(unittest.TestCase):
                                                        'timezone': 'America/New_York',
                                                        'no_start_grace_minutes': None, 'stall_minutes': None})
         self.assertEqual(default['sunday_summary']['time'], '09:00')
+        self.assertEqual(default['weekday_newsletter'], {'time': '07:00', 'timezone': 'America/New_York'})
         monday = datetime(2026, 10, 5, 9, 30, tzinfo=timezone.utc)
         self.assertEqual(operational_schedule.due(monday, 'production', default), [('daily', '2026-10-05')])
         self.assertEqual(operational_schedule.due(monday.replace(hour=8), 'production', default), [('selector', '2026-10-05')])
@@ -64,6 +66,56 @@ class OperationalSettingsTest(unittest.TestCase):
         self.assertEqual(operational_schedule.due(monday.replace(hour=10), 'dev', default), [('daily', '2026-10-05')])
         sunday = datetime(2026, 10, 4, 9, 0, tzinfo=timezone.utc)
         self.assertEqual(operational_schedule.due(sunday, 'production', default), [('sunday_summary', '2026-10-04')])
+        self.assertEqual(operational_schedule.due(monday.replace(hour=11, minute=0),
+            'production', default, newsletter_only=True), [('weekday_newsletter', '2026-10-05')])
+        self.assertEqual(operational_schedule.due(monday, 'production', default, newsletter_only=True), [])
+
+    def test_newsletter_requires_exact_verified_live_reader_lineup(self):
+        day = '2026-10-01'
+        root, web = self.state/'runs', self.state/'web'
+        inputs = root/day/'inputs'
+        primary = root/day/'chatgpt'/'primary'
+        inputs.mkdir(parents=True)
+        primary.mkdir(parents=True)
+        web.mkdir()
+        symbols = ['AAA', 'BBB']
+        (inputs/'input-selection.json').write_text(json.dumps({'date': day, 'symbols': symbols}))
+        (root/day/'schedule-settings.json').write_text(json.dumps({
+            'date': day, 'daily_generation': operational_settings.DEFAULTS['daily_generation']}))
+        urls, files, posts = [], {}, []
+        for symbol in symbols:
+            rel = f'editions/{day}/{symbol}/article.html'
+            url = 'https://seasonalmarketnews.com/' + rel
+            article = web/rel
+            article.parent.mkdir(parents=True)
+            article.write_text('verified '+symbol)
+            urls.append(url)
+            files[rel] = hashlib.sha256(article.read_bytes()).hexdigest()
+            posts.append({'url': url, 'source_commit': 'abc', 'edition_id': 'subscription-'+day,
+                          'published_date': day+'T12:00:00Z', 'publish_status': 'true'})
+            (primary/(symbol+'.receipt.json')).write_text(json.dumps({
+                'fetched_utc': day+'T10:00:00+00:00'}))
+        (web/'posts.json').write_text(json.dumps(posts))
+        receipt = {'status': 'live_verified', 'production_written': True, 'edition_date': day,
+                   'source_commit': 'abc', 'urls': urls, 'files': files}
+        receipt_path = root/day/'chatgpt'/'production-publication-receipt.json'
+        receipt_path.write_text(json.dumps(receipt))
+        self.assertEqual(operational_schedule.verified_reader_urls(root, day, web), set(urls))
+        receipt['urls'] = urls[:1]
+        receipt_path.write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, 'lineup'):
+            operational_schedule.verified_reader_urls(root, day, web)
+        receipt['urls'] = urls
+        receipt_path.write_text(json.dumps(receipt))
+        (web/f'editions/{day}/BBB/article.html').write_text('changed')
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            operational_schedule.verified_reader_urls(root, day, web)
+
+    def test_newsletter_time_cannot_precede_seven_new_york(self):
+        settings = operational_settings.load()
+        settings['weekday_newsletter'] = {'time': '06:59', 'timezone': 'America/New_York'}
+        with self.assertRaisesRegex(ValueError, '07:00 America/New_York'):
+            operational_settings.validate(settings)
 
     def test_validated_persistent_settings_and_admin_route(self):
         settings = operational_settings.load()
