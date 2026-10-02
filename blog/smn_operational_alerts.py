@@ -75,8 +75,11 @@ def _last_progress(root, date, current):
     """Use saved reader work, not controller age alone, for optional stall detection."""
     reader = root/date/'chatgpt'
     paths = [reader/'smn-daily-state.json', reader/'daily-check.json', reader/'HOLD.json']
-    for pattern in ('jobs/*/state.json', 'jobs/*/output.json',
-                    'results/*/generation.json', 'results/*/article.html'):
+    for pattern in ('jobs/*/state.json', 'jobs/*/output.json', 'jobs/*/events.jsonl',
+                    'jobs/*/*.png', 'jobs/*/artifacts/*.png',
+                    'results/*/generation.json', 'results/*/article.html',
+                    'results/*/*.png', 'results/*/assets/*.png',
+                    'results/*/visual/*.png', 'results/*/screenshots/*.png'):
         paths.extend(reader.glob(pattern))
     observed = [p.stat().st_mtime for p in paths if p.is_file()]
     try:
@@ -96,16 +99,13 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
     date = local.date().isoformat()
     last = _json(root/'last-run.json')
     current = last if isinstance(last, dict) and last.get('date') == date and last.get('target', target) == target else None
-    terminal = bool(current and current.get('status') != 'running')
+    terminal = bool(current and current.get('status') not in {'running', 'waiting_for_selection'})
     ledgers = []
     for path in sorted(Path(ledger_dir).glob(f'{target}-*-{date}*.json')):
         record = _json(path)
         if isinstance(record, dict) and record.get('target') == target and record.get('date') == date:
             ledgers.append(record)
     failed = [r for r in ledgers if r.get('status') == 'failed']
-    if failed:
-        detail = 'Scheduled child failed: ' + ', '.join(f"{r.get('phase')} exit {r.get('exit_code')}" for r in failed)
-        return [_incident(date, 'scheduler-failed', detail, f'SMN scheduled run failed ({date})')]
     incidents = []
     state = _json(root/date/'chatgpt/smn-daily-state.json') or {}
     for symbol, row in (state.get('articles') or {}).items():
@@ -148,6 +148,9 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
             public_problem = 'Public article catalog could not be verified'
     if reader_done:
         return []
+    if failed:
+        detail = 'Scheduled child failed: ' + ', '.join(f"{r.get('phase')} exit {r.get('exit_code')}" for r in failed)
+        return [_incident(date, 'scheduler-failed', detail, f'SMN scheduled run failed ({date})')]
     if incidents:
         # Each confirmed article is actionable; avoid repeating it as a run/deadline alert.
         return incidents
@@ -166,17 +169,18 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
                                     f'No live-verified publication receipt for {len(expected)} expected articles')
         kind = 'verification-unavailable' if 'could not be verified' in detail else 'edition-incomplete'
         return [_incident(date, kind, detail, f'SMN edition incomplete ({date})')]
-    if current and current.get('status') in {'held', 'waiting_for_selection'}:
+    if current and current.get('status') == 'held':
         detail = str(current.get('reason') or current.get('status'))
         return [_incident(date, 'run-unsuccessful', detail,
                           f'SMN morning run unsuccessful ({date})')]
     schedule = settings['daily_generation']
     grace = schedule.get('no_start_grace_minutes')
-    active_child = any(r.get('status') in {'running', 'waiting'} for r in ledgers)
-    if current is None and not active_child and isinstance(grace, int) and grace > 0:
+    active_child = any(r.get('status') == 'running' for r in ledgers)
+    waiting = current and current.get('status') == 'waiting_for_selection'
+    if (current is None or waiting) and not active_child and isinstance(grace, int) and grace > 0:
         start = datetime.combine(local.date(), time.fromisoformat(schedule['start_time']), zone)
         if local >= start + timedelta(minutes=grace):
-            return [_incident(date, 'no-start', 'No controller run receipt after configured start grace',
+            return [_incident(date, 'no-start', 'No fresh reader generation after configured start grace',
                               f'SMN morning run did not start ({date})')]
     stall = schedule.get('stall_minutes')
     if current and current.get('status') == 'running' and isinstance(stall, int) and stall > 0:
