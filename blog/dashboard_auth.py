@@ -147,10 +147,15 @@ def verify_ticket(ticket: str) -> Dict[str, Any]:
     if claims.get("is_admin") is not True:
         raise TicketError("only TradeWave admins may use the dashboard")
     _remember_ticket(str(claims["jti"]), int(claims["exp"]))
-    return {"kind": "admin", "user_id": str(claims["sub"]),
+    identity = {"kind": "admin", "user_id": str(claims["sub"]),
             "name": str(claims.get("name") or claims.get("email") or claims["sub"]),
             "email": str(claims.get("email") or ""), "env": this_env(),
             "login_at": iso(utcnow())}
+    # Only signed TradeWave claims may bind a direct WorkOS login.
+    for field in ("workos_user_id", "workos_session_id"):
+        if isinstance(claims.get(field), str) and claims[field]:
+            identity[field] = claims[field]
+    return identity
 
 
 # --------------------------------------------------------------------------- #

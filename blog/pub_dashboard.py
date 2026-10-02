@@ -53,6 +53,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import article_index
 import dashboard_auth
+import dashboard_workos
 import pin_store
 import schedule_store
 import smn_cost_report
@@ -90,7 +91,7 @@ app.config.update(
 dashboard_auth.service_key()
 
 # Reachable without a login.  Everything else needs one (see guard()).
-PUBLIC_PATHS = {"/auth", "/logout", "/llms.txt", "/api/llms.txt", "/openapi.json",
+PUBLIC_PATHS = {"/auth", "/login", "/auth/callback", "/logout", "/llms.txt", "/api/llms.txt", "/openapi.json",
                 "/api/health"}
 
 
@@ -151,10 +152,13 @@ def _session_identity() -> Optional[Dict[str, Any]]:
 
 
 def _login_page(message: str = "", status: int = 401):
-    url = dashboard_auth.login_url()
+    from markupsafe import escape
+    direct = dashboard_workos.enabled()
+    url = request.script_root + "/login" if direct else dashboard_auth.login_url()
     if url and not message:
         return redirect(url)
-    link = (f'<p><a href="{url}">Log in through TradeWave</a></p>' if url
+    label = "Sign in" if direct else "Log in through TradeWave"
+    link = (f'<p><a href="{escape(url)}">{label}</a></p>' if url
             else "<p>Open the dashboard from the TradeWave admin menu.</p>")
     safe = (message or "Please log in.").replace("<", "&lt;")
     return Response(f"<!doctype html><meta name=viewport content='width=device-width'>"
@@ -194,6 +198,41 @@ def guard():
     return _login_page()
 
 
+@app.after_request
+def protect_auth_response(response):
+    if request.path in {"/login", "/auth", "/auth/callback", "/logout"}:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@app.route("/login", methods=["GET"])
+def workos_login():
+    if not dashboard_workos.enabled():
+        return _login_page()
+    try:
+        return redirect(dashboard_workos.begin(session))
+    except dashboard_workos.LoginError as exc:
+        return _login_page(str(exc), 503)
+
+
+@app.route("/auth/callback", methods=["GET"])
+def workos_callback():
+    if not dashboard_workos.enabled():
+        return fail("not_found", "Not found", 404)
+    try:
+        ident = dashboard_workos.complete(session, request.args)
+    except dashboard_workos.LoginError as exc:
+        session.clear()
+        return _login_page(str(exc), 403)
+    session.clear()
+    session.permanent = True
+    session["identity"] = ident
+    g.identity = ident
+    audit("login", "", actor(), via="workos")
+    return redirect(request.script_root + "/")
+
+
 @app.route("/auth", methods=["GET"])
 def auth_ticket():
     """TradeWave sends an admin here with a one-time signed ticket."""
@@ -211,11 +250,16 @@ def auth_ticket():
 
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
-    who = (session.get("identity") or {}).get("name")
+    identity = session.get("identity") or {}
+    who = identity.get("name")
     session.clear()
+    revoked = dashboard_workos.revoke(identity)
     if who:
         audit("logout", "", who)
-    return _login_page("You are logged out.", 200)
+    message = "You are logged out."
+    if not revoked:
+        message += " The identity provider could not be reached; your WorkOS sign-in may still be active."
+    return _login_page(message, 200)
 
 
 @app.route("/api/whoami", methods=["GET"])
