@@ -82,8 +82,10 @@ def outcome(result):
     if result.get('status') == 'waiting_for_selection':
         return 'waiting_for_selection', 75
     providers = result.get('providers')
-    if (isinstance(providers, dict) and providers.get('chatgpt') and
-            all(isinstance(p, dict) and p.get('passed') is True for p in providers.values())):
+    reader = providers.get('chatgpt') if isinstance(providers,dict) else None
+    if (isinstance(reader,dict) and reader.get('passed') is True and
+            (not result.get('publication_requested') or
+             (reader.get('publication') or {}).get('status') == 'live_verified')):
         return 'completed', 0
     return 'held', 2
 
@@ -229,6 +231,9 @@ def run(root, date, publish=False, target='production', scheduled=False):
                           'resume': 'Fix authentication/quota or the named cause; rerun this date. Saved work is retained.'})
         record = {'utc': now(), 'date': date, 'reader_provider': 'chatgpt',
                   'claude_comparison': compare, 'api_writer_fallback': False,
+                  'publication_requested': publish,
+                  'comparison_status': ('passed' if outcomes.get('claude',{}).get('passed') is True else
+                                        'held' if compare else 'not_requested'),
                   'external_costs': 'Shared hero generation/checking uses configured paid APIs; see inputs/input-heroes.json',
                   'providers': outcomes}
         save_json(root/date/'comparison.json', record)
@@ -251,6 +256,8 @@ def main():
         status, code = outcome(result)
         save_json(last_run, {'utc': now(), 'date': args.date, 'status': status,
                             'exit_code': code, 'target': args.target, 'publish': args.publish,
+                            'comparison_status': result.get('comparison_status','unknown'),
+                            'reader_publication_status': ((result.get('providers') or {}).get('chatgpt') or {}).get('publication',{}).get('status','not_verified'),
                             'result': result})
         print(json.dumps(result))
         return code

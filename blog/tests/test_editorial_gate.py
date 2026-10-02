@@ -12,8 +12,9 @@ from subscription_publication import CHECKS
 
 
 def article(text,kind='fact'):
-    return {'title':'Seasonal study','dek':'Historical context and current developments.',
-            'takeaways':[],'sections':[{'paragraphs':[{'text':text,'kind':kind}]}]}
+    return {'title':'Seasonal study','title_source_ids':['letter'],
+            'dek':'Historical context and current developments.','dek_source_ids':['letter'],
+            'takeaways':[],'sections':[{'paragraphs':[{'text':text,'kind':kind,'source_ids':['letter']}]}]}
 
 
 def card():
@@ -80,6 +81,42 @@ class EditorialGateTests(unittest.TestCase):
 
     def test_valid_complete_custody_reaches_assets_and_visual(self):
         self.assertTrue(self.complete()['passed'])
+
+    def test_style_only_failure_reuses_signed_review_with_versioned_policy(self):
+        review=copy.deepcopy(self.review)
+        review['passed']=False
+        review['checks']['why_now_and_opening']={'passed':False,'reason':'Lead could be sharper'}
+        review['checks']['reader_value']={'passed':False,'reason':'More explanation would help'}
+        review['issues']=[{'severity':'major','category':'style','problem':'Lead is too abstract'}]
+        self.write(self.job/'output.json',review)
+        receipt=json.loads((self.job/'receipt.json').read_text())
+        receipt['output_sha256']=gate.sha256((self.job/'output.json').read_bytes())
+        self.write(self.job/'receipt.json',receipt)
+        proof=gate.verify_review(self.result,self.job/'output.json')
+        self.assertEqual(proof['acceptance_policy_version'],gate.STYLE_ADVISORY_POLICY)
+        self.assertFalse(proof['original_review_passed'])
+        self.assertEqual(proof['review_sha256'],receipt['output_sha256'])
+        review['issues'][0]['category']='coverage'
+        self.assertFalse(gate.hard_review_passed(review))
+        review['issues'][0].update(category='style',problem='Unsupported revenue forecast')
+        self.assertFalse(gate.hard_review_passed(review))
+        review['issues']=[];review['checks']['facts_and_sources']={'passed':False}
+        self.assertFalse(gate.hard_review_passed(review))
+        review['checks']['facts_and_sources']={'passed':True};review['checks']['why_now_and_opening']={'passed':True}
+        review['checks']['reader_value']={'passed':True}
+        self.assertFalse(gate.hard_review_passed(review))
+
+    def test_exact_multi_unit_and_chart_spans_are_grounded(self):
+        rows=[{'text':'The September report covers fiscal 2026.','source_ids':['letter']},
+              {'text':'Seasonal history appears here.','source_ids':['history']},
+              {'text':'Fourth-quarter revenue increased from 596.9 to 634.7.','source_ids':['letter']}]
+        self.assertTrue(gate.quote_in_verified_units(
+            'The September report covers fiscal 2026. Fourth-quarter revenue increased from 596.9 to 634.7.',rows))
+        self.assertTrue(gate.quote_in_verified_units(
+            'The September report covers fiscal 2026. ... Fourth-quarter revenue increased from 596.9 to 634.7.',rows))
+        self.assertFalse(gate.quote_in_verified_units(
+            'The September report covers fiscal 2026. ... Fourth-quarter revenue increased from 596.9 to 9999.',rows))
+        self.assertFalse(gate.quote_in_verified_units('The September report covers fiscal 2026. ... invented fact',rows))
 
     def test_future_price_overlay_cannot_be_called_recorded_price(self):
         bad = article(self.text + ' The chart lays the seasonal path over IWM actual price for the next 60 weekdays.')

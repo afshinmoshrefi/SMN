@@ -532,9 +532,8 @@ def mechanical_problems(checks):
 
 
 def review_passed(r):
-    return (r.get('passed') is True and set(r.get('checks', {})) == CHECKS and
-            all(v.get('passed') is True for v in r['checks'].values()) and
-            not any(i.get('severity') in {'major', 'blocker'} or i.get('category','style')!='style' for i in r.get('issues', [])))
+    from editorial_gate import hard_review_passed
+    return hard_review_passed(r)
 
 
 def editorial_review_problems(ed,sym,stage):

@@ -414,15 +414,15 @@ class Edition:
 
     def finalize(self,sym,stage='review'):
         from subscription_publication import CHECKS
-        from editorial_gate import verify_review
+        from editorial_gate import verify_review, hard_review_passed
         out=self.result(sym);b=load_json(out/'bundle.json');a=load_json(out/'article.json')
         review_path=self.job(sym,stage)/'output.json';r=load_json(review_path)
         editorial_audit=verify_review(out,review_path)
         job=load_json(self.job(sym,stage)/'job.json');receipt=load_json(self.job(sym,stage)/'receipt.json')
         if receipt['output_sha256']!=sha256(review_path.read_bytes()) or job['evidence_sha256']!=b['evidence_sha256']:
             raise ValueError('Review custody changed')
-        if r.get('passed') is not True or set(r['checks'])!=CHECKS or any(v.get('passed') is not True for v in r['checks'].values()):
-            raise ValueError('Independent editorial review has not passed')
+        if not hard_review_passed(r):
+            raise ValueError('Independent editorial review has not passed hard checks')
         m=load_json(out/'mechanical-checks.json')
         if m.get('passed') is not True or m['article_sha256']!=digest(a) or m['evidence_sha256']!=b['evidence_sha256']:raise ValueError('Mechanical review missing or stale')
         n=load_json(out/'seasonal-manifest.json');verify_assets(n,out)

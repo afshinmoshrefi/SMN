@@ -4,6 +4,7 @@ No model calls or financial calculations. Cohort checks compare observation
 identities from TradeWave; all financial values remain engine-owned.
 """
 from datetime import date, datetime
+from html.parser import HTMLParser
 from pathlib import Path
 import json
 import re
@@ -12,6 +13,7 @@ from subscription_writer import load_json, save_json, sha256, validate_schema
 from visual_evidence import digest
 
 VERSION = 1
+STYLE_ADVISORY_POLICY = 2
 MARKER = 'EDITORIAL_CONTEXT_SHA256: '
 CAUSAL = re.compile(r'\b(blam\w*|attribut\w*|due to|driven by|caused by|resulted from)\b', re.I)
 INFERENCE_LIMIT = re.compile(r'\b(?:no\s+(?:basis|evidence|grounds|support|justification)\s+(?:for|to)|without)\s*$', re.I)
@@ -62,15 +64,82 @@ def primary_sources(root, symbol, edition):
 
 
 def units(article):
-    rows = [{'id': k, 'text': article[k], 'kind': 'fact'} for k in ('title','dek')]
+    rows = [{'id': k, 'text': article[k], 'kind': 'fact', 'source_ids': article[k+'_source_ids']}
+            for k in ('title','dek')]
     for i, takeaway in enumerate(article.get('takeaways', [])):
-        rows.append({'id': 'takeaways.'+str(i), 'text': takeaway['text'], 'kind': 'fact'})
+        rows.append({'id': 'takeaways.'+str(i), 'text': takeaway['text'], 'kind': 'fact',
+                     'source_ids': takeaway['source_ids']})
     for i, section in enumerate(article['sections']):
         if section.get('heading'):
-            rows.append({'id': f'sections.{i}.heading', 'text': section['heading'], 'kind': 'fact'})
+            rows.append({'id': f'sections.{i}.heading', 'text': section['heading'], 'kind': 'fact',
+                         'source_ids': list({sid for p in section['paragraphs'] for sid in p['source_ids']})})
         for j, p in enumerate(section['paragraphs']):
-            rows.append({'id': f'sections.{i}.paragraphs.{j}', 'text': p['text'], 'kind': p['kind']})
+            rows.append({'id': f'sections.{i}.paragraphs.{j}', 'text': p['text'], 'kind': p['kind'],
+                         'source_ids': p['source_ids']})
     return rows
+
+
+class _DisplayedText(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.parts = []; self.alts = []
+    def handle_data(self, value):
+        if value.strip(): self.parts.append(value.strip())
+    def handle_starttag(self, tag, attrs):
+        if tag == 'img': self.alts.append(dict(attrs).get('alt', ''))
+
+
+def evidence_units(result, bundle):
+    """Text from the chart manifest already hash-bound in the review context."""
+    from visual_charts import figure_html
+    manifest = load_json(Path(result)/'chart-manifest.json')
+    rows = []
+    for chart_id, asset in manifest.items():
+        parser = _DisplayedText(); parser.feed(figure_html(asset,bundle))
+        ids = sorted({r['source_id'] for r in asset['data']['rows']})
+        rows.append({'id':'chart.'+chart_id,'text':spaced(' '.join(parser.parts)), 'source_ids':ids})
+        for alt in parser.alts:
+            rows.append({'id':'chart.'+chart_id+'.alt','text':spaced(alt),'source_ids':ids})
+    return rows
+
+
+def quote_in_verified_units(quote, rows):
+    quote = spaced(quote)
+    if len(quote) < 12: return False
+    texts = [spaced(row['text']) for row in rows]
+    if any(quote in value for value in texts): return True
+    # A reviewer may quote separate exact sentences, or mark omissions with
+    # an explicit ellipsis. Every substantive span must still appear verbatim.
+    if '...' in quote or '…' in quote:
+        parts = [spaced(p) for p in re.split(r'\s*(?:\.{3}|…)\s*',quote) if spaced(p)]
+    else:
+        parts = [spaced(p) for p in re.split(r'(?<=[.!?])\s+',quote) if spaced(p)]
+    if len(parts) < 2 or any(len(p) < 12 for p in parts): return False
+    position = (-1,-1)
+    for part in parts:
+        matches = [(i,text.find(part)) for i,text in enumerate(texts) if part in text]
+        matches = [m for m in matches if m >= position]
+        if not matches: return False
+        position = min(matches)
+    return True
+
+
+def blocking_issue(issue):
+    if issue.get('category') != 'style': return True
+    return bool(re.search(r'\b(incorrect|inaccurate|unsupported|misstates|contradicts)\b',
+                          issue.get('problem',''),re.I))
+
+
+def hard_review_passed(review):
+    from subscription_publication import CHECKS
+    advisory = {'why_now_and_opening','reader_value','michael_brevity_and_clarity'}
+    hard = CHECKS - advisory
+    advisory_findings = (any(review.get('checks',{}).get(name,{}).get('passed') is False for name in advisory) or
+                         any(item.get('category') == 'style' and not blocking_issue(item)
+                             for item in review.get('issues',[])))
+    return (set(review.get('checks',{})) == CHECKS and
+            all(review['checks'][name].get('passed') is True for name in hard) and
+            not any(blocking_issue(item) for item in review.get('issues',[])) and
+            (review.get('passed') is True or advisory_findings))
 
 
 def asserts_future_event(text):
@@ -98,7 +167,8 @@ def requirements(article, card):
         match = COUNT.search(unit['text'])
         if match: kinds.append('cohort_overlap')
         if not kinds: continue
-        row = {**unit, 'kinds': kinds}
+        row = {k:v for k,v in unit.items() if k != 'source_ids'}
+        row['kinds'] = kinds
         if match:
             value = match[1].lower()
             row['claimed_count'] = int(value) if value.isdigit() else NUMBERS[value]
@@ -185,7 +255,7 @@ corrections block regardless of severity. Do not mark a factual correction minor
 This audit does not authorize guessing missing facts or declaring unverified claims safe.'''
 
 
-def problems(article, bundle, ctx, review):
+def problems(article, bundle, ctx, review, result=None):
     from seasonal_edition import check_temporal_instrument_copy
     issues = []
     for unit in units(article):
@@ -194,18 +264,20 @@ def problems(article, bundle, ctx, review):
         if FUTURE_ACTUAL_PRICE.search(unit['text']):
             issues.append(unit['id']+': future illustration described as recorded price; date the price history and label the seasonal overlay')
     for item in review.get('issues', []):
-        if item.get('severity') in {'major','blocker'} or item.get('category') != 'style' or re.search(r'\b(incorrect|inaccurate|unsupported|misstates|contradicts)\b',item.get('problem',''),re.I):
+        if blocking_issue(item):
             issues.append('Unresolved '+item.get('category','unclassified')+' correction: '+item.get('problem',''))
     audit = review.get('editorial_audit') or {}
     coverage = audit.get('coverage', [])
     if len({r.get('item_id') for r in coverage}) != len(coverage) or {r.get('item_id') for r in coverage} != {r['id'] for r in ctx['material_context']}:
         issues.append('Material-source coverage ledger missing or incomplete')
-    texts = [spaced(u['text']) for u in units(article)]
+    displayed = units(article) + (evidence_units(result,bundle) if result is not None else [])
     by_id = {r.get('item_id'):r for r in coverage}
     for item in ctx['material_context']:
         row = by_id.get(item['id'], {})
         quote = spaced(row.get('article_quote',''))
-        if item['required'] and (row.get('status') != 'covered' or len(quote)<12 or not any(quote in t for t in texts)):
+        cited = [u for u in displayed if item['source_id'] in u['source_ids']]
+        if item['required'] and (row.get('status') != 'covered' or
+                                 not quote_in_verified_units(quote,cited)):
             issues.append('Missing material context '+item['id']+': '+item['summary'])
     claims = audit.get('claims', [])
     if len({r.get('unit_id') for r in claims}) != len(claims) or {r.get('unit_id') for r in claims} != {r['id'] for r in ctx['requirements']}:
@@ -283,12 +355,24 @@ def verify_review(result, review_path):
     if MARKER+digest(ctx)+'\n' not in (job/'prompt.txt').read_text(encoding='utf-8'):
         raise ValueError('Editorial context is not bound to the immutable reviewer prompt')
     from subscription_publication import CHECKS
-    errors = problems(article,bundle,ctx,review)
-    if review.get('passed') is not True or set(review.get('checks',{})) != CHECKS or any(r.get('passed') is not True for r in review.get('checks',{}).values()):
-        errors.append('Independent reviewer did not pass every required check')
+    errors = problems(article,bundle,ctx,review,result)
+    if not hard_review_passed(review):
+        errors.append('Independent reviewer did not pass every hard check')
     if errors: raise ValueError('; '.join(errors))
-    return {'version':VERSION,'article_sha256':digest(article),'context_sha256':digest(ctx),
-            'review_sha256':sha256(Path(review_path).read_bytes()),'passed':True}
+    proof = {'version':VERSION,'article_sha256':digest(article),'context_sha256':digest(ctx),
+             'review_sha256':sha256(Path(review_path).read_bytes()),'passed':True}
+    advisory_used = (review.get('passed') is not True or
+                     any(review['checks'][name].get('passed') is not True for name in
+                         ('why_now_and_opening','reader_value','michael_brevity_and_clarity')) or
+                     any(item.get('category') == 'style' and item.get('severity') in {'major','blocker'}
+                         for item in review.get('issues',[])))
+    if advisory_used:
+        proof['acceptance_policy_version'] = STYLE_ADVISORY_POLICY
+        proof['original_review_passed'] = review.get('passed') is True
+        proof['advisory_checks'] = [name for name in ('why_now_and_opening','reader_value','michael_brevity_and_clarity')
+                                    if review['checks'][name].get('passed') is not True]
+        proof['advisory_issue_count'] = sum(item.get('category') == 'style' for item in review.get('issues',[]))
+    return proof
 
 
 def verify_complete(result):

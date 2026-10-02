@@ -65,13 +65,18 @@ class SubscriptionDailyTests(unittest.TestCase):
     def test_missing_or_failed_reader_never_reports_success(self):
         for result in ({}, {'providers':{}}, {'providers':{'claude':{'passed':True}}},
                        {'providers':{'chatgpt':{'passed':False}}},
-                       {'providers':{'chatgpt':{'passed':True},'claude':{'passed':False}}},
+                       {'publication_requested':True,'providers':{'chatgpt':{'passed':True}}},
                        {'status':'waiting_unknown'}):
             self.assertEqual(controller.outcome(result),('held',2))
         self.assertEqual(controller.outcome({'status':'waiting_for_selection'}),
                          ('waiting_for_selection',75))
         self.assertEqual(controller.outcome({'providers':{'chatgpt':{'passed':True}}}),
                          ('completed',0))
+        self.assertEqual(controller.outcome({'providers':{'chatgpt':{'passed':True},'claude':{'passed':False}}}),
+                         ('completed',0))
+        self.assertEqual(controller.outcome({'publication_requested':True,'providers':{
+            'chatgpt':{'passed':True,'publication':{'status':'live_verified'}},'claude':{'passed':False}}}),
+            ('completed',0))
 
     def test_main_records_waiting_failure_success_and_explicit_date(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -33,10 +33,9 @@ def reviewed(result,review_path):
     verify_complete(result)
     a=read(result/'article.json');m=read(result/'mechanical-checks.json');r=read(review_path)
     if not m.get('passed') or not sha256_equal(digest(a),m.get('article_sha256')):raise ValueError('Changed or mechanically held article')
-    if (r.get('passed') is not True or set(r.get('checks',{}))!=CHECKS or
-        any(v.get('passed') is not True for v in r['checks'].values()) or
-        any(v.get('severity') in {'major','blocker'} for v in r.get('issues',[]))):
-        raise ValueError('Independent review has not passed')
+    from editorial_gate import hard_review_passed
+    if not hard_review_passed(r):
+        raise ValueError('Independent review has not passed hard checks')
     binding=read(result/'review-binding.json')
     if (not sha256_equal(digest(a),binding.get('article_sha256')) or
         not sha256_equal(digest_bytes(Path(review_path).read_bytes()),binding.get('review_sha256'))):
