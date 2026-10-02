@@ -217,6 +217,83 @@ class OperationalAlertTests(unittest.TestCase):
         self.assertIn('--target dev', service)
         self.assertNotIn('smn-newsletter', service)
 
+    def test_waiting_for_selection_needs_configured_grace(self):
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'waiting_for_selection'})
+        self.assertEqual(alerts.inspect(self.root, self.seven, SETTINGS), [])
+        configured = json.loads(json.dumps(SETTINGS))
+        configured['daily_generation']['no_start_grace_minutes'] = 30
+        self.assertEqual([i['kind'] for i in alerts.inspect(self.root, self.seven, configured)], ['no-start'])
+
+    def test_recovered_reader_suppresses_old_scheduler_failure(self):
+        ledger = self.root/'schedule-runs'
+        self.write(ledger/'production-selector-2026-10-02.json',
+                   {'target':'production','phase':'selector','date':'2026-10-02',
+                    'status':'failed','exit_code':2})
+        posts = self.frozen()
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'completed'})
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified','production_written':True})
+        self.assertEqual(alerts.inspect(self.root, self.seven, SETTINGS, ledger_dir=ledger,
+                         public_probe=lambda origin, urls: (posts, {url:'available' for url in urls.values()})), [])
+
+    def test_events_and_visual_artifacts_count_as_progress(self):
+        configured = json.loads(json.dumps(SETTINGS))
+        configured['daily_generation']['stall_minutes'] = 20
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'running',
+                   'utc':'2026-10-02T10:00:00+00:00'})
+        event = self.day/'chatgpt/jobs/ABC-20261002-write/events.jsonl'
+        event.parent.mkdir(parents=True)
+        event.write_text('{}\n')
+        os.utime(event, (self.seven.timestamp()-5*60, self.seven.timestamp()-5*60))
+        self.assertEqual(alerts.inspect(self.root, self.seven, configured), [])
+
+    def test_production_installer_requires_exact_proof_and_snapshots(self):
+        repo = Path(__file__).resolve().parents[2]
+        def command(*args):
+            if args[:2] == ('hostname', '-I'): return installer.HOSTS['production']
+            if 'rev-parse' in args: return 'a'*40
+            return ''
+        with patch.object(installer, 'run', side_effect=command):
+            with self.assertRaisesRegex(ValueError, 'Dev proof'):
+                installer._preflight(repo, 'production')
+            proof = self.root/'proof.json'
+            snapshot = self.root/'snapshots.json'
+            self.write(proof, {'source_commit':'b'*40,'status':'dev_qualified',
+                               'live_verification_sha256':'x'})
+            self.write(snapshot, {'source_commit':'a'*40,'date':self.seven.date().isoformat(),
+                                  'production_web_snapshot':'web','production_app_snapshot':'app','approved_by':'human'})
+            with self.assertRaisesRegex(ValueError, 'Exact-release'):
+                installer._preflight(repo, 'production', proof, snapshot)
+
+    def test_installer_failure_cleanup_and_rollback_preserve_peer_edit(self):
+        repo = Path(__file__).resolve().parents[2]
+        units = self.root/'units'
+        units.mkdir()
+        receipt = self.root/'activation.json'
+        def systemctl(command, check=False):
+            if command[1:3] == ['enable','--now']:
+                raise RuntimeError('injected activation failure')
+        with patch.object(installer, 'UNIT_DIR', units), patch.object(installer, 'RECEIPT', receipt), \
+             patch.object(installer, '_secret_ready', return_value=True), \
+             patch.object(installer, '_preflight', return_value=('a'*40, None)), \
+             patch.object(installer.os, 'geteuid', return_value=0, create=True), \
+             patch.object(installer.subprocess, 'run', side_effect=systemctl):
+            with self.assertRaisesRegex(RuntimeError, 'injected'):
+                installer.install(repo, 'dev')
+        self.assertFalse((units/installer.SERVICE).exists())
+        self.assertEqual(json.loads(receipt.read_text())['status'], 'rolled_back')
+        unit = units/installer.SERVICE
+        timer = units/installer.TIMER
+        unit.write_text('owned')
+        timer.write_text('owned')
+        self.write(receipt, {'status':'active','units':{str(unit):installer.digest(unit),
+                                                    str(timer):installer.digest(timer)}})
+        unit.write_text('peer edit')
+        with patch.object(installer, 'UNIT_DIR', units):
+            with self.assertRaisesRegex(ValueError, 'changed after installation'):
+                installer.rollback(receipt)
+        self.assertEqual(unit.read_text(), 'peer edit')
+
 
 if __name__ == '__main__':
     unittest.main()
