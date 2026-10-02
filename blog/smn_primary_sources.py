@@ -219,6 +219,9 @@ def _existing(primary, receipt, edition, sym):
             proof.get('text_sha256') != sha256(primary.read_bytes()) or
             not 2 <= len(proof.get('sources', [])) <= MAX_SOURCES):
         raise Held('primary evidence receipt mismatch for ' + sym)
+    if any(_mutable_release_url(item.get('url', '')) or
+           _mutable_release_url(item.get('final_url', '')) for item in proof['sources']):
+        raise Held('mutable release citation in captured evidence; find and capture a dated archive in a new revision')
     return True
 
 
@@ -246,6 +249,13 @@ def _sec_filing_date(url):
     return found.group(1) if found else None
 
 
+def _mutable_release_url(url):
+    """BLS current-release aliases can serve a later month's report at the same URL."""
+    parsed = urlsplit(url)
+    return (parsed.hostname or '').lower().rstrip('.') in {'bls.gov', 'www.bls.gov'} and bool(
+        re.fullmatch(r'/news\.release/[^/]+\.htm', parsed.path, re.I))
+
+
 def _capture_rows(rows, cache, path):
     for row in rows:
         url = row['url']
@@ -254,7 +264,11 @@ def _capture_rows(rows, cache, path):
         if len(cache['pages']) >= MAX_SOURCES:
             break
         try:
+            if _mutable_release_url(url):
+                raise Held('mutable BLS release URL; discover a dated archive and capture it')
             final_url, page = fetch_page(url)
+            if _mutable_release_url(final_url):
+                raise Held('primary page redirects to a mutable BLS release URL')
             published = Date.fromisoformat(row['date'])
             date_clues = (row['date'], published.strftime('%B %d, %Y').replace(' 0', ' '),
                           published.strftime('%b %d, %Y').replace(' 0', ' '),
@@ -337,8 +351,11 @@ def collect(root, edition, symbols, roles, clis, run_job):
                   'Each page must concern this subject, contain useful reported business facts, be published '
                   'within 120 days through the edition date, and have a public HTTPS URL. Exclude news '
                   'aggregators, analyst summaries, homepages, undated pages and PDFs. Do not use nasdaq.com '
-                  'pages: that site blocks our page fetcher. Return exact source '
-                  'titles, URLs, publication dates, publishers, and why each page is relevant. Never invent '
+                  'pages: that site blocks our page fetcher. For BLS releases use a dated archive URL '
+                  'verified by fetching its page; '
+                  'the current /news.release/*.htm aliases change to the next report. '
+                  'If no dated archive is available, find another current stable official page. '
+                  'Return exact source titles, URLs, publication dates, publishers, and why each page is relevant. Never invent '
                   'a URL or publication date.\nSUBJECT: ' + json.dumps({k: post.get(k) for k in
                   ('symbol', 'title', 'dek', 'published_date')}) + '\nPRODUCTION LEADS:\n' + leads)
         sources = _discover(job, prompt, root, edition, roles, run_job)

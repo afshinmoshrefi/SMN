@@ -81,6 +81,13 @@ class EditorialGateTests(unittest.TestCase):
     def test_valid_complete_custody_reaches_assets_and_visual(self):
         self.assertTrue(self.complete()['passed'])
 
+    def test_future_price_overlay_cannot_be_called_recorded_price(self):
+        bad = article(self.text + ' The chart lays the seasonal path over IWM actual price for the next 60 weekdays.')
+        issues = gate.problems(bad, self.bundle, self.ctx, self.review)
+        self.assertTrue(any('future illustration described as recorded price' in issue for issue in issues))
+        good = article(self.text + ' Recorded prices end October 1; the seasonal overlay illustrates the next 60 weekdays.')
+        self.assertEqual(gate.problems(good, self.bundle, self.ctx, self.review), [])
+
     def test_mutations_fail_closed(self):
         paths=[self.result/'article.json',self.result/'source.json',self.root/'primary/SPY.txt',
                self.job/'prompt.txt',self.job/'schema.json',self.job/'output.json',self.job/'editorial-context.json',

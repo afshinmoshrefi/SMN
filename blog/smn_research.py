@@ -13,6 +13,7 @@ import json
 import re
 
 import smn_models
+from smn_primary_sources import _mutable_release_url
 from subscription_writer import load_json, save_json, sha256
 
 SCHEMA = {
@@ -222,6 +223,8 @@ def check(entry, root, date, sym):
     for s in entry['sources']:
         if not s['url'].startswith('https://') or s['url'] not in text:
             problems.append('source %s URL is not an https URL from the saved news text' % s['id'])
+        if _mutable_release_url(s['url']):
+            problems.append('source %s uses a mutable BLS release URL; find and capture a dated archive' % s['id'])
         try:
             if datetime.strptime(s['date'], '%Y-%m-%d').date().isoformat() > date:
                 problems.append('source %s is dated after the edition date' % s['id'])

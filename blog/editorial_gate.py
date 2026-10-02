@@ -25,6 +25,9 @@ UNCONFIRMED_FUTURE = re.compile(
 COUNT = re.compile(r'\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:midterm\s+)?years?\s+(?:appear|overlap|are shared|in common)', re.I)
 CALENDAR_DATE = re.compile(r'\b(?:20\d{2}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2})\b', re.I)
 NUMBERS = {word: n for n, word in enumerate('zero one two three four five six seven eight nine ten'.split())}
+FUTURE_ACTUAL_PRICE = re.compile(
+    r'\b(?:actual|recorded)\s+(?:stock\s+)?prices?(?:\s+(?:path|chart|movement))?'
+    r'\s+(?:for|over|across|during)\s+(?:the\s+)?next\s+\d+\s+weekdays?\b', re.I)
 
 
 def spaced(value):
@@ -188,6 +191,8 @@ def problems(article, bundle, ctx, review):
     for unit in units(article):
         try: check_temporal_instrument_copy([unit['text']], bundle)
         except ValueError as exc: issues.append(unit['id']+': '+str(exc))
+        if FUTURE_ACTUAL_PRICE.search(unit['text']):
+            issues.append(unit['id']+': future illustration described as recorded price; date the price history and label the seasonal overlay')
     for item in review.get('issues', []):
         if item.get('severity') in {'major','blocker'} or item.get('category') != 'style' or re.search(r'\b(incorrect|inaccurate|unsupported|misstates|contradicts)\b',item.get('problem',''),re.I):
             issues.append('Unresolved '+item.get('category','unclassified')+' correction: '+item.get('problem',''))

@@ -95,6 +95,50 @@ class PrimarySourcesTests(unittest.TestCase):
         with self.assertRaisesRegex(primary.Held, 'blank field'):
             primary._validate_sources(self.rows + [{**old, 'title': ' '}], '2026-09-26')
 
+    def test_rolling_bls_release_is_rejected_and_dated_archive_is_captured(self):
+        rolling = 'https://www.bls.gov/news.release/empsit.nr0.htm'
+        archive = 'https://www.bls.gov/news.release/archives/empsit_09042026.htm'
+        self.assertTrue(primary._mutable_release_url(rolling))
+        self.assertFalse(primary._mutable_release_url(archive))
+        cache = {'pages': {}, 'failed_urls': {}}
+        row = dict(self.rows[0], title='Employment Situation', url=rolling)
+        with patch.object(primary, 'fetch_page') as fetch:
+            primary._capture_rows([row], cache, self.root/'cache.json')
+            fetch.assert_not_called()
+        self.assertIn('mutable BLS release', cache['failed_urls'][rolling])
+        row['url'] = archive
+        row['date'] = '2026-09-04'
+        page = ('Employment Situation September 4, 2026 reported payroll data. ' * 8)
+        with patch.object(primary, 'fetch_page', return_value=(archive, page)):
+            primary._capture_rows([row], cache, self.root/'cache.json')
+        self.assertIn(archive, cache['pages'])
+
+    def test_research_rejects_rolling_bls_url_from_saved_news(self):
+        rolling = 'https://www.bls.gov/news.release/empsit.nr0.htm'
+        archive = 'https://www.bls.gov/news.release/archives/empsit_09042026.htm'
+        entry = {'angle':'QUARTERLY_RESULTS', 'sources':[
+            {'id':'bls', 'url':rolling, 'date':'2026-09-04', 'excerpt':'Official jobs report. ' * 6},
+            {'id':'results', 'url':self.rows[0]['url'], 'date':'2026-09-25', 'excerpt':'Quarterly results. ' * 6}],
+            'chart':{'spec':{'unit':'percent','rows':[]},'records':[]}}
+        with patch.object(smn_research, 'saved_text', return_value=rolling+' '+archive+' '+self.rows[0]['url']), \
+             patch.object(smn_research, 'check_material_context', return_value=[]):
+            problems = smn_research.check(entry, self.root, '2026-09-26', 'ABC')
+            self.assertTrue(any('mutable BLS release URL' in p for p in problems))
+            entry['sources'][0]['url'] = archive
+            problems = smn_research.check(entry, self.root, '2026-09-26', 'ABC')
+            self.assertFalse(any('mutable BLS release URL' in p for p in problems))
+
+    def test_existing_mutable_release_receipt_holds(self):
+        folder = self.root/'primary';folder.mkdir()
+        text = folder/'ABC.txt';text.write_text('captured')
+        receipt = folder/'ABC.receipt.json'
+        receipt.write_text(json.dumps({'edition_date':'2026-09-26','symbol':'ABC',
+            'text_sha256':primary.sha256(text.read_bytes()),'sources':[
+                {'url':'https://www.bls.gov/news.release/empsit.nr0.htm'},
+                {'url':'https://abc.example/results'}]}))
+        with self.assertRaisesRegex(primary.Held, 'mutable release citation'):
+            primary._existing(text, receipt, '2026-09-26', 'ABC')
+
     def test_only_stale_sources_trigger_the_retry(self):
         stale = [{**r, 'date': '2026-01-02'} for r in self.rows]
         fresh = [{**r, 'url': r['url'] + '/new'} for r in self.rows]

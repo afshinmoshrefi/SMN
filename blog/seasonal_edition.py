@@ -148,7 +148,10 @@ The outlook must INTRODUCE the price chart before it appears: explain that it
 uses this article's selected years and an average seasonal path over the next
 60 weekday steps, a separate horizon from the full seasonal window. It is
 an illustration of historical shape, not a prediction of next earnings or a
-price target. Avoid unnecessary methodological detail in the opening.
+price target. State that recorded prices end on the supplied recorded_through
+date; the future 60-weekday span belongs only to the seasonal illustration.
+Never describe future overlay dates as actual or recorded prices.
+Avoid unnecessary methodological detail in the opening.
 TradeWave is the only calculation authority. Do not calculate any metric,
 return, probability, cohort aggregate, date snap or projection yourself.
 Reader vocabulary: call it the "yearly range chart" and explain that each year
