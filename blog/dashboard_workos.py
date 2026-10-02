@@ -28,13 +28,15 @@ def enabled():
 
 def settings():
     values = {name: os.environ.get("SMN_WORKOS_" + name, "").strip()
-              for name in ("CLIENT_ID", "API_KEY", "CALLBACK_URL", "AUTHORIZATION_URL")}
+              for name in ("CLIENT_ID", "CALLBACK_URL", "AUTHORIZATION_URL")}
     if not all(values.values()) or dashboard_auth.this_env() not in ("dev", "prod"):
         raise LoginError("SMN sign-in is not configured yet.")
     for name in ("CALLBACK_URL", "AUTHORIZATION_URL"):
         parsed = urlsplit(values[name])
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise LoginError("SMN sign-in configuration is invalid.")
+    if not values["CALLBACK_URL"].endswith("/auth/callback"):
+        raise LoginError("SMN sign-in configuration is invalid.")
     return values
 
 
@@ -64,7 +66,7 @@ def complete(session, args):
     cfg = settings()
     try:
         response = requests.post("https://api.workos.com/user_management/authenticate", json={
-            "client_id": cfg["CLIENT_ID"], "client_secret": cfg["API_KEY"],
+            "client_id": cfg["CLIENT_ID"],
             "grant_type": "authorization_code", "code": args["code"],
             "code_verifier": pending["verifier"]}, timeout=10, allow_redirects=False)
         if response.status_code != 200:
@@ -91,14 +93,10 @@ def complete(session, args):
         raise LoginError("Sign-in could not be verified. Please try again.") from None
 
 
-def revoke(identity):
+def logout_url(identity):
     sid = (identity or {}).get("workos_session_id")
     if not sid:
-        return True
-    try:
-        response = requests.post("https://api.workos.com/user_management/sessions/revoke",
-            headers={"Authorization": "Bearer " + settings()["API_KEY"]},
-            json={"session_id": sid}, timeout=10, allow_redirects=False)
-        return response.status_code in (200, 204, 404)
-    except (requests.RequestException, LoginError):
-        return False
+        return None
+    cfg = settings()
+    return "https://api.workos.com/user_management/sessions/logout?" + urlencode({
+        "session_id": sid, "return_to": cfg["CALLBACK_URL"][:-len("/auth/callback")] + "/signed-out"})

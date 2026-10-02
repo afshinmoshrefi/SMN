@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import Mock, patch
 
@@ -15,7 +17,6 @@ class DashboardWorkOSTest(DashboardAuthTest):
         self.workos_env = patch.dict("os.environ", {
             "SMN_DASHBOARD_LOGIN_PROVIDER": "workos",
             "SMN_WORKOS_CLIENT_ID": "client_test",
-            "SMN_WORKOS_API_KEY": "secret_test",
             "SMN_WORKOS_CALLBACK_URL": "https://smn.test/smn-dashboard/auth/callback",
             "SMN_WORKOS_AUTHORIZATION_URL": "https://tw.test/api/smn/authorize",
         })
@@ -55,7 +56,9 @@ class DashboardWorkOSTest(DashboardAuthTest):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "/")
         self.assertEqual(post.call_count, 2)
-        self.assertEqual(post.call_args_list[0].kwargs["json"]["code_verifier"], pending["verifier"])
+        token_request = post.call_args_list[0].kwargs["json"]
+        self.assertEqual(token_request["code_verifier"], pending["verifier"])
+        self.assertNotIn("client_secret", token_request)
         self.assertEqual(post.call_args_list[1].kwargs["headers"]["Authorization"],
                          "Bearer access-secret-token")
         who = self.client.get("/api/whoami").get_json()["data"]
@@ -66,7 +69,10 @@ class DashboardWorkOSTest(DashboardAuthTest):
             self.assertNotIn("access_token", sess)
             self.assertNotIn("refresh_token", sess)
             self.assertNotIn("access-secret-token", repr(dict(sess)))
+        expected_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(pending["verifier"].encode()).digest()).rstrip(b"=").decode()
         self.assertEqual(params["code_challenge_method"], ["S256"])
+        self.assertEqual(params["code_challenge"], [expected_challenge])
 
     def test_missing_invalid_expired_and_cross_environment_state_fail_closed(self):
         for case in ("missing", "invalid", "expired", "cross-env"):
@@ -138,23 +144,32 @@ class DashboardWorkOSTest(DashboardAuthTest):
         self.assertNotIn("private detail", response.get_data(as_text=True))
         self.assertEqual(self.client.get("/api/whoami").status_code, 401)
 
-    def test_logout_revokes_and_clears_local_session_even_when_revoke_fails(self):
+    def test_logout_redirects_to_workos_and_clears_local_session(self):
         _, pending = self.start_login()
         with patch.object(dashboard_workos.requests, "post", side_effect=self.successful_exchange()):
             self.callback(pending["state"], code="auth-code")
-        revoke = Mock(status_code=204)
-        with patch.object(dashboard_workos.requests, "post", return_value=revoke) as post:
-            self.client.post("/logout", headers=CSRF)
-        self.assertEqual(post.call_args.kwargs["json"], {"session_id": "session-1"})
-        self.assertEqual(self.client.get("/api/whoami").status_code, 401)
-
-        _, pending = self.start_login()
-        with patch.object(dashboard_workos.requests, "post", side_effect=self.successful_exchange()):
-            self.callback(pending["state"], code="auth-code")
-        import requests
-        with patch.object(dashboard_workos.requests, "post", side_effect=requests.Timeout()):
+        with patch.object(dashboard_workos.requests, "post") as post:
             response = self.client.post("/logout", headers=CSRF)
-        self.assertIn("could not be reached", response.get_data(as_text=True))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(urlsplit(response.headers["Location"]).scheme, "https")
+        self.assertEqual(urlsplit(response.headers["Location"]).netloc, "api.workos.com")
+        params = parse_qs(urlsplit(response.headers["Location"]).query)
+        self.assertEqual(params["session_id"], ["session-1"])
+        self.assertEqual(params["return_to"], ["https://smn.test/smn-dashboard/signed-out"])
+        post.assert_not_called()
+        self.assertEqual(self.client.get("/api/whoami").status_code, 401)
+        signed_out = self.client.get("/signed-out")
+        self.assertEqual(signed_out.status_code, 200)
+        self.assertIn("logged out", signed_out.get_data(as_text=True))
+
+    def test_logout_with_invalid_workos_config_still_clears_local_session(self):
+        _, pending = self.start_login()
+        with patch.object(dashboard_workos.requests, "post", side_effect=self.successful_exchange()):
+            self.callback(pending["state"], code="auth-code")
+        with patch.dict("os.environ", {"SMN_WORKOS_CALLBACK_URL": "http://bad.test/callback"}):
+            response = self.client.post("/logout", headers=CSRF)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("sign-out is unavailable", response.get_data(as_text=True))
         self.assertEqual(self.client.get("/api/whoami").status_code, 401)
 
     def test_callback_redirect_honors_proxy_prefix(self):

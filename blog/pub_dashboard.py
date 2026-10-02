@@ -91,7 +91,7 @@ app.config.update(
 dashboard_auth.service_key()
 
 # Reachable without a login.  Everything else needs one (see guard()).
-PUBLIC_PATHS = {"/auth", "/login", "/auth/callback", "/logout", "/llms.txt", "/api/llms.txt", "/openapi.json",
+PUBLIC_PATHS = {"/auth", "/login", "/auth/callback", "/logout", "/signed-out", "/llms.txt", "/api/llms.txt", "/openapi.json",
                 "/api/health"}
 
 
@@ -200,7 +200,7 @@ def guard():
 
 @app.after_request
 def protect_auth_response(response):
-    if request.path in {"/login", "/auth", "/auth/callback", "/logout"}:
+    if request.path in {"/login", "/auth", "/auth/callback", "/logout", "/signed-out"}:
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
     return response
@@ -253,13 +253,18 @@ def logout():
     identity = session.get("identity") or {}
     who = identity.get("name")
     session.clear()
-    revoked = dashboard_workos.revoke(identity)
     if who:
         audit("logout", "", who)
-    message = "You are logged out."
-    if not revoked:
-        message += " The identity provider could not be reached; your WorkOS sign-in may still be active."
-    return _login_page(message, 200)
+    try:
+        target = dashboard_workos.logout_url(identity)
+    except dashboard_workos.LoginError:
+        return _login_page("You are logged out of SMN. WorkOS sign-out is unavailable.", 200)
+    return redirect(target) if target else _login_page("You are logged out.", 200)
+
+
+@app.route("/signed-out", methods=["GET"])
+def signed_out():
+    return _login_page("You are logged out.", 200)
 
 
 @app.route("/api/whoami", methods=["GET"])
