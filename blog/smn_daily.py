@@ -144,6 +144,22 @@ class Day:
         """Explicitly permit one source-backed repair after a second failed review."""
         from engine_edition_workflow import Edition
         from editorial_gate import primary_sources
+        controller_root = self.root.parent.parent
+        last_run_path = controller_root/'last-run.json'
+        last_run = load_json(last_run_path) if last_run_path.exists() else {}
+        if last_run.get('date') == self.date and last_run.get('status') == 'running':
+            raise Hold('Daily controller is still running; preserve its final receipt before recovery')
+        controller_lock = controller_root/'controller.lock'
+        if os.name == 'posix' and controller_lock.exists():
+            import fcntl
+            with controller_lock.open('rb') as handle:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as exc:
+                    raise Hold('Daily controller lock is held; wait for its completion') from exc
+                finally:
+                    try: fcntl.flock(handle, fcntl.LOCK_UN)
+                    except OSError: pass
         ledger = self.root/('editorial-recovery-'+sym+'.json')
         if ledger.exists():
             raise Hold('Editorial recovery already prepared for '+sym)
@@ -174,6 +190,8 @@ class Day:
                 continue
             approved[other] = self._approved_snapshot(other)
         save_json(ledger, {'utc':now(),'symbol':sym,'prior_state':state.copy(),
+                           'prior_controller_last_run_sha256':sha256(last_run_path.read_bytes()) if last_run_path.exists() else None,
+                           'prior_controller_last_run':last_run,
                            'second_review_sha256':sha256(review_path.read_bytes()),
                            'second_review_receipt_sha256':sha256((review_job/'receipt.json').read_bytes()),
                            'repair_issues_sha256':sha256(issues.read_bytes()),
