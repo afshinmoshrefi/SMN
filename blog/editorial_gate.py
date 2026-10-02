@@ -116,7 +116,8 @@ def quote_in_verified_units(quote, rows):
     if len(parts) < 2 or any(len(p) < 12 for p in parts): return False
     position = (-1,-1)
     for part in parts:
-        matches = [(i,text.find(part)) for i,text in enumerate(texts) if part in text]
+        matches = [(i,match.start()) for i,text in enumerate(texts)
+                   for match in re.finditer(re.escape(part),text)]
         matches = [m for m in matches if m >= position]
         if not matches: return False
         position = min(matches)
