@@ -44,11 +44,26 @@ def _page_prompt(job,stage,names):
         saved=(Path(job)/'prompt.txt').read_text(encoding='utf-8')
         if saved==base:return base  # Preserve verifiable legacy assignments.
     return current
-LANDING_RULES = ('You check full-page screenshots of a news site homepage (desktop and mobile): {names}. '
+LEGACY_LANDING_RULES = ('You check full-page screenshots of a news site homepage (desktop and mobile): {names}. '
     'The native homepage can show the current edition as {count} compact headline links in Latest Patterns, '
     'alongside a featured story and older coverage in other sections. Compact links need not repeat an image '
     'or summary. Report genuinely broken or missing images, overlapping or cut-off text, missing current-edition '
     'links, or layout that runs off the screen. passed is true only when there is no major defect.') + TILE_RULES
+LANDING_RULES = ('You check full-page screenshots of a news site homepage (desktop and mobile): {names}. '
+    'The current edition may be distributed across the lead story, Latest Patterns, and Market Analysis. '
+    'A separate browser DOM check verifies that all {count} current-edition links appear somewhere on the homepage. '
+    'Judge visible presentation only: broken or missing images, overlapping or cut-off text, unreadable text, '
+    'or layout running off the screen. Do not infer a missing article from a count within one section or from '
+    'section placement. passed is true only when there is no major visible presentation defect.') + TILE_RULES
+
+
+def _landing_prompt(job,names,count):
+    current=LANDING_RULES.format(names=names,count=count)
+    if (Path(job)/'prompt.txt').exists():
+        legacy=LEGACY_LANDING_RULES.format(names=names,count=count)
+        if (Path(job)/'prompt.txt').read_text(encoding='utf-8')==legacy:
+            return legacy  # Preserve the immutable assignment of an earlier inspection.
+    return current
 HERO_RULES = ('This is the hero illustration for a financial news article about {company} ({symbol}). List all '
     'visible text in the image exactly as drawn (letters, words, logos, numbers). List any word that is '
     'misspelled, garbled or looks like fake lettering, and any company name that is wrong. passed is true '
@@ -244,9 +259,10 @@ def landing(root, date, roles, clis, run_job=None):
     root = Path(root)
     images = [root/'live-edition-desktop.png', root/'live-edition-mobile.png']
     seen = [t for i in images for t in _tiles(i, root/'vision-tiles')]
+    job=root/'jobs'/('EDITION-'+date.replace('-','')+'-landing-visual')
     answer, receipt, _ = _job(root, date, 'EDITION', 'landing-visual',
-                              LANDING_RULES.format(names=', '.join(i.name for i in seen),
-                              count=len(load_json(root/'publication-package/entries.json'))), PAGE_SCHEMA,
+                              _landing_prompt(job,', '.join(i.name for i in seen),
+                              len(load_json(root/'publication-package/entries.json'))), PAGE_SCHEMA,
                               seen, roles, clis, 'visual', run_job)
     major = [d for d in answer['defects'] if d['severity'] == 'major']
     record = {'passed': bool(answer['passed']) and not major,

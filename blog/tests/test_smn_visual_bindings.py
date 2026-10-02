@@ -121,9 +121,19 @@ class VisualBindingsTests(unittest.TestCase):
         self.assertFalse(self._article(run)['passed']);self.assertEqual(len(calls),1)
         with self.assertRaises(ValueError):visual.verify_inconsistent_visual_hold(self.root,'SPY')
 
-    def test_landing_prompt_recognizes_native_compact_links_and_contiguous_tiles(self):
-        self.assertIn('compact headline links',visual.LANDING_RULES)
+    def test_landing_prompt_keeps_link_completeness_with_browser_check(self):
+        self.assertIn('separate browser DOM check',visual.LANDING_RULES)
+        self.assertIn('Do not infer a missing article from a count within one section',visual.LANDING_RULES)
         self.assertIn('crop boundary alone',visual.LANDING_RULES)
+
+    def test_existing_landing_job_retains_its_original_prompt(self):
+        job=self.root/'jobs/EDITION-20260930-landing-visual';job.mkdir(parents=True)
+        legacy=visual.LEGACY_LANDING_RULES.format(names='desktop.png, mobile.png',count=6)
+        (job/'prompt.txt').write_text(legacy,encoding='utf-8')
+        self.assertEqual(visual._landing_prompt(job,'desktop.png, mobile.png',6),legacy)
+        (job/'prompt.txt').unlink()
+        self.assertEqual(visual._landing_prompt(job,'desktop.png, mobile.png',6),
+                         visual.LANDING_RULES.format(names='desktop.png, mobile.png',count=6))
 
     def test_reinspection_is_bounded_and_budget_is_not_increased(self):
         failed={'passed':False,'defects':[]};calls=[]

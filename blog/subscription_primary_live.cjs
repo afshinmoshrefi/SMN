@@ -23,8 +23,14 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  const expectedPins=(activation.expected_pins||[]).filter(p=>!p.expires_at||Date.parse(p.expires_at)>Date.now());
  const ordered=await page.locator('.wire-lead h2 a,.wire-lead h1 a,.wire-headline-item h3 a,.wire-headline-item h2 a').evaluateAll(a=>a.map(x=>x.href));
  for(const pin of expectedPins){const entry=catalog.find(p=>p.slug===pin.slug);assert(entry,'Pinned catalog entry retained');if(pin.position===1)assert(await page.locator('.wire-lead a').evaluateAll((a,url)=>a.some(x=>x.href===url),entry.url),'Pinned lead retained');}
- const homeLinks=await page.locator('.wire-container a').evaluateAll(a=>a.map(x=>x.href));
- assert(entries.every(e=>homeLinks.includes(e.url)),'Latest edition in cumulative homepage');
+ const editionHomeLinks=async()=>page.locator('.wire-container a').evaluateAll((anchors,edition)=>edition.map(e=>{
+  const a=anchors.find(x=>x.href===e.url&&x.getClientRects().length&&getComputedStyle(x).visibility!=='hidden');
+  const section=a?.closest('.wire-headlines')?'Latest Patterns':a?.closest('.wire-lead')?'Lead':
+    a?.closest('.wire-section')?.querySelector('.wire-section-title')?.textContent.trim()||null;
+  return {symbol:e.symbol,url:e.url,visible:!!a,section};
+ }),entries);
+ const desktopHomeLinks=await editionHomeLinks();
+ assert(desktopHomeLinks.every(e=>e.visible),'Latest edition visible across desktop homepage sections');
  assert((await page.locator('.logo').innerText()).replace(/\s+/g,'')==='SeasonalMarketNews','SMN site brand');
  assert(await page.locator('header nav a').innerText()==='TradeWave','SMN site navigation');
  assert((await page.locator('footer').innerText()).includes('Tara Data Research LLC'),'SMN site footer');
@@ -38,7 +44,10 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
    await Promise.race([Promise.all(near.map(i=>i.decode().catch(()=>null))),new Promise(r=>setTimeout(r,20000))]);},TOP);
  const clip=async(w)=>({x:0,y:0,width:w,height:Math.min(TOP,await page.evaluate(()=>document.documentElement.scrollHeight))});
  await page.screenshot({path:path.join(R,'live-edition-desktop.png'),fullPage:true,clip:await clip(1440)});
- await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(R,'live-edition-mobile.png'),fullPage:true,clip:await clip(390)});
+ await page.setViewportSize({width:390,height:844});
+ const mobileHomeLinks=await editionHomeLinks();
+ assert(mobileHomeLinks.every(e=>e.visible),'Latest edition visible across mobile homepage sections');
+ await page.screenshot({path:path.join(R,'live-edition-mobile.png'),fullPage:true,clip:await clip(390)});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile homepage fits viewport');
  await page.goto(base+'/search.html',{waitUntil:'domcontentloaded'});
  await page.waitForFunction(()=>document.querySelectorAll('#resultsList a[href]').length>0);
@@ -101,7 +110,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
   for(const r of results)assert(r.passed,'Public asset hash: '+r.rel);checked.push(...results);
  }
  const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');
- const proof={passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,home_redirect:false,archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true};
+ const proof={passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,home_redirect:false,home_links:{desktop:desktopHomeLinks,mobile:mobileHomeLinks},archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true};
  fs.writeFileSync(path.join(R,'live-verification.json'),JSON.stringify(proof,null,2));console.log(JSON.stringify({passed:true,article_layouts:pages.length,public_files:checked.length,source_commit:manifest.source_commit}));
  await browser.close();
 })().catch(async e=>{console.error(e.message);if(browser)await browser.close();process.exitCode=1});
