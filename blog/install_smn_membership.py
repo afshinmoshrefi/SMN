@@ -44,6 +44,7 @@ def configuration():
     return '\n'.join([
         'SMN_READER_PRIVATE_ROOT=/var/lib/smn/reader',
         'SMN_READER_ENV=dev',
+        'SMN_PUBLIC_ORIGIN=https://smn-dev.trxstat.com',
         'SMN_READER_CLIENT_ID=client_01M3Z7YJKDZ9DKVK9MNYEP6X85',
         'SMN_READER_CALLBACK_URL=https://smn-dev.trxstat.com/smn-dashboard/auth/callback',
         'SMN_READER_SHARED_DEV_CALLBACK=1',

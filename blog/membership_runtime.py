@@ -273,6 +273,7 @@ def _configuration():
     import os
     config_file = Path(os.environ.get('SMN_PROMOTION_CONFIG', '/etc/SMN/promotion.json'))
     configuration = json.loads(config_file.read_text('utf-8')) if config_file.is_file() else {'generation_enabled': False}
+    configuration['public_origin'] = os.environ.get('SMN_PUBLIC_ORIGIN') or configuration.get('public_origin') or os.environ.get('SMN_SITE_BASE')
     configuration['resolve_source'] = _worker_source
     return configuration
 
