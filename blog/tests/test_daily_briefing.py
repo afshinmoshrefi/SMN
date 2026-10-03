@@ -143,6 +143,22 @@ class DailyBriefingTests(unittest.TestCase):
             self.assertNotIn('href="javascript:', document)
             self.assertIn('HELD:', document)
 
+    def test_uncertain_time_can_use_actual_bound_capture_before_cutoff(self):
+        data=fixture(); source=data['sources'][0]
+        source.update(published_at=None, published_at_raw='October 2, timezone absent',
+                      timestamp_status='uncertain', cutoff_basis='observed_capture')
+        source['capture']['observation_sha256']=digest({'url':source['url'],
+            'retrieved_at':source['retrieved_at'],'text_sha256':source['capture']['text_sha256']})
+        result=inspect(data)
+        self.assertEqual(result['issues'],[])
+        self.assertTrue(any('remains uncertain' in w for w in result['warnings']))
+        source['capture']['observation_sha256']='a'*64
+        self.assertTrue(inspect(data)['issues'])
+        source['retrieved_at']='2026-10-03T03:59:00Z'
+        source['capture']['observation_sha256']=digest({'url':source['url'],
+            'retrieved_at':source['retrieved_at'],'text_sha256':source['capture']['text_sha256']})
+        self.assertTrue(inspect(data)['issues'])
+
 
 if __name__ == '__main__':
     unittest.main()

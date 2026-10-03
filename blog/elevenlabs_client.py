@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from daily_briefing import digest
 from promotion_jobs import locked
@@ -19,6 +19,11 @@ class Held(RuntimeError):
     pass
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise Held('Unexpected vendor redirect; credential transmission stopped')
+
+
 def _request(endpoint, payload=None, key_env='ELEVENLABS_API_KEY', binary=False):
     secret = os.environ.get(key_env)
     if not secret:
@@ -27,8 +32,10 @@ def _request(endpoint, payload=None, key_env='ELEVENLABS_API_KEY', binary=False)
         data=json.dumps(payload).encode() if payload is not None else None,
         headers={'xi-api-key': secret, 'Content-Type': 'application/json'})
     try:
-        with urlopen(req, timeout=90) as response:
-            body = response.read(32 * 1024 * 1024)
+        with build_opener(_NoRedirect()).open(req, timeout=90) as response:
+            body = response.read(32 * 1024 * 1024 + 1)
+            if len(body) > 32 * 1024 * 1024:
+                raise Held('Provider response exceeded private media bound')
             if binary:
                 return body, {key: response.headers.get(key) for key in ('request-id', 'history-item-id', 'character-cost')}
             return json.loads(body)
@@ -62,7 +69,7 @@ def _reserve(root, identity, quote):
             raise Held('Existing provider outcome needs reconciliation')
         if len(attempts) >= 2:
             raise Held('Two-attempt generation ceiling reached')
-        if sum(r['quoted_credits'] for r in ledger['reservations']) + credits > min(5000, ledger['ceiling']):
+        if sum(max(r['quoted_credits'],r.get('charged_credits',0)) for r in ledger['reservations']) + credits > min(5000, ledger['ceiling']):
             raise Held('Private prototype credit ceiling would be exceeded')
         token = len(ledger['reservations'])
         ledger['reservations'].append({'request_sha256': identity, 'quoted_credits': credits,
@@ -75,6 +82,12 @@ def _finish(root, token, status, receipt=None):
     with locked(root):
         path = Path(root) / 'elevenlabs-budget.json'; ledger = load_json(path)
         ledger['reservations'][token].update(status=status, receipt=receipt, updated_at=utc_now())
+        if receipt:
+            charged=receipt.get('actual_credits',receipt.get('provider_identifiers',{}).get('character-cost'))
+            try:
+                charged=float(charged)
+                if 0<=charged<float('inf'):ledger['reservations'][token]['charged_credits']=charged
+            except (ValueError,TypeError):pass
         save_json(path, ledger)
 
 

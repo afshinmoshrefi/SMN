@@ -152,6 +152,10 @@
                 "type": "string",
                 "pattern": "^[a-f0-9]{64}$"
               },
+              "observation_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
               "scope": {
                 "type": "string",
                 "enum": [
@@ -171,6 +175,10 @@
               "verified",
               "uncertain"
             ]
+          },
+          "cutoff_basis": {
+            "type": "string",
+            "enum": ["publication_metadata", "observed_capture"]
           }
         }
       },
