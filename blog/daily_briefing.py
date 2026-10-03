@@ -209,6 +209,7 @@ def inspect(briefing, review=None):
                     issues.append(surface + ': references an excluded group')
                 if surface == 'narrative':
                     used_groups.add(gid)
+            if headline_mode and surface=='storyboard' and block['visual_kind']!='headline_card':issues.append('storyboard: headline roundup permits only headline cards')
             if surface == 'storyboard' and block['visual_kind'] == 'source_visual' and not block.get('source_id'):
                 issues.append('storyboard: source visual needs a source ID')
             if surface == 'storyboard' and block.get('source_id'):

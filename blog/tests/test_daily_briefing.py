@@ -67,6 +67,8 @@ class DailyBriefingTests(unittest.TestCase):
         self.assertTrue(any('number absent' in e for e in inspect(data)['issues']))
         data=headline_fixture();data['sources'][0]['capture']['feed_url']='https://evil.test/rss'
         self.assertTrue(inspect(data)['issues'])
+        data=headline_fixture();data['storyboard'][0]['visual_kind']='presenter'
+        self.assertTrue(inspect(data)['issues'])
         data=headline_fixture();data['sources'][0]['capture']['record_sha256']='b'*64
         self.assertTrue(inspect(data)['issues'])
 

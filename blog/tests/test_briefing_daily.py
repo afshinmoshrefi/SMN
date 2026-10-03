@@ -108,6 +108,12 @@ class Daily(unittest.TestCase):
         self.assertEqual(opener.calls,[endpoint]);self.assertEqual(result['qualified_count'],1)
         self.assertFalse(result['publish'])
 
+    def test_headline_capture_after_cutoff_has_no_qualified_evidence(self):
+        discovery={'sources':[{'id':'one','publisher':'CNBC','title':'A real exact headline has sufficient words',
+            'url':'https://www.cnbc.com/story','published_at':'2026-10-03T09:00:00Z'}],
+            'files':{'cnbc.discovery':'a'*64},'scan':[],'retrieved_at':'2026-10-03T12:00:00Z'}
+        self.assertEqual(daily.headline_bundle(discovery,'2026-10-03',self.cutoff,'Before the Open')['sources'],[])
+
     def test_wrong_new_york_edition_rejected_before_access(self):
         with self.assertRaises(ValueError):daily.run(self.root/'bad','2026-10-04',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium')
         self.assertFalse((self.root/'bad').exists())
