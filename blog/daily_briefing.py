@@ -91,8 +91,6 @@ def inspect(briefing, review=None):
     for sid, source in sources.items():
         if not _https(source['url']):
             issues.append(sid + ': source URL must be HTTPS without credentials')
-        if source.get('timestamp_status') == 'uncertain' or not source['published_at']:
-            issues.append(sid + ': publication timestamp is uncertain; cutoff qualification held')
         published = time(source['published_at'], sid + ' published_at') if source['published_at'] else None
         retrieved = time(source['retrieved_at'], sid + ' retrieved_at')
         updated = time(source['updated_at'], sid + ' updated_at') if source.get('updated_at') else published
@@ -103,6 +101,19 @@ def inspect(briefing, review=None):
         if updated and retrieved and updated > retrieved:
             issues.append(sid + ': retrieved before this source version')
         capture = source.get('capture')
+        uncertain = source.get('timestamp_status') == 'uncertain' or not source['published_at']
+        observation = digest({'url': source['url'], 'retrieved_at': source['retrieved_at'],
+                              'text_sha256': capture['text_sha256']}) if capture else None
+        observed = (source.get('cutoff_basis') == 'observed_capture' and retrieved and cutoff
+                    and retrieved <= cutoff and capture and capture.get('observation_sha256') == observation
+                    and source['access'] in {'full_text', 'primary_release'})
+        if source.get('cutoff_basis') == 'observed_capture' and not observed:
+            issues.append(sid + ': actual hash-bound capture before cutoff required')
+        if uncertain:
+            if observed:
+                warnings.append(sid + ': publication time remains uncertain; exact capture observed before cutoff')
+            else:
+                issues.append(sid + ': publication timestamp is uncertain; cutoff qualification held')
         if source['access'] in {'full_text', 'primary_release'}:
             if not capture or not capture['text'].strip():
                 issues.append(sid + ': accessed evidence needs captured text')

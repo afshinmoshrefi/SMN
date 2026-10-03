@@ -45,7 +45,10 @@ class Jobs(unittest.TestCase):
         self.assertEqual(jobs.get_artifact(self.root,job['id'],'audio')[0],path)
         path.write_bytes(b'changed')
         with self.assertRaises(ValueError): jobs.get_artifact(self.root,job['id'],'audio')
-        artifact['relative_path']='../../outside'; jobs.update(self.root,job['id'],2,artifacts=[artifact])
+        jobs.update(self.root,job['id'],2,status='generated')
+        with self.assertRaises(ValueError):jobs.transition(self.root,job['id'],'review',3,'editor',
+            {'decision':'approved','payload_sha256':jobs.digest(self.inputs)})
+        artifact['relative_path']='../../outside'; jobs.update(self.root,job['id'],3,artifacts=[artifact])
         with self.assertRaises(ValueError): jobs.get_artifact(self.root,job['id'],'audio')
 
     def test_missing_key_has_no_network_or_budget_effect(self):

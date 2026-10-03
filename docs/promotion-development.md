@@ -22,7 +22,9 @@ Pause applies to all or a specific generation kind. Dispatch is disabled through
 immutable subscription CLI jobs and validates source-bound output. It needs an explicit
 supported model/effort and does not change the existing provider configuration.
 
-`promotion_worker.run_one(root, id, configuration)` currently implements article_video.
+`promotion_worker.run_one(root, id, configuration)` implements derivative writing,
+article_video, daily_briefing writing/narration/cards, private social/Substack exports,
+and verified actual ElevenLabs avatar delivery import.
 Its server callback `resolve_source(inputs)` returns prepared, copy, source_review,
 chart_path, chart_sha256, title and on_screen. The worker rechecks retained hashes,
 canonical revision, derivative claims, exact script/chart and independent source review
@@ -43,5 +45,51 @@ native download name and audio hash in private receipts; charge reservations sha
 The compositor requires complete real narration lasting 10-15 seconds, preserves the
 native chart for six seconds, renders 1080x1920 H264/AAC, probes and decodes the result,
 and writes a pending-review receipt. Automated decoding is not listening or visual approval.
-Current avatar and other generation kinds stay held until their actual account route,
-identity, credit quote and configuration are verified.
+Daily resolver records return `briefing`, `review` and `active_revision` for speech;
+`source_hash` is the exact briefing digest. Alternatively a first-writing record returns
+`source_bundle` and `active_revision`, with source_hash equal to its digest. That runs
+the existing immutable subscription writer and returns actual editorial-review artifacts;
+approved narration is a subsequent separately bound job. Derivative first-writing records
+require only prepared, with explicit writer_settings and codex in server configuration.
+Existing job IDs are retained throughout writing/export execution.
+
+The runnable `briefing_sources.py capture --manifest ... --output ...` records actual
+public documents, hashes and access failures. Its editor-owned manifest gives canonical
+publisher URLs/origins; restricted pages remain metadata. The `write` action requires
+explicit subscription CLI/model/effort. No paid fallback or schedule is created here.
+An uncertain publication time can qualify only through the exact hash-bound version
+actually observed before cutoff; the uncertainty remains visible.
+
+Avatar UI generation is supported in the existing account but personal reference upload
+currently needs the Chrome extension file-URL permission enabled by the user. API automation
+is not claimed until the actual avatar route is account-qualified. Worker import uses
+server avatar_ready/likeness_verified, verified voice/reference hash and avatar_delivery
+(private path/provider receipt). Receipt binds briefing, actual intro/outro script,
+voice/reference, video hash, provider generation ID/model and received shared-budget
+reservation. Only real <=8-second intro/outro deliveries are admitted for pending review.
+No stock substitute, fabricated avatar success, external post or provider switch occurs.
+
+The separate documented Creatify Aurora API route is implemented as an asynchronous
+submit/reconcile worker, rather than assuming reusable Avatars have an API. Server
+configuration adds `flows_plan_verified` (Pro or above), existing credential/voice and
+likeness flags, plus `avatar_request`: image_path, audio_path, audio_receipt, script,
+part (intro/outro), resolution (480p/720p), and verified exact-request credit quote.
+The speech receipt must bind the selected beginning/end of the approved briefing to
+the verified voice and actual audio hash; the presenter image hash is checked again.
+`elevenlabs_client.avatar_identity(image_hash,audio_hash,resolution)` binds the quote.
+`avatar()` submits documented inline media to `/v1/flows/video`, retains its generation
+ID privately, and polls that same ID at most once per ten seconds on subsequent worker
+ticks. Shared credit reservations survive crashes; unknown submissions are never retried.
+Completed media is downloaded without credentials only from the documented Google
+storage host, hash-bound, then probed as a brief asset and held for actual media review.
+Account/key/reference/quote readiness remains an explicit gate, not simulated generation.
+Official contracts: https://elevenlabs.io/docs/api-reference/flows/video/create and
+https://elevenlabs.io/docs/eleven-api/guides/cookbooks/image-and-video.
+
+Publication aliasing uses optional keyword `publication_identity` on
+`public_derivative.prepare_derivative`: canonical_id, source_original_id,
+article_sha256, revision, binding_sha256 (digest of the first four fields).
+The publisher supplies it only after binding the new canonical ContentStore URL/revision
+to the exact retained article JSON. Original source/card/engine files remain unchanged.
+Preparation and later rebuild validation reject cross-article aliases, stale revisions
+and edited mappings; writing validates this complete prepared custody before a CLI call.

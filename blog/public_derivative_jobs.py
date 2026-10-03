@@ -4,23 +4,32 @@ from pathlib import Path
 
 from daily_briefing import digest
 import promotion_jobs as jobs
-from public_derivative import derivative_schema, prepare_prompt, validate_derivative
+from public_derivative import derivative_schema, prepare_prompt, validate_derivative,validate_prepared
 import subscription_writer as writer
 
 
-def generate(root, prepared, settings, codex):
+def generate(root, prepared, settings, codex, *, job_id=None):
     # Recheck custody before any model call, even before prepared/schema creation.
-    for name, expected in prepared['input_hashes'].items():
-        if writer.sha256(Path(name).read_bytes()) != expected:
-            raise ValueError('Retained input changed')
+    validate_prepared(prepared)
     inputs = {'article_id': prepared['provenance']['article_id'],
         'source_revision': prepared['provenance']['revision'],
         'source_hash': prepared['provenance']['article_sha256'], 'payload_sha256': digest(prepared)}
-    job = jobs.create(root, 'derivative', inputs, 'subscription_writer')
+    if job_id:
+        stored=writer.load_json(jobs._path(root,job_id))
+        current=stored['inputs']
+        if (stored['kind']!='derivative' or any(current.get(k)!=inputs[k] for k in
+                ('article_id','source_revision','source_hash')) or
+                current.get('payload_sha256',inputs['payload_sha256'])!=inputs['payload_sha256']):
+            raise ValueError('Existing derivative job differs from exact source preparation')
+        job=jobs.summary(stored)
+    else:
+        job = jobs.create(root, 'derivative', inputs, 'subscription_writer')
     if job['status'] in {'generated', 'reviewed', 'canceled'} or jobs.is_paused(root, 'derivative'):
         return job
     if job['status'] == 'running':
         raise jobs.Conflict('Model job is already claimed; inspect immutable receipt')
+    if job['attempts']>=2:
+        raise jobs.Conflict('Two-attempt derivative ceiling reached')
     private = jobs._folder(root) / 'artifacts' / job['id']
     private.mkdir(parents=True, exist_ok=True)
     model_job = private / 'model-job'
