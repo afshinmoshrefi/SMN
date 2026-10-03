@@ -13,6 +13,13 @@ SITE = Path('/etc/nginx/sites-available/smn.conf')
 SNIPPET = Path('/etc/nginx/snippets/smn_reader.conf')
 UNIT = Path('/etc/systemd/system/smn-reader.service')
 DASH = Path('/etc/systemd/system/pub_dashboard.service.d/60-membership.conf')
+QUEUE = Path('/etc/systemd/system/blog_queue.service.d/60-membership.conf')
+PROCESSOR = Path('/etc/systemd/system/article_processor.service.d/60-membership.conf')
+SWEEP = Path('/etc/systemd/system/pub_dashboard_sweep.service.d/60-membership.conf')
+PROMOTION = Path('/etc/systemd/system/smn-promotion.service')
+PROMOTION_TIMER = Path('/etc/systemd/system/smn-promotion.timer')
+BRIEFING = Path('/etc/systemd/system/smn-market-briefing.service')
+BRIEFING_TIMER = Path('/etc/systemd/system/smn-market-briefing.timer')
 PYTHON = '/home/flask/venv-smn-membership-20261003/bin/python'
 
 
@@ -66,7 +73,7 @@ def nginx():
     add_header X-Content-Type-Options "nosniff" always;
 '''
     routes = '\n'.join('location ' + path + ' {' + proxy + '}\n' for path in
-        ('^~ /member/', '^~ /articles/', '^~ /editions/', '^~ /datasets/', '= /posts.json'))
+        ('^~ /member/', '^~ /articles/', '^~ /editions/', '^~ /datasets/', '^~ /briefings/', '= /posts.json'))
     return routes + '''
 location = /smn-dashboard/auth/callback {
     access_log off;
@@ -108,7 +115,24 @@ WantedBy=multi-user.target
     if 'include snippets/smn_reader.conf;' not in original:
         original = original.replace('include snippets/smn_dashboard.conf;',
                                     'include snippets/smn_dashboard.conf;\n    include snippets/smn_reader.conf;')
-    return {ENV: configuration(), UNIT: reader, DASH: dashboard, SITE: original, SNIPPET: nginx()}
+    common = f'[Service]\nWorkingDirectory={repo}/blog\nEnvironmentFile={ENV}\nEnvironment=PYTHONDONTWRITEBYTECODE=1\nExecStart=\n'
+    queue = common + f'ExecStart={PYTHON} -m gunicorn --workers 2 --bind unix:/home/flask/blog/blog_queue.sock -m 0 wsgi:app\n'
+    processor = common + f'ExecStart={PYTHON} {repo}/blog/article_processor.py\n'
+    sweep = common + f'ExecStart={PYTHON} {repo}/blog/pin_sweeper.py\n'
+    job = ('[Unit]\nDescription=SMN private promotion jobs\nAfter=network.target\n[Service]\nType=oneshot\nUser=root\n'
+           f'WorkingDirectory={repo}/blog\nEnvironmentFile={ENV}\nEnvironment=PYTHONDONTWRITEBYTECODE=1\n'
+           f'ExecStart={PYTHON} {repo}/blog/promotion_daemon.py\nUMask=0077\nTimeoutStartSec=1800\nNoNewPrivileges=true\n')
+    timer = ('[Unit]\nDescription=Run pending SMN private promotion work\n[Timer]\nOnBootSec=2min\n'
+             'OnUnitInactiveSec=1min\nPersistent=false\n[Install]\nWantedBy=timers.target\n')
+    daily = job.replace('SMN private promotion jobs', 'SMN daily market headline discovery').replace(
+        f'{repo}/blog/promotion_daemon.py', f'{repo}/blog/briefing_daily.py --output-root /var/lib/smn/reader/briefing-runs '
+        '--codex /usr/local/bin/codex --model gpt-5.6-sol --effort medium')
+    daily_timer = ('[Unit]\nDescription=Prepare the daily SMN market briefing\n[Timer]\n'
+                   'OnCalendar=Mon..Fri *-*-* 06:00:00 America/New_York\nPersistent=false\n'
+                   '[Install]\nWantedBy=timers.target\n')
+    return {ENV: configuration(), UNIT: reader, DASH: dashboard, SITE: original, SNIPPET: nginx(),
+            QUEUE: queue, PROCESSOR: processor, SWEEP: sweep, PROMOTION: job,
+            PROMOTION_TIMER: timer, BRIEFING: daily, BRIEFING_TIMER: daily_timer}
 
 
 def prepare(record):
@@ -195,10 +219,32 @@ def gate(record):
     return state
 
 
+def workers(record):
+    guard()
+    record = Path(record)
+    state = json.loads((record / 'receipt.json').read_text())
+    migration = json.loads(Path('/var/lib/smn/reader/migration.json').read_text())
+    if state['status'] != 'access_gate_active_pending_corpus' or migration['status'] != 'active':
+        raise ValueError('The complete private corpus must be active before enabling publishers')
+    for path in (QUEUE, PROCESSOR, SWEEP, PROMOTION, PROMOTION_TIMER, BRIEFING, BRIEFING_TIMER):
+        before = state['before'][str(path)]
+        actual = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+        if actual != before['sha256']:
+            raise ValueError('Worker configuration changed since preparation')
+        write(path, (record / (before['file'] + '.after')).read_text())
+    run('systemctl', 'daemon-reload')
+    run('systemctl', 'restart', 'blog_queue.service', 'article_processor.service')
+    run('systemctl', 'start', 'pub_dashboard_sweep.timer')
+    run('systemctl', 'enable', '--now', 'smn-promotion.timer', 'smn-market-briefing.timer')
+    state['status'] = 'active'
+    write(record / 'receipt.json', json.dumps(state, indent=2), 0o600)
+    return state
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'reader', 'gate'])
+    parser.add_argument('action', choices=['prepare', 'reader', 'gate', 'workers'])
     parser.add_argument('record')
     args = parser.parse_args()
-    result = {'prepare': prepare, 'reader': activate_reader, 'gate': gate}[args.action](args.record)
+    result = {'prepare': prepare, 'reader': activate_reader, 'gate': gate, 'workers': workers}[args.action](args.record)
     print(json.dumps({k: result[k] for k in ('status', 'repo', 'commit')}))

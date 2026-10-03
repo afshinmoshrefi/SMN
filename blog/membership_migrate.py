@@ -90,6 +90,8 @@ def activate():
             if not (archive / name).exists():
                 (archive / name).write_text(original, encoding='utf-8')
             changed = original
+            if name.endswith('.html') and '/briefings/' not in changed:
+                changed = changed.replace('<nav>', '<nav><a href="/briefings/">Market Briefing</a><a href="/member/account">Account</a>', 1)
             for old, new in heroes.items():
                 changed = changed.replace(old, html.escape(new, quote=True) if name.endswith('.html') else new)
             if changed != original:

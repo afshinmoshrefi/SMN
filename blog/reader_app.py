@@ -1,6 +1,7 @@
 """Separate SMN reader process. Administrator authentication is not imported."""
 import os
 import re
+import json
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
@@ -150,6 +151,49 @@ def create_app(config=None, store=None, auth=None):
                     entries.append({'path': entry['path'], 'title': content['headline']['text']})
         return render_template('reader_index.html', entries=entries)
 
+    @app.get('/posts.json')
+    def public_catalog():
+        # Preserve existing archive search without serving the internal catalog.
+        if not store.enabled():
+            return jsonify([])
+        catalog = Path(public_roots[0]) / 'posts.json'
+        metadata = {}
+        if catalog.is_file():
+            metadata = {urlsplit(p.get('url', '')).path: p for p in json.loads(catalog.read_text('utf-8'))}
+        result = []
+        for row in store.inventory()['articles']:
+            if not row['revision']:
+                continue
+            manifest = store.resolve(row['path'])
+            copy = store.read_revision(row['path'])
+            public = {key: metadata.get(row['path'], {}).get(key, '') for key in
+                      ('slug', 'symbol', 'category', 'published_date', 'date')}
+            public.update(url=row['path'], title=copy['headline']['text'], dek=copy['preview'][0]['text'])
+            if manifest.get('public_asset_ids'):
+                public['hero_image'] = asset_url(row['path'], row['revision'], manifest['public_asset_ids'][0], True)
+            result.append(public)
+        return jsonify(result)
+
+    @app.get('/briefings/')
+    def briefings():
+        import public_briefing
+        return render_template('reader_briefings.html', entries=public_briefing.listing(private_root))
+
+    @app.get('/briefings/<identifier>')
+    def briefing(identifier):
+        import public_briefing
+        item = public_briefing.load(private_root, identifier)
+        return render_template('reader_briefing.html', item=item, has_video=bool(public_briefing.video(private_root, item)))
+
+    @app.get('/briefings/<identifier>/video')
+    def briefing_video(identifier):
+        import public_briefing
+        item = public_briefing.load(private_root, identifier)
+        path = public_briefing.video(private_root, item)
+        if not path:
+            raise ContentError('Video is unavailable')
+        return send_file(str(path), mimetype='video/mp4', conditional=True, etag=False)
+
     @app.get('/<path:path>')
     def article(path):
         path = '/' + path
@@ -173,6 +217,8 @@ def create_app(config=None, store=None, auth=None):
         if entitlement.get('can_read') is True:
             return Response(store.read_revision(path, 'full'), mimetype='text/html')
         return render_template('reader_preview.html', copy=manifest['preview']['content'],
-                               canonical=path, notice=notice, signed_in=bool(local))
+                               canonical=path, notice=notice, signed_in=bool(local),
+                               hero=asset_url(path, manifest['revision'], manifest['public_asset_ids'][0], True)
+                               if manifest.get('public_asset_ids') else None)
 
     return app

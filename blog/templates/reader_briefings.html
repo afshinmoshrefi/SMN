@@ -1,0 +1,3 @@
+{% extends 'reader_base.html' %}{% block title %}What’s happening in the markets{% endblock %}{% block content %}
+<div class="eyebrow">The daily market briefing · Free to read</div><h1>What’s happening in the markets?</h1><p>The stories behind the headlines, with the dates and sources that give them context.</p>
+{% for item in entries %}<article class="card"><div class="eyebrow">{{ item.date }} · {{ item.label }}</div><h2><a href="/briefings/{{ item.id }}">{{ item.title }}</a></h2><p>{{ item.narrative[0].text }}</p></article>{% else %}<p>The next briefing is being prepared. <a href="/">Explore the latest articles.</a></p>{% endfor %}{% endblock %}
