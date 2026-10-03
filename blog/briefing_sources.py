@@ -1,5 +1,6 @@
 """Immutable public-source capture and subscription-CLI daily draft jobs."""
 import argparse
+import copy
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 import json
@@ -125,6 +126,37 @@ def capture(manifest, output, *, opener=None, auto_full_text=False):
     return result
 
 
+def writing_schema(schema,qualified):
+    """Strict provider shape; original daily schema still validates final evidence.
+
+    Optional capture metadata is frozen to each actual source's existing shape,
+    rather than filling missing timestamps with invented/null replacement fields.
+    """
+    schema=copy.deepcopy(schema)
+    def exact_shape(template,value):
+        if isinstance(value,dict):
+            result=copy.deepcopy(template)
+            result['properties']={k:exact_shape(template['properties'][k],v) for k,v in value.items()}
+            result['required']=list(value);return result
+        return copy.deepcopy(template)
+    template=schema['properties']['sources']['items'];variants=[]
+    for source in qualified:
+        shape=exact_shape(template,source);shape['properties']['id']['enum']=[source['id']];variants.append(shape)
+    schema['properties']['sources']['items']={'anyOf':variants}
+    allowed={'type','enum','properties','items','required','additionalProperties','anyOf'}
+    def strict(node):
+        if not isinstance(node,dict):return node
+        if 'const' in node:node=dict(node,enum=[node['const']])
+        result={k:v for k,v in node.items() if k in allowed}
+        if 'properties' in result:
+            result['properties']={k:strict(v) for k,v in result['properties'].items()}
+            result['required']=list(result['properties']);result['additionalProperties']=False
+        if 'items' in result:result['items']=strict(result['items'])
+        if 'anyOf' in result:result['anyOf']=[strict(v) for v in result['anyOf']]
+        return result
+    return strict(schema)
+
+
 def write_draft(source_bundle, output, *, codex, model, effort):
     """Existing subscription CLI; source capture and review remain independent gates."""
     qualified=[s for s in source_bundle['sources'] if s['access'] in {'full_text','primary_release'}]
@@ -144,7 +176,7 @@ def write_draft(source_bundle, output, *, codex, model, effort):
         'Return required schema JSON, with version1, timezone America/New_York, label '+label+', explicit edition date and cutoff. '
         'Use neutral title/claim_text storyboard without requiring generation. No approvals, provider IDs, publish promises or generation claims.\n'+json.dumps(draft_input))
     now=datetime.now(timezone.utc)
-    writer.prepare_job(output,'writer-job',prompt,schema,as_of=now.isoformat(),
+    writer.prepare_job(output,'writer-job',prompt,writing_schema(schema,qualified),as_of=now.isoformat(),
         valid_until=(now+timedelta(hours=20)).isoformat(),evidence_sha256=digest(source_bundle),
         stage='daily-briefing-write',model=model,effort=effort)
     receipt=writer.run_job(output/'writer-job',codex)

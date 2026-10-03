@@ -4,8 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from briefing_sources import Document,capture, write_draft
+from briefing_sources import Document,capture, write_draft,writing_schema
 from daily_briefing import digest
+from subscription_writer import load_json,validate_schema
 
 
 class Sources(unittest.TestCase):
@@ -47,6 +48,27 @@ class Sources(unittest.TestCase):
             '{"@type":"NewsArticle","datePublished":"2026-10-02T21:23:22.000Z","publisher":{"name":"Thomson Reuters"}}</script><p>Actual article</p>')
         self.assertEqual(document.dates['article:published_time'],'2026-10-02T21:23:22.000Z')
         self.assertNotIn('datePublished',''.join(document.parts))
+
+    def test_strict_writer_schema_preserves_exact_optional_capture_shapes(self):
+        schema=load_json(Path(__file__).resolve().parents[1]/'schemas/daily_briefing.schema.json')
+        example=load_json(Path(__file__).resolve().parents[1]/'examples/daily-briefing/2026-10-02-end-of-day.json')
+        original=digest(schema);strict=writing_schema(schema,example['sources'])
+        self.assertEqual(digest(schema),original)
+        variants=strict['properties']['sources']['items']['anyOf']
+        for source,variant in zip(example['sources'],variants):
+            self.assertEqual(set(variant['required']),set(source))
+            validate_schema(source,variant)
+        self.assertNotIn('updated_at',variants[0]['properties'])
+        self.assertNotIn('observation_sha256',variants[0]['properties']['capture']['properties'])
+        def check(node):
+            if 'properties' in node:
+                self.assertEqual(set(node['required']),set(node['properties']))
+                self.assertIs(node['additionalProperties'],False)
+                for child in node['properties'].values():check(child)
+            if 'items' in node:check(node['items'])
+            for child in node.get('anyOf',[]):check(child)
+            self.assertNotIn('const',node);self.assertNotIn('uniqueItems',node)
+        check(strict)
 
 
 if __name__=='__main__':unittest.main()
