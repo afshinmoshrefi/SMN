@@ -44,10 +44,11 @@ import urllib.parse
 
 matplotlib.use('Agg')
 
-sys.path.insert(0, '/home/flask/blog')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import post_template
 
-sys.path.insert(0, '/home/flask')
+if '/home/flask' not in sys.path:
+    sys.path.append('/home/flask')
 import config
 
 #------------------------------------------------------------------------------------------------
