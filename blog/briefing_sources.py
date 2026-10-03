@@ -138,7 +138,7 @@ def writing_schema(schema,qualified):
             result=copy.deepcopy(template)
             result['properties']={k:exact_shape(template['properties'][k],v) for k,v in value.items()}
             result['required']=list(value);return result
-        return copy.deepcopy(template)
+        result=copy.deepcopy(template);result['enum']=[value];return result
     template=schema['properties']['sources']['items'];variants=[]
     for source in qualified:
         shape=exact_shape(template,source);shape['properties']['id']['enum']=[source['id']];variants.append(shape)
