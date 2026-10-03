@@ -167,7 +167,7 @@ def create_app(config=None, store=None, auth=None):
             manifest = store.resolve(row['path'])
             copy = store.read_revision(row['path'])
             public = {key: metadata.get(row['path'], {}).get(key, '') for key in
-                      ('slug', 'symbol', 'category', 'published_date', 'date')}
+                      ('slug', 'symbol', 'category', 'published_date', 'date', 'direction')}
             public.update(url=row['path'], title=copy['headline']['text'], dek=copy['preview'][0]['text'])
             if manifest.get('public_asset_ids'):
                 public['hero_image'] = asset_url(row['path'], row['revision'], manifest['public_asset_ids'][0], True)
