@@ -58,7 +58,7 @@ class Daily(unittest.TestCase):
                 patch.object(sources,'write_draft',return_value={'issues':[]}) as draft:
             result=daily.run(self.root/'run','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',mode='full_text',opener=opener)
             bundle=draft.call_args.args[0]
-            self.assertEqual(bundle['label'],'Before the Open');self.assertEqual(bundle['sources'][0]['access'],'full_text')
+            self.assertEqual(bundle['label'],'Market Wrap');self.assertEqual(bundle['sources'][0]['access'],'full_text')
             self.assertEqual(draft.call_args.kwargs['model'],'gpt-5.6-sol')
         self.assertFalse(result['publish']);self.assertEqual(result['review_status'],'pending')
         self.assertEqual(len(list((self.root/'run/capture').glob('*.html'))),1)
@@ -113,6 +113,17 @@ class Daily(unittest.TestCase):
             'url':'https://www.cnbc.com/story','published_at':'2026-10-03T09:00:00Z'}],
             'files':{'cnbc.discovery':'a'*64},'scan':[],'retrieved_at':'2026-10-03T12:00:00Z'}
         self.assertEqual(daily.headline_bundle(discovery,'2026-10-03',self.cutoff,'Before the Open')['sources'],[])
+
+    def test_weekend_label_default_and_explicit_before_open_rejection(self):
+        for date in ('2026-10-03','2026-10-04'):
+            self.assertEqual(daily.edition_label(date),'Market Wrap')
+            with self.assertRaises(ValueError):daily.edition_label(date,'Before the Open')
+        self.assertEqual(daily.edition_label('2026-10-05'),'Before the Open')
+        self.assertEqual(daily.edition_label('2026-10-03','Intraday'),'Intraday')
+        with patch.object(daily,'discover') as discover:
+            with self.assertRaises(ValueError):daily.run(self.root/'weekend','2026-10-03',self.cutoff,codex='codex',model='model',effort='medium',label='Before the Open')
+            discover.assert_not_called()
+        self.assertFalse((self.root/'weekend').exists())
 
     def test_wrong_new_york_edition_rejected_before_access(self):
         with self.assertRaises(ValueError):daily.run(self.root/'bad','2026-10-04',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium')

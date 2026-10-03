@@ -150,10 +150,18 @@ def headline_bundle(discovery,edition_date,cutoff,label):
             'mode':'headline_roundup','coverage_note':HEADLINE_NOTE}
 
 
-def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Before the Open',mode='headline_roundup'):
+def edition_label(edition_date,label=None):
+    weekend=datetime.fromisoformat(edition_date).weekday()>=5
+    if weekend and label=='Before the Open':
+        raise ValueError('Before the Open requires a Monday-Friday edition date')
+    return label or ('Market Wrap' if weekend else 'Before the Open')
+
+
+def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label=None,mode='headline_roundup'):
     cutoff_dt=datetime.fromisoformat(cutoff.replace('Z','+00:00'))
     if cutoff_dt.utcoffset() is None or cutoff_dt.astimezone(ZoneInfo('America/New_York')).date().isoformat()!=edition_date:
         raise ValueError('Edition requires an offset-aware cutoff on its New York date')
+    label=edition_label(edition_date,label)
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
     discovery=discover(output/'discovery',cutoff_dt,opener=opener)
     manifest={'edition_date':edition_date,'cutoff':cutoff,'sources':discovery['sources']}
@@ -195,16 +203,17 @@ def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Befor
 def main():
     p=argparse.ArgumentParser();p.add_argument('--output-root',required=True);p.add_argument('--date')
     p.add_argument('--cutoff');p.add_argument('--codex',required=True);p.add_argument('--model',required=True)
-    p.add_argument('--effort',required=True);p.add_argument('--label',choices=['Before the Open','Intraday','Market Wrap'],default='Before the Open')
+    p.add_argument('--effort',required=True);p.add_argument('--label',choices=['Before the Open','Intraday','Market Wrap'])
     p.add_argument('--registry-root');p.add_argument('--registry-id')
     p.add_argument('--mode',choices=['headline_roundup','full_text'],default='headline_roundup')
     args=p.parse_args();now=datetime.now(ZoneInfo('America/New_York'));date=args.date or now.date().isoformat()
     cutoff=args.cutoff or datetime.fromisoformat(date+'T07:00:00').replace(tzinfo=ZoneInfo('America/New_York')).isoformat()
     output=Path(args.output_root)/(date+'-'+datetime.now(timezone.utc).strftime('%H%M%S%f'))
-    result=run(output,date,cutoff,codex=args.codex,model=args.model,effort=args.effort,label=args.label,mode=args.mode)
+    label=edition_label(date,args.label)
+    result=run(output,date,cutoff,codex=args.codex,model=args.model,effort=args.effort,label=label,mode=args.mode)
     registry=args.registry_root or (str(Path(os.environ['SMN_READER_PRIVATE_ROOT'])/'briefings') if os.environ.get('SMN_READER_PRIVATE_ROOT') else None)
     if registry:
-        identifier=args.registry_id or date+'-'+args.label.lower().replace(' ','-')+'-'+output.name.rsplit('-',1)[-1]
+        identifier=args.registry_id or date+'-'+label.lower().replace(' ','-')+'-'+output.name.rsplit('-',1)[-1]
         result['registry_path']=register(output,registry,identifier)
     print(__import__('json').dumps({'output':str(output),'status':result['status'],'qualified_count':result['qualified_count'],
                                   'holds':result['holds'],'registry_path':result.get('registry_path'),'publish':False}))

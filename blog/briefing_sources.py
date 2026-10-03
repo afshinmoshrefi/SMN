@@ -194,6 +194,9 @@ def write_draft(source_bundle, output, *, codex, model, effort):
             'Preserve every source record, source order and scan unchanged. Return required schema JSON, version1, America/New_York timezone, '
             'mode=headline_roundup, coverage_note exactly the scope note, explicit supplied edition_date/cutoff/label. '
             'No approvals, provider IDs, publication promises or generation claims.\n'+json.dumps(draft_input))
+    prompt+='\nKeep the written narrative broad enough to cover all major captured headline clusters. '
+    prompt+='For the spoken script target 45-60 seconds, approximately 100-145 words total; prioritize dominant clusters rather than repeating every headline. '
+    prompt+='Keep explicit outlet attribution and, in headline_roundup mode, retain the exact headline-only scope note in the spoken script. '
     provider_schema=writing_schema(schema,qualified)
     provider_schema['properties']['mode']['enum']=['headline_roundup' if headline_mode else 'full_text']
     if headline_mode:provider_schema['properties']['coverage_note']['enum']=[HEADLINE_NOTE]
