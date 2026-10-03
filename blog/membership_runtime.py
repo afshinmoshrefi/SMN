@@ -211,6 +211,22 @@ def get_job(identifier):
     job['payload_sha256'] = digest(full['inputs'])
     job['script'] = full['inputs'].get('script', '')
     job['imported_draft'] = full.get('imported_draft')
+    inputs=full['inputs']
+    if inputs.get('briefing_id'):
+        identifier=inputs['briefing_id']
+        job['subject_label']='Daily briefing'
+        if re.fullmatch(r'[A-Za-z0-9_-]{1,100}',identifier):
+            job['subject_label']='Daily briefing · '+identifier
+            try:
+                source=_briefing_record(identifier)
+                value=source.get('briefing',source.get('source_bundle'))
+                job['subject_label']=value.get('title') or (value.get('edition_date',identifier)+' · '+value.get('label','Daily briefing'))
+            except ContentError:
+                pass
+    else:
+        matches=[post for post in article_index.load_posts() if post.get('url')==inputs.get('article_id')]
+        job['subject_label']=matches[0].get('title') or 'Research article' if len(matches)==1 else 'Research article unavailable'
+    job['subject_label']=' '.join(str(job['subject_label']).split())[:300]
     return job
 
 
