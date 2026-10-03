@@ -11,6 +11,60 @@ from subscription_publication import CHECKS
 
 
 class DerivativeTests(unittest.TestCase):
+    def test_crowded_dates_fail_character_preflight_but_short_qualified_script_passes(self):
+        from public_derivative import validate_video_script, prepare_script_prompt
+        approved = copy.deepcopy(self.copy); approved['video'] = None
+        script = copy.deepcopy(self.copy['video'])
+        script['narration']['text'] = ('TradeWave\u2019s long study of ADP common stock (Nasdaq: ADP) for October 11\u201330, 2026 found nine winners in 10 selected midterm-election years, 1986\u20132022. Consecutive histories were weaker; historical, not forecast.')
+        self.assertTrue(24 <= len(script['narration']['text'].split()) <= 32)
+        self.assertEqual(len(script['narration']['text']),210)
+        with self.assertRaisesRegex(ValueError, '195-character'):
+            validate_video_script(script,self.prepared,approved)
+        script['narration']['text'] = ('Stock price weakness can favor this short study, but rebounds can hurt. See the full risk study and careful comparison; '
+                                     'these past results are not a future forecast.')
+        checks = validate_video_script(script,self.prepared,approved)
+        self.assertLessEqual(checks['narration_characters'],195)
+        self.assertTrue(160 <= checks['narration_characters'] <= 190)
+        bounded = copy.deepcopy(script)
+        bounded['narration']['text'] = bounded['narration']['text'].replace('this short study', 'this 1986-2022 study')
+        with self.assertRaisesRegex(ValueError, 'numeric date/year ranges'):
+            validate_video_script(bounded,self.prepared,approved)
+        bounded = copy.deepcopy(script)
+        bounded['narration']['text'] = bounded['narration']['text'].replace('this short study', 'this (ADP) study')
+        with self.assertRaisesRegex(ValueError, 'ticker parentheticals'):
+            validate_video_script(bounded,self.prepared,approved)
+        prompt = prepare_script_prompt(self.prepared,approved)
+        self.assertIn('not a duration claim',prompt)
+        self.assertIn('numeric year/date ranges',prompt)
+
+    def test_editor_rejected_generated_script_retry_retains_first_attempt(self):
+        from unittest.mock import patch
+        import promotion_jobs as jobs
+        from public_derivative_jobs import generate_script
+        approved = copy.deepcopy(self.copy); approved['video'] = None
+        script = copy.deepcopy(self.copy['video'])
+        script['narration']['text'] = ('Stock price weakness can favor this short study, but rebounds can hurt. See the full risk study and careful comparison; '
+                                     'these past results are not a future forecast.')
+        provenance=self.prepared['provenance']
+        inputs={'article_id':provenance['article_id'],'source_revision':provenance['revision'],
+                'source_hash':provenance['article_sha256'],'payload_sha256':digest(approved)}
+        job=jobs.create(self.root,'article_script',inputs,'editor')
+        def run(path,codex):
+            save_json(path/'output.json',script)
+            return {'status':'output_ready_for_smn_validation'}
+        with patch('public_derivative_jobs.writer.run_job',side_effect=run) as provider:
+            first=generate_script(self.root,self.prepared,approved,{'model':'gpt-5.6-sol','effort':'medium'},'unused',job_id=job['id'])
+            path=jobs._folder(self.root)/'artifacts'/job['id']/'model-job'/'output.json'
+            original=path.read_bytes()
+            held=jobs.transition(self.root,job['id'],'review',first['version'],'editor',
+                                 {'decision':'rejected','payload_sha256':digest(inputs)})
+            jobs.transition(self.root,job['id'],'retry',held['version'],'editor')
+            second=generate_script(self.root,self.prepared,approved,{'model':'gpt-5.6-sol','effort':'medium'},'unused',job_id=job['id'])
+            self.assertEqual(second['status'],'generated'); self.assertEqual(second['attempts'],2)
+            self.assertEqual(path.read_bytes(),original)
+            self.assertTrue((path.parent.parent/'model-job-2'/'output.json').is_file())
+            self.assertEqual(provider.call_count,2)
+
     def test_script_retry_retains_first_output_and_cannot_exceed_two_attempts(self):
         from unittest.mock import patch
         import promotion_jobs as jobs
