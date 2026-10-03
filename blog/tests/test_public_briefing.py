@@ -42,6 +42,21 @@ class PublicBriefingTests(unittest.TestCase):
         self.assertIn('AI-generated narration.',template.render(item=item,has_video=True))
         self.assertNotIn('AI-generated narration.',template.render(item=item,has_video=False))
 
+    def test_short_approved_avatar_cannot_replace_complete_daily_video(self):
+        import promotion_jobs as jobs
+        from subscription_writer import save_json,sha256
+        root=self.root/'promotion';binding='a'*64
+        def reviewed(kind,name,body):
+            job=jobs.create(root,kind,{'briefing_id':'edition','source_revision':binding,'source_hash':binding},'test')
+            folder=jobs._folder(root)/'artifacts'/job['id'];folder.mkdir(parents=True)
+            (folder/name).write_bytes(body);artifact={'name':name,'relative_path':name,'media_type':'video/mp4','sha256':sha256(body)}
+            return jobs.update(root,job['id'],job['version'],status='reviewed',review_status='approved',
+                artifacts=[artifact],review={'artifact_hashes':{name:artifact['sha256']}})
+        full=reviewed('daily_briefing','briefing.mp4',b'complete-test-fixture')
+        reviewed('daily_avatar','avatar.mp4',b'short-test-fixture')
+        selected=public_briefing.video(self.root,{'sha256':binding})
+        self.assertEqual(selected.read_bytes(),b'complete-test-fixture')
+
     def test_unavailable_and_traversal_are_closed(self):
         for identifier in ('missing', '../private', 'x/y'):
             with self.assertRaises(ContentError): public_briefing.load(self.root, identifier)

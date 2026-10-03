@@ -49,10 +49,39 @@ def video(root, briefing, media_type='video/mp4'):
         job = json.loads(promotion_jobs._path(jobs_root, summary['id']).read_text('utf-8'))
         if job['source_hash'] != briefing['sha256'] or job['status'] != 'reviewed':
             continue
-        if not any(a['media_type'] == 'video/mp4' for a in job['artifacts']):
+        artifacts={a['name']:a for a in job['artifacts']}
+        review=job.get('review',{}).get('artifact_hashes',{})
+        complete=artifacts.get('briefing.mp4')
+        if not complete or review.get('briefing.mp4')!=complete['sha256']:
             continue
-        for artifact in job['artifacts']:
-            if artifact['media_type'] == media_type and job.get('review', {}).get('artifact_hashes', {}).get(artifact['name']) == artifact['sha256']:
-                return promotion_jobs.get_artifact(jobs_root, job['id'], artifact['name'])[0]
+        if job['kind']=='daily_avatar':
+            receipt=artifacts.get('briefing.receipt.json')
+            if not receipt or review.get(receipt['name'])!=receipt['sha256']:continue
+            try:
+                path=promotion_jobs.get_artifact(jobs_root,job['id'],receipt['name'])[0]
+                binding=json.loads(path.read_text('utf-8'))
+                if (binding.get('media_role')!='full_briefing' or binding.get('complete_narration') is not True
+                        or binding.get('briefing_sha256')!=briefing['sha256']
+                        or binding.get('video_sha256')!=complete['sha256']):continue
+                base_id=job['inputs'].get('briefing_media_job_id')
+                if not base_id or binding.get('base_job_id')!=base_id:continue
+                base=json.loads(promotion_jobs._path(jobs_root,base_id).read_text('utf-8'))
+                if (base.get('kind')!='daily_briefing' or base.get('status')!='reviewed'
+                        or base.get('review_status')!='approved' or base.get('source_hash')!=briefing['sha256']):continue
+                base_artifacts={a['name']:a for a in base['artifacts']}
+                base_review=base.get('review',{}).get('artifact_hashes',{})
+                if binding.get('duration_seconds',0)<=0 or binding.get('decoded') is not True:continue
+                for name,key in [('narration.mp3','audio_sha256'),('captions.vtt','captions_sha256')]:
+                    if (not base_artifacts.get(name) or base_review.get(name)!=base_artifacts[name]['sha256']
+                            or binding.get(key)!=base_artifacts[name]['sha256']):raise ValueError('Avatar master binding differs')
+                    promotion_jobs.get_artifact(jobs_root,base_id,name)
+
+                    if not artifacts.get(name) or review.get(name)!=artifacts[name]['sha256'] or binding.get(key)!=artifacts[name]['sha256']:
+                        raise ValueError('Full avatar narration/caption binding differs')
+            except (OSError,ValueError,KeyError):continue
+        name='briefing.mp4' if media_type=='video/mp4' else 'captions.vtt' if media_type=='text/vtt' else None
+        artifact=artifacts.get(name)
+        if artifact and artifact['media_type']==media_type and review.get(name)==artifact['sha256']:
+            return promotion_jobs.get_artifact(jobs_root,job['id'],name)[0]
         return None  # Never pair captions from an older, different video.
     return None
