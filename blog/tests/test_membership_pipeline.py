@@ -119,6 +119,10 @@ class PrivatePipelineTests(unittest.TestCase):
         self.assertEqual(source['prepared']['provenance']['article_id'],self.post['url'])
         self.assertEqual(source['native_charts']['bars_mae_mfe']['sha256'],publication.sha(b'CHART'))
         self.assertNotIn('copy',source)
+        import promotion_jobs
+        from subscription_writer import load_json
+        stored=load_json(promotion_jobs._path(self.private/'promotion',first['jobs'][0]['id']))
+        self.assertEqual(stored['inputs']['payload_sha256'],digest(source['prepared']))
         self.assertEqual(pipeline.read(fixture.article_dir/'source.json')['card']['production_original'],fixture.url)
 
     def test_postprocessing_dataset_is_private_with_same_url(self):
