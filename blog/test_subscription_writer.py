@@ -9,6 +9,15 @@ from subscription_writer import (child_environment, prepare_job, verify_job,
 
 
 class SubscriptionHandoffTests(unittest.TestCase):
+    def test_only_exact_skill_budget_notice_is_informational(self):
+        from subscription_writer import completed_tool_items, SKILL_DESCRIPTION_NOTICE
+        events = [{'type': 'item.completed', 'item': {'type': 'error', 'message': SKILL_DESCRIPTION_NOTICE}},
+                  {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': '{}'}}]
+        self.assertEqual(completed_tool_items(events), [])
+        events.append({'type': 'item.completed', 'item': {'type': 'error', 'message': 'Provider failed'}})
+        events.append({'type': 'item.completed', 'item': {'type': 'command_execution', 'command': 'unexpected'}})
+        self.assertEqual(completed_tool_items(events), ['error', 'command_execution'])
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

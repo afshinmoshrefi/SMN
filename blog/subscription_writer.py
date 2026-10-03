@@ -21,6 +21,23 @@ import time
 import uuid
 
 SUPPORTED_MODELS = {'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol'}
+SKILL_DESCRIPTION_NOTICE = ('Skill descriptions were shortened to fit the 2% skills context budget. '
+    'Codex can still see every skill, but some descriptions are shorter. '
+    'Disable unused skills or plugins to leave more room for the rest.')
+
+
+def completed_tool_items(events):
+    """One documented context-budget notice is informational, never a tool call."""
+    result = []
+    for event in events:
+        if event.get('type') != 'item.completed':
+            continue
+        item = event.get('item', {})
+        if item.get('type') == 'error' and item.get('message') == SKILL_DESCRIPTION_NOTICE:
+            continue
+        if item.get('type') not in {'agent_message', 'reasoning'}:
+            result.append(item.get('type'))
+    return result
 MEDIA = {'.png', '.jpg', '.jpeg', '.webp'}
 
 
@@ -301,9 +318,7 @@ def run_job(job, codex, *, timeout=900):
         save_json(job/'usage-after.json', after)
         if proc.returncode != 0 or len(completed) != 1:
             raise RuntimeError('Codex did not complete exactly one turn; inspect saved diagnostics')
-        tool_items = [e.get('item', {}).get('type') for e in events
-                      if e.get('type') == 'item.completed' and
-                      e.get('item', {}).get('type') not in {'agent_message', 'reasoning'}]
+        tool_items = completed_tool_items(events)
         if any(t not in {'web_search', 'web_search_call'} or not manifest.get('web_search')
                for t in tool_items):
             raise RuntimeError('Unexpected tools in a prepared-evidence writing job')
