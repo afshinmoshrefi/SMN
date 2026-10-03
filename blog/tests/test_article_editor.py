@@ -139,6 +139,9 @@ class ArticleEditorTests(DashboardFixture):
             editor.validate_metadata('<img src=x onerror=alert(1)>')
         with self.assertRaises(editor.EditorError):
             editor.validate('<p><a href="https://source.test">Source</a></p>', '<p>Source</p>')
+        self.assertEqual(editor.apply_edits('<p>Hello</p>', [{"before": "Hello", "after": "Welcome"}]), '<p>Welcome</p>')
+        with self.assertRaises(editor.EditorError):
+            editor.apply_edits('Hi Hi', [{"before": "Hi", "after": "Welcome"}])
 
     def test_interrupted_publication_recovers_both_files(self):
         draft = self.changed()
