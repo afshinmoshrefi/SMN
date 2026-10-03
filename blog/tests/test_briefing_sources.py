@@ -49,6 +49,17 @@ class Sources(unittest.TestCase):
         self.assertEqual(document.dates['article:published_time'],'2026-10-02T21:23:22.000Z')
         self.assertNotIn('datePublished',''.join(document.parts))
 
+    def test_writer_prompt_targets_short_spoken_script_and_broad_written_coverage(self):
+        example=load_json(Path(__file__).resolve().parents[1]/'examples/daily-briefing/2026-10-02-end-of-day.json')
+        with tempfile.TemporaryDirectory() as directory,patch('briefing_sources.writer.prepare_job') as prepare,\
+                patch('briefing_sources.writer.run_job',return_value={'status':'held'}):
+            with self.assertRaises(ValueError):write_draft(example,Path(directory)/'draft',codex='codex',model='model',effort='medium')
+        prompt=prepare.call_args.args[2]
+        self.assertIn('100-145 words total',prompt)
+        self.assertIn('45-60 seconds',prompt)
+        self.assertIn('all major captured headline clusters',prompt)
+        self.assertIn('exact headline-only scope note in the spoken script',prompt)
+
     def test_strict_writer_schema_preserves_exact_optional_capture_shapes(self):
         schema=load_json(Path(__file__).resolve().parents[1]/'schemas/daily_briefing.schema.json')
         example=load_json(Path(__file__).resolve().parents[1]/'examples/daily-briefing/2026-10-02-end-of-day.json')
