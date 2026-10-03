@@ -72,6 +72,7 @@ from article_hero_image import hero_image_workflow, HERO_WIDTH_ATTR, HERO_HEIGHT
 from blog_tools import get_company_name
 import AI_tools
 from publish_article import publish_article_web
+import membership_pipeline
 
 # Write-only audit observer (article_audit.py). Recording must NEVER affect
 # generation: every article_audit entry point swallows its own errors, and this
@@ -181,6 +182,7 @@ def mark_step_error(tracking: Dict[str, Any], step: str, exc: Exception) -> None
 # Step 1: TradeWave charts and core data
 # ----------------------------------------------------------------------
 
+@membership_pipeline.asset_generation
 def generate_tradewave_charts(image_size_key: str,
                               resource_id: str,
                               symbol: str,
@@ -212,6 +214,7 @@ def generate_tradewave_charts(image_size_key: str,
 # Step 2: Hero image
 # ----------------------------------------------------------------------
 
+@membership_pipeline.asset_generation
 def generate_hero_image(resource_id: str,
                         symbol: str,
                         date: str,
@@ -555,6 +558,7 @@ def publish_article(resource_id: str,
 # Orchestrator: generate_news_article
 # ----------------------------------------------------------------------
 
+@membership_pipeline.generation_scope
 def generate_news_article(resource_id: str,
                           symbol: str,
                           date: str,

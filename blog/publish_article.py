@@ -26,6 +26,8 @@ from article_tools import compute_article_paths_and_url
 from blog_tools import get_company_name
 from create_report import get_or_create_tag
 from rebuild_news_home import build_home
+import membership_publication as membership
+import membership_pipeline as membership_pipeline
 
 # Default tone and website-id for now
 DEFAULT_TONE = "neutral"  # for future use in article generation so that mutliple flavors of the same article can be written
@@ -652,6 +654,7 @@ def _delete_article_images(symbol: str, pattern_start_date: str, days: str, year
 
 
 
+@membership_pipeline.catalog_transaction
 def write_article_and_register(info, resource_id, symbol, pattern_start_date, days, years, direction, userid, hero_image=""):
     """
     Side-effect helper: given the computed paths/URL (info),
@@ -667,23 +670,28 @@ def write_article_and_register(info, resource_id, symbol, pattern_start_date, da
     slug       = info["slug"]
     market_family = info["market_family"]
 
-    # Ensure directory exists
-    _ensure_dir(out_path.parent)
-
-    # POST-PROCESS: Add all SEO enhancements
-    article_html = article_post_process(
-        resource_id=resource_id,
-        symbol=symbol,
-        date=pattern_start_date,
-        days=days,
-        years=years,
-        zero_last_year=True,
-        article_html=article_html
-    )
-
-    # Write HTML atomically
-    _write_atomic(out_path, article_html)
-    
+    gated = membership.configured()
+    if gated:
+        import article_index
+        old = next((p for p in membership_pipeline.read(news_root/'posts.json') if p.get('url') == full_url), None)
+        previous = membership.store().resolve(membership.path_for(old)) if old else None
+        # The SEO pass writes an engine dataset. Scope that output to private
+        # staging while retaining its canonical browser URL.
+        with membership_pipeline.private_processing(config) as stage:
+            article_html = article_post_process(resource_id=resource_id, symbol=symbol,
+                date=pattern_start_date, days=days, years=years, zero_last_year=True,
+                article_html=article_html, articles_catalog_path=str(news_root / 'posts.json'))
+            membership_pipeline.materialize_existing_assets(stage, article_html, hero_image, news_root)
+            staged_entry = {'title': info['title'], 'url': full_url, 'hero_image': hero_image,
+                            'dek': _extract_dek_from_html(article_html)}
+            # Prepared assets must survive the temporary processing directory.
+            prepared_entry, prepared_manifest = membership.prepare(staged_entry, article_html, source_root=stage, previous=previous)
+            membership_pipeline.private_owner(membership.store().revisions / prepared_manifest['storage'])
+    else:
+        _ensure_dir(out_path.parent)
+        article_html = article_post_process(resource_id=resource_id, symbol=symbol,
+            date=pattern_start_date, days=days, years=years, zero_last_year=True, article_html=article_html)
+        _write_atomic(out_path, article_html)
 
     # Build entry metadata
     published_date = _now_iso_utc()
@@ -714,40 +722,34 @@ def write_article_and_register(info, resource_id, symbol, pattern_start_date, da
         "publish_status": DEFAULT_PUBLISH_STATUS,
     }
 
-    # 1) Redis write
-    redis_key = make_redis_key(
-        resource_id=resource_id,
-        symbol=symbol,
-        pattern_start_date=pattern_start_date,
-        days=int(days),
-        years=years,
-        tone=DEFAULT_TONE,
-        website_id=DEFAULT_WEBSITE_ID
-    )
-
-    save_article_to_redis(
-        redis_key=redis_key,
-        entry=entry,
-        tone=DEFAULT_TONE,
-        website_id=DEFAULT_WEBSITE_ID
-    )
-
-    # 2) posts.json upsert
-    posts_json = news_root / "posts.json"
-    try:
-        posts = json.loads(posts_json.read_text(encoding="utf-8")) if posts_json.exists() else []
-    except Exception:
-        posts = []
-
-    idx = next((i for i, p in enumerate(posts) if p.get("slug") == slug), None)
-    if idx is None:
-        posts.append(entry)
+    posts_json = news_root / 'posts.json'
+    if gated:
+        import article_index
+        if article_index.POSTS_JSON.resolve() != posts_json.resolve():
+            raise ValueError('Membership publication catalog mismatch')
+        # A corrupt catalog must fail closed, never replace the archive.
+        posts = membership_pipeline.read(posts_json)
+        old = next((p for p in posts if membership.path_for(p) == membership.path_for(entry)), None)
+        if old:
+            entry['published_date'] = old.get('published_date', published_date)
+        entry.update({k: prepared_entry[k] for k in
+            ('path', 'hero_image', 'membership_revision', 'preview_mode', 'dek', 'meta_description')})
+        membership.commit_post(posts, old, entry, prepared_manifest)
+        out_path = Path(entry['path'])
     else:
-        # preserve original published_date if existing
-        entry["published_date"] = posts[idx].get("published_date", published_date)
-        posts[idx] = entry
+        posts = json.loads(posts_json.read_text(encoding='utf-8')) if posts_json.exists() else []
+        idx = next((i for i,p in enumerate(posts) if p.get('slug') == slug), None)
+        if idx is None:
+            posts.append(entry)
+        else:
+            entry['published_date'] = posts[idx].get('published_date', published_date)
+            posts[idx] = entry
+        _write_atomic(posts_json, json.dumps(posts, ensure_ascii=False, indent=2))
 
-    _write_atomic(posts_json, json.dumps(posts, ensure_ascii=False, indent=2))
+    redis_key = make_redis_key(resource_id=resource_id, symbol=symbol,
+        pattern_start_date=pattern_start_date, days=int(days), years=years,
+        tone=DEFAULT_TONE, website_id=DEFAULT_WEBSITE_ID)
+    save_article_to_redis(redis_key=redis_key, entry=entry, tone=DEFAULT_TONE, website_id=DEFAULT_WEBSITE_ID)
 
     # recent_titles.json is managed by article_title.py during SEO title generation
 
@@ -773,6 +775,7 @@ def write_article_and_register(info, resource_id, symbol, pattern_start_date, da
 
 
 
+@membership_pipeline.catalog_transaction
 def publish_article_to_folder(resource_id, symbol, pattern_start_date, days, years, direction, userid, article_html, hero_image=""):
     # Keep this for now even though it's unused (no behavior change)
     company = get_company_name(resource_id, symbol)
@@ -810,7 +813,10 @@ def publish_article_to_folder(resource_id, symbol, pattern_start_date, days, yea
                     "date": pattern_start_date, "days": int(days), "years": years}
 
         html_path = Path(path_str)
-        _safe_unlink(html_path)
+        if membership.configured():
+            membership.commit_state(entry, None)
+        else:
+            _safe_unlink(html_path)
 
         redis_key = make_redis_key(
             resource_id=resource_id,
@@ -824,7 +830,8 @@ def publish_article_to_folder(resource_id, symbol, pattern_start_date, days, yea
         delete_article_from_redis(redis_key)
 
         del posts[match_idx]
-        _write_atomic(posts_json, json.dumps(posts, ensure_ascii=False, indent=2))
+        if not membership.configured():
+            _write_atomic(posts_json, json.dumps(posts, ensure_ascii=False, indent=2))
 
 
         generate_sitemap()  # site map gets recreated after every article
@@ -870,6 +877,7 @@ def publish_article_to_folder(resource_id, symbol, pattern_start_date, days, yea
     )
 #-----------------------------------------------------------------------------------------------
 
+@membership_pipeline.catalog_transaction
 def delete_article_web(resource_id,symbol,date,days,years,uid,slug=None):
 
     """
@@ -954,13 +962,17 @@ def delete_article_web(resource_id,symbol,date,days,years,uid,slug=None):
             "years": years,
         }
 
-    # Delete HTML file
+    # Private immutable revisions remain retained after withdrawal.
     html_path = Path(path_str)
-    _safe_unlink(html_path)
+    if membership.configured():
+        membership.commit_state(entry, None)
+    else:
+        _safe_unlink(html_path)
 
     # Remove entry from posts.json and rewrite it
     del posts[match_idx]
-    _write_atomic(posts_json, json.dumps(posts, ensure_ascii=False, indent=2))
+    if not membership.configured():
+        _write_atomic(posts_json, json.dumps(posts, ensure_ascii=False, indent=2))
 
     # Remove from search index (fast)
     delete_search_index_entry(news_root, entry.get("url", ""))
