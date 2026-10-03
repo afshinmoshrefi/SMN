@@ -1,0 +1,263 @@
+{
+  "version": 1,
+  "edition_date": "2026-10-02",
+  "timezone": "America/New_York",
+  "cutoff": "2026-10-02T23:00:00Z",
+  "label": "Market Wrap",
+  "title": "October 2 draft: jobs, company demand and energy security",
+  "scan": [
+    {
+      "publisher": "CNBC",
+      "status": "not_attempted",
+      "note": "Not accessed for this limited offline pilot; coverage gap remains."
+    },
+    {
+      "publisher": "Bloomberg",
+      "status": "not_attempted",
+      "note": "Not accessed for this limited offline pilot; coverage gap remains."
+    },
+    {
+      "publisher": "Reuters",
+      "status": "partial",
+      "note": "One accessible Reuters syndication read; no complete preferred-source scan. Displayed publication timestamp has no explicit timezone. Raw value is preserved; cutoff qualification is held until the actual offset/version is verified."
+    },
+    {
+      "publisher": "NYT Business",
+      "status": "not_attempted",
+      "note": "Not accessed for this limited offline pilot; coverage gap remains."
+    },
+    {
+      "publisher": "WSJ",
+      "status": "not_attempted",
+      "note": "Not accessed for this limited offline pilot; coverage gap remains."
+    },
+    {
+      "publisher": "FT",
+      "status": "not_attempted",
+      "note": "Not accessed for this limited offline pilot; coverage gap remains."
+    }
+  ],
+  "sources": [
+    {
+      "id": "bls-jobs",
+      "title": "September 2026 Employment Situation",
+      "url": "https://www.bls.gov/news.release/archives/empsit_10022026.htm",
+      "publisher": "BLS",
+      "origin_id": "bls",
+      "published_at": "2026-10-02T08:30:00-04:00",
+      "retrieved_at": "2026-10-03T03:15:59.038360+00:00",
+      "access": "primary_release",
+      "capture": {
+        "text": "Both nonfarm payroll employment (+29,000) and the unemployment rate (4.2 percent) changed little in September, the U.S. Bureau of Labor Statistics reported today.",
+        "text_sha256": "85284020ef1879bbceaa7db9f36d4a32c1b6b791e4a23167d4ac50db1dad0136",
+        "scope": "selected_passages_from_accessed_document"
+      }
+    },
+    {
+      "id": "reuters-close",
+      "title": "US equities close after jobs release; Nike weakness",
+      "url": "https://www.lse.co.uk/news/NVDA.US/us-stocks-equities-close-higher-as-softer-jobs-data-quiets-rate-hike-expectations-76pmusv6jvk8h65.html",
+      "publisher": "London South East (Reuters syndication)",
+      "origin_id": "reuters",
+      "published_at": null,
+      "retrieved_at": "2026-10-03T03:15:59.038360+00:00",
+      "access": "full_text",
+      "capture": {
+        "text": "Indexes up: Dow 0.49%, S&P 500 0.73%, Nasdaq 1.19%\nNike drops after warning on China demand weakness\nNike stumbled 3.6%",
+        "text_sha256": "f056b77dea62ec16e81ba8853e2a12905919f728a21a6f8e0a26e68fc6ad6e3c",
+        "scope": "selected_passages_from_accessed_document"
+      },
+      "published_at_raw": "Fri, 02nd Oct 2026 21:23",
+      "timestamp_status": "uncertain"
+    },
+    {
+      "id": "g7-energy",
+      "title": "G7 statement on energy security and market stability",
+      "url": "https://www.newswire.ca/news-releases/g7-leaders-statement-on-global-energy-security-and-market-stability-820275656.html",
+      "publisher": "Prime Minister's Office via CNW",
+      "origin_id": "canada-pmo",
+      "published_at": "2026-10-02T11:23:00-04:00",
+      "retrieved_at": "2026-10-03T03:15:59.038360+00:00",
+      "access": "primary_release",
+      "capture": {
+        "text": "we will implement our commitments with a coordinated release through the IEA of 100 million barrels",
+        "text_sha256": "cefd856b53f21e31ca9f1f8f68d1a848f5a6d8a8b03f8fa66f39d66e473344e5",
+        "scope": "selected_passages_from_accessed_document"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "jobs-and-equities",
+      "event_key": "september-jobs-and-october2-close",
+      "headline": "Limited payroll growth and a higher equity close",
+      "selected": true,
+      "reason": "Same-day macroeconomic release and reported market context; no causal certainty asserted.",
+      "source_ids": [
+        "bls-jobs",
+        "reuters-close"
+      ]
+    },
+    {
+      "id": "company-demand",
+      "event_key": "nike-demand-october2",
+      "headline": "Nike demand concerns complicate the market picture",
+      "selected": true,
+      "reason": "Company-specific counterpoint to the broad advance. Underlying company release remains to be captured.",
+      "source_ids": [
+        "reuters-close"
+      ]
+    },
+    {
+      "id": "energy-security",
+      "event_key": "g7-energy-october2",
+      "headline": "G7 announces coordinated energy supply measures",
+      "selected": true,
+      "reason": "Major official energy-market policy statement; implementation and price effects are unverified.",
+      "source_ids": [
+        "g7-energy"
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "id": "jobs",
+      "group_id": "jobs-and-equities",
+      "text": "September payrolls increased by 29,000 and unemployment was 4.2%; BLS characterized both as little changed.",
+      "kind": "fact",
+      "event_at": "2026-10-02T08:30:00-04:00",
+      "event_status": "reported",
+      "supports": [
+        {
+          "source_id": "bls-jobs",
+          "quote": "Both nonfarm payroll employment (+29,000) and the unemployment rate (4.2 percent) changed little in September, the U.S. Bureau of Labor Statistics reported today.",
+          "locator": "Opening release paragraph"
+        }
+      ]
+    },
+    {
+      "id": "equities",
+      "group_id": "jobs-and-equities",
+      "text": "Reuters reported the S&P 500 closed 0.73% higher.",
+      "kind": "fact",
+      "event_at": "2026-10-02T16:00:00-04:00",
+      "event_status": "reported",
+      "supports": [
+        {
+          "source_id": "reuters-close",
+          "quote": "S&P 500 0.73%",
+          "locator": "Index summary and closing index paragraph"
+        }
+      ]
+    },
+    {
+      "id": "nike",
+      "group_id": "company-demand",
+      "text": "Reuters reported Nike fell 3.6% and flagged weakness in China demand.",
+      "kind": "fact",
+      "event_at": "2026-10-02T16:00:00-04:00",
+      "event_status": "reported",
+      "supports": [
+        {
+          "source_id": "reuters-close",
+          "quote": "Nike stumbled 3.6%",
+          "locator": "Nike paragraph; China demand subheadline"
+        },
+        {
+          "source_id": "reuters-close",
+          "quote": "Nike drops after warning on China demand weakness",
+          "locator": "Article subheadline"
+        }
+      ]
+    },
+    {
+      "id": "energy",
+      "group_id": "energy-security",
+      "text": "G7 leaders announced a coordinated 100 million barrel release through the IEA. This is an announced commitment, not proof all barrels have been delivered.",
+      "kind": "fact",
+      "event_at": "2026-10-02T11:23:00-04:00",
+      "event_status": "reported",
+      "supports": [
+        {
+          "source_id": "g7-energy",
+          "quote": "we will implement our commitments with a coordinated release through the IEA of 100 million barrels",
+          "locator": "Statement paragraph on coordinated release"
+        }
+      ]
+    }
+  ],
+  "narrative": [
+    {
+      "text": "On October 2, the US labor report showed September payrolls rising by 29,000 and unemployment at 4.2%. BLS described both as little changed. The S&P 500 nevertheless finished the session 0.73% higher, according to Reuters. These observations frame the edition; they do not establish a single cause for every market move.",
+      "claim_ids": [
+        "jobs",
+        "equities"
+      ]
+    },
+    {
+      "text": "The broad advance did not erase company-specific demand concerns. Reuters reported a 3.6% decline in Nike and highlighted China demand weakness. This contrast keeps the briefing from treating a higher index as evidence of uniform business strength.",
+      "claim_ids": [
+        "nike"
+      ]
+    },
+    {
+      "text": "Energy security supplied another major narrative. G7 leaders announced a coordinated 100 million barrel release through the IEA. An announced commitment is distinct from completed delivery, and this source alone cannot establish its effect on oil prices.",
+      "claim_ids": [
+        "energy"
+      ]
+    }
+  ],
+  "script": [
+    {
+      "text": "This is the October second market wrap. September payrolls rose by twenty-nine thousand, while unemployment was four point two percent. BLS called both little changed. Reuters reported the S and P five hundred closed zero point seven three percent higher.",
+      "claim_ids": [
+        "jobs",
+        "equities"
+      ]
+    },
+    {
+      "text": "Company news was less uniform: Nike fell three point six percent, with Reuters flagging China demand weakness.",
+      "claim_ids": [
+        "nike"
+      ]
+    },
+    {
+      "text": "Meanwhile, G7 leaders announced a coordinated hundred million barrel energy release through the IEA. That is a commitment, not proof of completed delivery. These are distinct stories; a higher index does not settle every risk.",
+      "claim_ids": [
+        "energy",
+        "equities"
+      ]
+    }
+  ],
+  "storyboard": [
+    {
+      "text": "Opening personal presenter if verified: date and jobs headline. Visible AI-presenter disclosure. Until verified, render as a headline card.",
+      "claim_ids": [
+        "jobs"
+      ],
+      "visual_kind": "headline_card"
+    },
+    {
+      "text": "Headline cards: payrolls and S&P closing move, with source labels and observation dates. No invented chart.",
+      "claim_ids": [
+        "jobs",
+        "equities"
+      ],
+      "visual_kind": "headline_card"
+    },
+    {
+      "text": "Nike demand headline card, explicitly attributed to Reuters.",
+      "claim_ids": [
+        "nike"
+      ],
+      "visual_kind": "headline_card"
+    },
+    {
+      "text": "G7 energy commitment card, marked announced; closing reminder that implementation and price effects remain unverified.",
+      "claim_ids": [
+        "energy"
+      ],
+      "visual_kind": "headline_card"
+    }
+  ]
+}
