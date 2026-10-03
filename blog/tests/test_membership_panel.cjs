@@ -17,6 +17,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
   let job = {id:'job1',kind:'article_video',subject_label:'Test article <img src=x>',status:'generated',version:2,source_revision:'r1',generation_status:'complete',review_status:'pending',payload_sha256:'c'.repeat(64),artifacts:[{name:'clip.mp4'}],holds:[],attempts:1};
   let copy = {...job,id:'copy1',kind:'derivative',artifacts:[{name:'derivative.json',media_type:'application/json'}]};
   let daily = {...job,id:'daily1',kind:'daily_briefing',subject_label:'October 3 market wrap',payload_sha256:'d'.repeat(64),artifacts:[{name:'output.json',media_type:'application/json'}]};
+  let exportJobs = ['social_export','substack_export'].map((kind,index)=>({...job,id:kind,kind,payload_sha256:(index?'f':'e').repeat(64),artifacts:[{name:'export.txt',media_type:'text/plain'}]}));
   let controls = {all:false,kinds:{},providers:{codex:{enabled:true},elevenlabs:{enabled:false,reason:'Missing credential'}}};
   const requests = [];
   const browser = await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL || 'chrome'});
@@ -39,7 +40,12 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       } else if (url.pathname === '/api/membership/articles/test/review') { assert.equal(body.expected_revision,'r2'); assert.equal(body.payload_sha256,'b'.repeat(64)); preview.review_status='approved'; data=preview; }
       else if (url.pathname === '/api/promotion/briefings') data=[{briefing_id:'2026-10-03-source',date:'2026-10-03',kind:'source_bundle',title:'Selected sources <img src=x>'}];
       else if (url.pathname === '/api/promotion/controls') { if(method==='PUT'){assert.deepEqual(body,{scope:'all',paused:true});controls={...controls,all:true};}data=controls; }
-      else if (url.pathname === '/api/promotion/jobs') { if(method==='POST'){assert.deepEqual(body,{kind:'daily_briefing',briefing_id:'2026-10-03-source'});data=copy;} else data=[job,copy,daily]; }
+      else if (url.pathname === '/api/promotion/jobs') { if(method==='POST'){assert.deepEqual(body,{kind:'daily_briefing',briefing_id:'2026-10-03-source'});data=copy;} else data=[job,copy,daily,...exportJobs]; }
+      else if (/^\/api\/promotion\/jobs\/(social_export|substack_export)(\/review)?$/.test(url.pathname)) {
+        const id=url.pathname.split('/')[4], index=exportJobs.findIndex(item=>item.id===id);
+        if(method==='POST'){assert.deepEqual(body,{expected_version:2,data:{decision:'approved',payload_sha256:(index?'f':'e').repeat(64)}});exportJobs[index]={...exportJobs[index],status:'reviewed',review_status:'approved',version:3};}
+        data=exportJobs[index];
+      }
       else if (url.pathname === '/api/promotion/jobs/job1') data=job;
       else if (url.pathname === '/api/promotion/jobs/job1/review') { assert.deepEqual(body,{expected_version:2,data:{decision:'approved',payload_sha256:'c'.repeat(64)}}); job={...job,status:'reviewed',review_status:'approved',version:3}; data=job; }
       else if (url.pathname === '/api/promotion/jobs/copy1/import') { assert.deepEqual(body,{expected_version:2}); preview={...preview,revision:'r3',review_status:'pending',payload_sha256:'e'.repeat(64)};data={slug:'test',revision:'r3',review_status:'pending'}; }
@@ -64,7 +70,19 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.check('#preview-reviewed'); await page.click('#preview-approve'); await page.locator('#membership-preview-state').filter({hasText:'approved'}).waitFor(); await page.click('#preview-close');
     await page.locator('.job-card').filter({hasText:'article video'}).getByText('Inspect & review',{exact:true}).click(); await page.locator('#promotion-review[open]').waitFor();
     assert((await page.locator('#promotion-review-artifacts a').getAttribute('href')).endsWith('/api/promotion/jobs/job1/artifacts/clip.mp4'));
+    assert.equal(await page.locator('#promotion-review-check').textContent(),'I inspected narration, chart identity, captions and qualifications in the exact saved media.');
     await page.check('#promotion-reviewed'); await page.click('#promotion-approve'); await page.getByText('article video · Media approved; distribution remains disabled',{exact:true}).waitFor();
+    for (const kind of ['social_export','substack_export']) {
+      const card=page.locator('.job-card').filter({hasText:kind.replaceAll('_',' ')});
+      assert.equal(await card.getByText('Import preview draft',{exact:true}).count(),0);
+      await card.getByText('Inspect & review',{exact:true}).click();await page.locator('#promotion-review[open]').waitFor();
+      assert.equal(await page.locator('#promotion-review-state').textContent(),'Inspect the exported public copy, qualifications and canonical link before approval.');
+      assert.equal(await page.locator('#promotion-review-check').textContent(),'I checked the exact exported public copy, qualifications and canonical link.');
+      assert((await page.locator('#promotion-review-scope').textContent()).includes('does not authorize posting'));
+      await page.check('#promotion-reviewed');await page.getByRole('button',{name:'Approve export',exact:true}).click();
+      await page.getByText(kind.replaceAll('_',' ')+' · Export approved; distribution remains disabled',{exact:true}).waitFor();
+      assert.equal(await card.getByText('Import preview draft',{exact:true}).count(),0);
+    }
     await page.locator('#promotion-providers').filter({hasText:'ElevenLabs: Disabled (Missing credential)'}).waitFor();
     await page.click('#promotion-pause'); await page.locator('#promotion-controls-state').filter({hasText:'Generation paused'}).waitFor();
     await page.selectOption('#promotion-kind','daily_briefing'); await page.selectOption('#promotion-briefing','2026-10-03-source');
@@ -80,6 +98,6 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const output=process.argv[2];
     if(output){fs.mkdirSync(output,{recursive:true});await page.screenshot({path:path.join(output,'membership-desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(output,'membership-mobile.png'),fullPage:true});}
     assert(requests.some(item=>item.path==='/api/promotion/jobs'&&item.body.briefing_id==='2026-10-03-source'));
-    console.log(JSON.stringify({passed:true,checks:['integer cents and basis points','server annual amount','activation version','immutable preview review hash','generated media review binding','dated briefing selector','pause control','provider readiness','imported draft requires review','XSS-safe labels','dashboard mutation header']}));
+    console.log(JSON.stringify({passed:true,checks:['integer cents and basis points','server annual amount','activation version','immutable preview review hash','generated media review binding','social and Substack exact export review','dated briefing selector','pause control','provider readiness','imported draft requires review','XSS-safe labels','dashboard mutation header']}));
   } finally {await browser.close();}
 })().catch(error=>{console.error(error.message);process.exit(1);});
