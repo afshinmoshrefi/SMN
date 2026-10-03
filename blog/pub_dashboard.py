@@ -200,6 +200,21 @@ def guard():
     return _login_page()
 
 
+@app.before_request
+def recover_membership_publication():
+    ident = getattr(g, 'identity', {}) or {}
+    if (membership_publication.configured() and ident.get('kind') in {'admin', 'api', 'service'}
+            and request.path.startswith('/api/')):
+        with article_index.posts_lock():
+            membership_publication.recover()
+
+
+@app.errorhandler(membership_publication.ContentError)
+def publication_conflict(exc):
+    return fail('publication_conflict', str(exc), 409,
+                hint='Reload the article or ask an administrator to recover the interrupted publication.')
+
+
 @app.after_request
 def protect_auth_response(response):
     if request.path in {"/login", "/auth", "/auth/callback", "/logout", "/signed-out"}:
@@ -991,8 +1006,9 @@ def api_article(slug):
     include = {i.strip() for i in request.args.get("include", "").split(",")}
     if include & {"html", "text"}:
         path = Path(row.get("path") or "")
-        if row.get('membership_revision') and row.get('published'):
-            raw, _ = membership_publication.source(row)
+        if row.get('membership_revision'):
+            reader = membership_publication.source if row.get('published') else membership_publication.stored_source
+            raw, _ = reader(row)
         else:
             raw = path.read_text("utf-8", errors="replace") if path.is_file() else None
         if "html" in include:
@@ -1048,18 +1064,23 @@ def api_create_article():
             return fail("time_in_past", "publish_at must be in the future", field="publish_at")
     hold = publish_when is not None or str(data.get("publish", "true")).lower() == "false"
     with article_index.posts_lock():
+        if membership_publication.configured(): membership_publication.recover()
         posts = article_index.load_posts()
         if any(pin_store.article_slug(p) == slug for p in posts):
             return fail("slug_exists", f"slug {slug!r} is already used", 409,
                         hint="send a different 'slug', or PATCH the existing article",
                         field="slug")
+        if slug in article_index.load_unpublished():
+            return fail('slug_exists', 'This slug already has a held article.', 409)
         post = _create_post(data, slug, who)
         if post.get('membership_revision'):
             if hold:
                 held = article_index.load_unpublished()
-                held[slug] = {'post': post, 'held_path': post['path'], 'unpublished_at': iso(utcnow()),
-                              'by': who, 'reason': 'created unpublished'}
-                article_index.save_unpublished(held)
+                if slug in held:
+                    return fail('slug_exists', 'This slug already has a held article.', 409)
+                record = {'post': post, 'held_path': post['path'], 'unpublished_at': iso(utcnow()),
+                          'by': who, 'reason': 'created unpublished'}
+                membership_publication.commit_state(None, None, slug, None, record)
             else:
                 private_store = membership_publication.store()
                 with private_store.database() as db:
@@ -1134,6 +1155,7 @@ def api_update_article(slug):
     if blocked:
         return blocked
     with article_index.posts_lock():
+        if membership_publication.configured(): membership_publication.recover()
         posts = article_index.load_posts()
         index = next((i for i, p in enumerate(posts)
                       if pin_store.article_slug(p) == slug), None)
@@ -1189,19 +1211,26 @@ def api_delete_article(slug):
         index = next((i for i, p in enumerate(posts)
                       if pin_store.article_slug(p) == slug), None)
         if index is not None:
-            post = posts.pop(index)
+            post = posts[index]
             path = Path(post.get("path") or "")
             if post.get('membership_revision'):
-                membership_publication.withdraw(post)
-            article_index.save_posts(posts)
+                held = article_index.load_unpublished()
+                membership_publication.commit_state(post, None, slug, held.get(slug), None)
+            else:
+                posts.pop(index)
+                article_index.save_posts(posts)
         else:
             held = article_index.load_unpublished()
-            record = held.pop(slug, None)
+            record = held.get(slug)
             if record is None:
                 return fail("not_found", f"no article with slug {slug!r}", 404,
                             hint="list slugs with GET /api/articles", field="slug")
             post, path, was_live = record["post"], Path(record.get("held_path") or ""), False
-            article_index.save_unpublished(held)
+            if post.get('membership_revision'):
+                membership_publication.commit_state(None, None, slug, record, None)
+            else:
+                held.pop(slug, None)
+                article_index.save_unpublished(held)
 
     # Files go to a trash folder, never rm -rf, so a mistake is recoverable.
     trashed = None
@@ -1249,11 +1278,16 @@ def do_unpublish(slug: str, who: str, reason: str = "") -> Dict[str, Any]:
     The caller runs site_refresh() afterwards (once, for a batch).
     """
     with article_index.posts_lock():
+        if membership_publication.configured(): membership_publication.recover()
+        if membership_publication.configured(): membership_publication.recover()
         posts = article_index.load_posts()
         index = next((i for i, p in enumerate(posts)
                       if pin_store.article_slug(p) == slug), None)
         if index is None:
-            if slug in article_index.load_unpublished():
+            existing = article_index.load_unpublished().get(slug)
+            if existing and existing['post'].get('membership_revision'):
+                return {'unpublished': slug, 'held_at': existing.get('held_path', ''), 'already_unpublished': True}
+            if existing:
                 raise ActionError("already_unpublished", f"{slug!r} is already unpublished")
             raise ActionError("not_found", f"no article with slug {slug!r}", 404,
                               "list slugs with GET /api/articles")
@@ -1261,18 +1295,21 @@ def do_unpublish(slug: str, who: str, reason: str = "") -> Dict[str, Any]:
         path = Path(post.get("path") or "")
         held_path = article_index.HELD_DIR / slug / (path.name or "article.html")
         if post.get('membership_revision'):
-            membership_publication.withdraw(post)
             held_path = path
         elif path.is_file():
             held_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(path), str(held_path))
             prune_empty_dirs(path.parent)
         held = article_index.load_unpublished()
-        held[slug] = {"post": post, "held_path": str(held_path) if held_path.is_file() else "",
+        record = {"post": post, "held_path": str(held_path) if held_path.is_file() else "",
                       "unpublished_at": iso(utcnow()), "by": who, "reason": reason}
-        article_index.save_unpublished(held)
-        posts.pop(index)
-        article_index.save_posts(posts)
+        if post.get('membership_revision'):
+            membership_publication.commit_state(post, None, slug, held.get(slug), record)
+        else:
+            held[slug] = record
+            article_index.save_unpublished(held)
+            posts.pop(index)
+            article_index.save_posts(posts)
 
     sync_redis(post, delete=True)
     search_index(post, remove=True)
@@ -1289,10 +1326,15 @@ def do_publish(slug: str, who: str, as_new: bool = False) -> Dict[str, Any]:
     The caller runs site_refresh() afterwards.
     """
     with article_index.posts_lock():
+        if membership_publication.configured(): membership_publication.recover()
         held = article_index.load_unpublished()
         record = held.get(slug)
         if record is None:
-            if any(pin_store.article_slug(p) == slug for p in article_index.load_posts()):
+            existing = next((p for p in article_index.load_posts() if pin_store.article_slug(p) == slug), None)
+            if existing and existing.get('membership_revision'):
+                return {'published': slug, 'url': existing['url'],
+                        'published_date': existing.get('published_date'), 'already_published': True}
+            if existing:
                 raise ActionError("already_published", f"{slug!r} is already live")
             raise ActionError("not_found", f"no article with slug {slug!r}", 404,
                               "list slugs with GET /api/articles")
@@ -1300,9 +1342,7 @@ def do_publish(slug: str, who: str, as_new: bool = False) -> Dict[str, Any]:
         target = Path(post.get("path") or "")
         source = Path(record.get("held_path") or "")
         protected = bool(post.get('membership_revision'))
-        if protected:
-            membership_publication.restore(post)
-        elif target.exists():
+        if not protected and target.exists():
             raise ActionError("url_taken", f"a file already exists at {target}",
                               hint="delete or move that file, then try again")
         if not protected and source.is_file():
@@ -1320,10 +1360,13 @@ def do_publish(slug: str, who: str, as_new: bool = False) -> Dict[str, Any]:
             post["published_date"] = iso(utcnow())
         post["updated_date"] = iso(utcnow())
         posts = article_index.load_posts()
-        posts.append(post)
-        article_index.save_posts(posts)
-        held.pop(slug, None)
-        article_index.save_unpublished(held)
+        if protected:
+            membership_publication.commit_state(None, post, slug, record, None)
+        else:
+            posts.append(post)
+            article_index.save_posts(posts)
+            held.pop(slug, None)
+            article_index.save_unpublished(held)
 
     sync_redis(post)
     search_index(post, remove=False)

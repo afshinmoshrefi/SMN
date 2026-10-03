@@ -140,11 +140,12 @@ def register(app, dashboard):
             previous = [dict(p) for p in posts]
             updated = dict(post, title=revision["title"], dek=revision["dek"], updated_date=pin_store.iso(pin_store.utcnow()))
             if post.get('membership_revision'):
-                updated = membership.publish_edited(posts, post, updated, revision['html'], dashboard.actor())
-                draft.update(status='published', error='',
-                             published_fingerprint=editor.fingerprint(updated, revision['html']))
-                editor.save(db, draft)
-                db.commit()
+                context = {'draft_id': ident, 'owner': who, 'version': version,
+                           'base_fingerprint': draft['base_fingerprint'],
+                           'html_sha256': membership.sha(revision['html'].encode())}
+                updated = membership.publish_edited(posts, post, updated, revision['html'], dashboard.actor(),
+                                                    editor_context=context, editor_db=db)
+                draft = editor.read(db, ident, who)
                 dashboard.sync_redis(updated)
                 dashboard.audit('editor_publish', draft['slug'], dashboard.actor(), draft_id=ident, version=version, provider=draft['provider'])
                 dashboard.queue_refresh(True)
