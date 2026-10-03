@@ -211,6 +211,31 @@ def get_job(identifier):
     job['payload_sha256'] = digest(full['inputs'])
     job['script'] = full['inputs'].get('script', '')
     job['imported_draft'] = full.get('imported_draft')
+    if job['kind'] == 'derivative' and (job['imported_draft'] or {}).get('slug'):
+        try:
+            _, manifest = publication.source(_post(job['imported_draft']['slug']))
+            copy_path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'copy.json')
+            if digest(manifest['preview']['content']) == digest(load_json(copy_path)):
+                job['imported_draft'] = dict(job['imported_draft'], review_status='published',
+                                             revision=manifest['revision'])
+        except (ContentError, OSError, ValueError, KeyError):
+            pass  # Keep the saved import receipt when its live binding is unavailable.
+    inputs=full['inputs']
+    if inputs.get('briefing_id'):
+        identifier=inputs['briefing_id']
+        job['subject_label']='Daily briefing'
+        if re.fullmatch(r'[A-Za-z0-9_-]{1,100}',identifier):
+            job['subject_label']='Daily briefing · '+identifier
+            try:
+                source=_briefing_record(identifier)
+                value=source.get('briefing',source.get('source_bundle'))
+                job['subject_label']=value.get('title') or (value.get('edition_date',identifier)+' · '+value.get('label','Daily briefing'))
+            except ContentError:
+                pass
+    else:
+        matches=[post for post in article_index.load_posts() if post.get('url')==inputs.get('article_id')]
+        job['subject_label']=matches[0].get('title') or 'Research article' if len(matches)==1 else 'Research article unavailable'
+    job['subject_label']=' '.join(str(job['subject_label']).split())[:300]
     return job
 
 
@@ -248,6 +273,7 @@ def _configuration():
     import os
     config_file = Path(os.environ.get('SMN_PROMOTION_CONFIG', '/etc/SMN/promotion.json'))
     configuration = json.loads(config_file.read_text('utf-8')) if config_file.is_file() else {'generation_enabled': False}
+    configuration['public_origin'] = os.environ.get('SMN_PUBLIC_ORIGIN') or configuration.get('public_origin') or os.environ.get('SMN_SITE_BASE')
     configuration['resolve_source'] = _worker_source
     return configuration
 

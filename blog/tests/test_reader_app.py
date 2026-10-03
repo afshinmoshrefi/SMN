@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import tempfile
 import unittest
 from urllib.parse import parse_qs, urlsplit
@@ -18,7 +19,8 @@ class ReaderAppTests(unittest.TestCase):
         stage(self.store); self.store.activate_revision(CANONICAL, 'r1', 'publish1'); self.store.set_enabled(True)
         self.now = 1_800_000_000
         config = {'CLIENT_ID': 'reader-client', 'CALLBACK_URL': 'https://smn-dev.trxstat.com/member/callback',
-                  'AUTHORITY_URL': 'https://tw2.trxstat.com', 'SERVICE_KEY': 'secret', 'ENV': 'dev'}
+                  'AUTHORITY_URL': 'https://tw2.trxstat.com', 'SERVICE_KEY': 'secret', 'ENV': 'dev',
+                  'PUBLIC_ROOTS': [root / 'public']}
         self.transport = Transport(self.now)
         self.auth = ReaderAuth(root / 'private' / 'sessions', config, self.transport, lambda: self.now)
         self.app = create_app(config, self.store, self.auth); self.app.testing = True
@@ -43,10 +45,17 @@ class ReaderAppTests(unittest.TestCase):
         self.assertEqual(self.client.get(asset_url(CANONICAL, 'r1', 'chart.png', True)).status_code, 404)
 
     def test_archive_search_only_receives_public_projection(self):
+        public = Path(self.tmp.name) / 'public'
+        public.mkdir(exist_ok=True)
+        (public / 'posts.json').write_text(json.dumps([{
+            'url': CANONICAL, 'symbol': 'TEST', 'direction': 'short',
+            'path': '/private/full.html', 'html': 'PROTECTED_BODY_SENTINEL'
+        }]), encoding='utf-8')
         response = self.client.get('/posts.json')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json), 1)
         self.assertEqual(response.json[0]['url'], CANONICAL)
+        self.assertEqual(response.json[0]['direction'], 'short')
         self.assertNotIn('path', response.json[0])
         self.assertNotIn(b'PROTECTED_BODY_SENTINEL', response.data)
         self.assertNotIn(b'PRIVATE_CHART_SENTINEL', response.data)

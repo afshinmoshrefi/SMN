@@ -213,6 +213,17 @@ def verify_job(job):
 
 def validate_schema(value, schema, where='$'):
     """Validate the deliberately small output-schema subset used by this bridge."""
+    if 'anyOf' in schema:
+        matched = False
+        for branch in schema['anyOf']:
+            try:
+                validate_schema(value, branch, where)
+                matched = True
+                break
+            except ValueError:
+                continue
+        if not matched:
+            raise ValueError(where + ': no allowed schema alternative matched')
     types = schema.get('type')
     types = types if isinstance(types, list) else [types]
     predicates = {'object': lambda x: isinstance(x, dict),
@@ -222,8 +233,10 @@ def validate_schema(value, schema, where='$'):
                   'null': lambda x: x is None,
                   'number': lambda x: isinstance(x, (int, float)) and not isinstance(x, bool),
                   'integer': lambda x: isinstance(x, int) and not isinstance(x, bool)}
-    if not any(t in predicates and predicates[t](value) for t in types):
+    if 'type' in schema and not any(t in predicates and predicates[t](value) for t in types):
         raise ValueError(where + ': wrong type')
+    if 'const' in schema and value != schema['const']:
+        raise ValueError(where + ': value differs from fixed source')
     if 'enum' in schema and value not in schema['enum']:
         raise ValueError(where + ': value outside enum')
     if isinstance(value, dict):
@@ -239,9 +252,13 @@ def validate_schema(value, schema, where='$'):
         if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', 10**9):
             raise ValueError(where + ': invalid item count')
         for i, v in enumerate(value):
-            validate_schema(v, schema['items'], where + f'[{i}]')
+            if 'items' in schema:
+                validate_schema(v, schema['items'], where + f'[{i}]')
     if isinstance(value, str) and len(value) < schema.get('minLength', 0):
         raise ValueError(where + ': too short')
+    if isinstance(value, str) and (len(value) > schema.get('maxLength', 10**9) or
+                                  ('pattern' in schema and not re.search(schema['pattern'], value))):
+        raise ValueError(where + ': string violates schema constraint')
 
 
 def run_job(job, codex, *, timeout=900):

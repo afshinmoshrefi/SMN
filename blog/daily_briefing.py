@@ -19,6 +19,18 @@ from subscription_writer import load_json, save_json, sha256
 
 SCHEMA_PATH = Path(__file__).parent / 'schemas/daily_briefing.schema.json'
 PREFERRED_SOURCES = ('CNBC', 'Bloomberg', 'Reuters', 'NYT Business', 'WSJ', 'FT')
+HEADLINE_FEEDS={'CNBC':'https://www.cnbc.com/id/100003114/device/rss/rss.html',
+                'NYT Business':'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml'}
+HEADLINE_NOTE='Based on publisher headlines; full stories were not reviewed.'
+
+
+def headline_record(source):
+    return {k:source[k] for k in ('title','publisher','url','published_at')}|{
+        'feed_url':source['capture']['feed_url'],'feed_sha256':source['capture']['feed_sha256']}
+
+
+def headline_text(source):
+    return 'Title: '+source['title']+'\nPublished: '+str(source['published_at'])+'\nURL: '+source['url']
 
 
 def digest(value):
@@ -79,6 +91,9 @@ def inspect(briefing, review=None):
             issues.append(label + ' IDs must be unique')
         return result
 
+    headline_mode=briefing.get('mode')=='headline_roundup'
+    if headline_mode and briefing.get('coverage_note')!=HEADLINE_NOTE:
+        issues.append('headline roundup requires its explicit headline-only coverage note')
     sources = index(briefing['sources'], 'source')
     groups = index(briefing['groups'], 'group')
     claims = index(briefing['claims'], 'claim')
@@ -106,7 +121,7 @@ def inspect(briefing, review=None):
                               'text_sha256': capture['text_sha256']}) if capture else None
         observed = (source.get('cutoff_basis') == 'observed_capture' and retrieved and cutoff
                     and retrieved <= cutoff and capture and capture.get('observation_sha256') == observation
-                    and source['access'] in {'full_text', 'primary_release'})
+                    and source['access'] in {'full_text', 'primary_release','headline_only'})
         if source.get('cutoff_basis') == 'observed_capture' and not observed:
             issues.append(sid + ': actual hash-bound capture before cutoff required')
         if uncertain:
@@ -114,11 +129,21 @@ def inspect(briefing, review=None):
                 warnings.append(sid + ': publication time remains uncertain; exact capture observed before cutoff')
             else:
                 issues.append(sid + ': publication timestamp is uncertain; cutoff qualification held')
-        if source['access'] in {'full_text', 'primary_release'}:
+        if source['access'] in {'full_text', 'primary_release','headline_only'}:
             if not capture or not capture['text'].strip():
                 issues.append(sid + ': accessed evidence needs captured text')
             elif capture['text_sha256'] != sha256(capture['text'].encode('utf-8')):
                 issues.append(sid + ': captured text hash mismatch')
+        if headline_mode and source['access']!='headline_only':issues.append(sid+': headline roundup requires headline-only records')
+        if source['access']=='headline_only':
+            if (not headline_mode or not capture or capture.get('scope')!='headline_record'
+                    or capture.get('feed_url')!=HEADLINE_FEEDS.get(source['publisher'])
+                    or not re.fullmatch('[a-f0-9]{64}',str(capture.get('feed_sha256','')))
+                    or capture.get('record_sha256')!=digest(headline_record(source))
+                    or capture.get('text')!=headline_text(source) or not observed):
+                issues.append(sid+': exact official-feed headline record/cutoff binding required')
+            expected_host='www.cnbc.com' if source['publisher']=='CNBC' else 'www.nytimes.com'
+            if urlsplit(source['url']).hostname!=expected_host:issues.append(sid+': headline publisher/article host differs')
         if retrieved and cutoff and retrieved > cutoff:
             warnings.append(sid + ': retrospectively retrieved after cutoff; verify historical version')
 
@@ -135,6 +160,7 @@ def inspect(briefing, review=None):
         if group['selected'] and not group['source_ids']:
             issues.append(gid + ': selected narrative needs evidence')
 
+    quote_words={sid:0 for sid in sources}
     for cid, claim in claims.items():
         group = groups.get(claim['group_id'])
         if not group:
@@ -154,12 +180,22 @@ def inspect(briefing, review=None):
                 continue
             if group and source['id'] not in group['source_ids']:
                 issues.append(cid + ': support source is outside its event group')
-            if source['access'] not in {'full_text', 'primary_release'}:
+            if source['access'] not in {'full_text', 'primary_release','headline_only'}:
                 issues.append(cid + ': snippets, metadata and failed access cannot support claims')
             if not _flat(support['quote']) or _flat(support['quote']) not in _flat((source.get('capture') or {}).get('text', '')):
                 issues.append(cid + ': evidence quote is not in its captured source text')
+            quote_words[source['id']]+=len(support['quote'].split())
+            if source['access']=='headline_only':
+                if claim['event_at']!=source['published_at']:issues.append(cid+': headline date differs from exact feed publication time')
+                expected=source['publisher']+' headline: '+source['title']
+                if (claim['text']!=expected or claim.get('attribution')!=source['publisher']
+                        or claim['kind']!='fact' or len(claim['supports'])!=1
+                        or support['quote']!=source['title'] or support['locator']!='official feed headline'):
+                    issues.append(cid+': headline evidence supports only the exact attributed outlet headline')
         if claim['kind'] == 'interpretation' and not claim.get('attribution'):
             issues.append(cid + ': interpretation needs attribution')
+    for sid,words in quote_words.items():
+        if words>25:issues.append(sid+': source quotation budget exceeds 25 words')
 
     used_groups = set()
     for surface in ('narrative', 'script', 'storyboard'):
@@ -173,12 +209,29 @@ def inspect(briefing, review=None):
                     issues.append(surface + ': references an excluded group')
                 if surface == 'narrative':
                     used_groups.add(gid)
+            if headline_mode and surface=='storyboard' and block['visual_kind']!='headline_card':issues.append('storyboard: headline roundup permits only headline cards')
             if surface == 'storyboard' and block['visual_kind'] == 'source_visual' and not block.get('source_id'):
                 issues.append('storyboard: source visual needs a source ID')
             if surface == 'storyboard' and block.get('source_id'):
                 src = sources.get(block['source_id'])
-                if not src or src['access'] not in {'full_text', 'primary_release'}:
+                if not src or src['access'] not in {'full_text', 'primary_release'} and not (
+                        src['access']=='headline_only' and block['visual_kind']=='headline_card'):
                     issues.append('storyboard: visual needs an accessed source')
+            referenced_sources={s['source_id'] for cid in refs & claims.keys() for s in claims[cid]['supports']}
+            if referenced_sources and all(sources.get(s,{}).get('access')=='headline_only' for s in referenced_sources):
+                publishers={sources[s]['publisher'] for s in referenced_sources}
+                if not re.search(r'\bheadlines?\b',block['text'],re.I) or any(p not in block['text'] for p in publishers):
+                    issues.append(surface+': headline-only wording needs explicit outlet/headline attribution')
+                allowed_numbers=set(re.findall(r'\d+(?:[,.]\d+)*%?',' '.join(sources[s]['title'] for s in referenced_sources)))
+                number_text=block['text']
+                if edition:
+                    edition_label=edition.strftime('%B')+' '+str(edition.day)
+                    number_text=re.sub(r'\b'+re.escape(edition_label)+r'(?:,? '+str(edition.year)+r')?\b','',number_text)
+                if set(re.findall(r'\d+(?:[,.]\d+)*%?',number_text))-allowed_numbers:
+                    issues.append(surface+': number absent from referenced headlines')
+    if headline_mode:
+        for surface in ('narrative','script'):
+            if not any(HEADLINE_NOTE in b['text'] for b in briefing[surface]):issues.append(surface+': headline-only scope note required')
     if selected - used_groups:
         issues.append('selected groups missing from narrative: ' + ', '.join(sorted(selected - used_groups)))
 

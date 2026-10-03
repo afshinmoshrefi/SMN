@@ -167,7 +167,7 @@ def create_app(config=None, store=None, auth=None):
             manifest = store.resolve(row['path'])
             copy = store.read_revision(row['path'])
             public = {key: metadata.get(row['path'], {}).get(key, '') for key in
-                      ('slug', 'symbol', 'category', 'published_date', 'date')}
+                      ('slug', 'symbol', 'category', 'published_date', 'date', 'direction')}
             public.update(url=row['path'], title=copy['headline']['text'], dek=copy['preview'][0]['text'])
             if manifest.get('public_asset_ids'):
                 public['hero_image'] = asset_url(row['path'], row['revision'], manifest['public_asset_ids'][0], True)
@@ -193,6 +193,15 @@ def create_app(config=None, store=None, auth=None):
         if not path:
             raise ContentError('Video is unavailable')
         return send_file(str(path), mimetype='video/mp4', conditional=True, etag=False)
+
+    @app.get('/briefings/<identifier>/captions.vtt')
+    def briefing_captions(identifier):
+        import public_briefing
+        item = public_briefing.load(private_root, identifier)
+        path = public_briefing.video(private_root, item, 'text/vtt')
+        if not path:
+            raise ContentError('Captions are unavailable')
+        return send_file(str(path), mimetype='text/vtt', conditional=True, etag=False)
 
     @app.get('/<path:path>')
     def article(path):

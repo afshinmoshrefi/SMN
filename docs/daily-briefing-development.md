@@ -83,3 +83,14 @@ and the newer [video API](https://elevenlabs.io/docs/api-reference/flows/video/c
 are different capability surfaces (documentation checked October 3, 2026 UTC).
 Neither offline readiness nor an app-generated sample proves unattended daily
 automation. Unknown charged outcomes must be reconciled before retrying later.
+
+The automated `briefing_daily.py` runner defaults to `headline_roundup`. It captures
+only the exact titles, aware publication timestamps and article URLs from the
+server-owned CNBC and NYT Business official feeds, retaining the raw feed hash,
+record hash and capture time. Each claim must reproduce an attributed headline;
+original prose can connect headline themes but cannot assert unsupported story
+facts or numbers. The review package explicitly says full stories were not read.
+The validator checks exact capture bindings, claim attribution, quote budgets and
+headline card references. Editorial approval remains separate and required.
+`--mode full_text` preserves the stronger accessible full-story gate. Other
+preferred publishers remain visible coverage gaps when public access fails.

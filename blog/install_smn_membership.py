@@ -13,8 +13,8 @@ SITE = Path('/etc/nginx/sites-available/smn.conf')
 SNIPPET = Path('/etc/nginx/snippets/smn_reader.conf')
 UNIT = Path('/etc/systemd/system/smn-reader.service')
 DASH = Path('/etc/systemd/system/pub_dashboard.service.d/60-membership.conf')
-QUEUE = Path('/etc/systemd/system/blog_queue.service.d/60-membership.conf')
-PROCESSOR = Path('/etc/systemd/system/article_processor.service.d/60-membership.conf')
+QUEUE = Path('/etc/systemd/system/blog_queue.service.d/zz-membership.conf')
+PROCESSOR = Path('/etc/systemd/system/article_processor.service.d/zz-membership.conf')
 SWEEP = Path('/etc/systemd/system/pub_dashboard_sweep.service.d/60-membership.conf')
 PROMOTION = Path('/etc/systemd/system/smn-promotion.service')
 PROMOTION_TIMER = Path('/etc/systemd/system/smn-promotion.timer')
@@ -44,6 +44,7 @@ def configuration():
     return '\n'.join([
         'SMN_READER_PRIVATE_ROOT=/var/lib/smn/reader',
         'SMN_READER_ENV=dev',
+        'SMN_PUBLIC_ORIGIN=https://smn-dev.trxstat.com',
         'SMN_READER_CLIENT_ID=client_01M3Z7YJKDZ9DKVK9MNYEP6X85',
         'SMN_READER_CALLBACK_URL=https://smn-dev.trxstat.com/smn-dashboard/auth/callback',
         'SMN_READER_SHARED_DEV_CALLBACK=1',
@@ -234,11 +235,38 @@ def workers(record):
         write(path, (record / (before['file'] + '.after')).read_text())
     run('systemctl', 'daemon-reload')
     run('systemctl', 'restart', 'blog_queue.service', 'article_processor.service')
+    verify_workers(state['repo'])
     run('systemctl', 'start', 'pub_dashboard_sweep.timer')
     run('systemctl', 'enable', '--now', 'smn-promotion.timer', 'smn-market-briefing.timer')
     state['status'] = 'active'
     write(record / 'receipt.json', json.dumps(state, indent=2), 0o600)
     return state
+
+
+def verify_workers(repo):
+    """Check effective launch commands and stable processes, including later drop-ins."""
+    repo = Path(repo).resolve()
+    previous = None
+    for attempt in range(3):
+        current = {}
+        for name in ('blog_queue.service', 'article_processor.service'):
+            assert run('systemctl', 'is-active', name) == 'active', name
+            command = run('systemctl', 'show', '-p', 'ExecStart', '--value', name)
+            if PYTHON not in command or (name == 'article_processor.service' and str(repo / 'blog/article_processor.py') not in command):
+                raise ValueError('Effective worker launch is overridden: ' + name)
+            pid = run('systemctl', 'show', '-p', 'MainPID', '--value', name)
+            if pid == '0' or Path('/proc/' + pid + '/cwd').resolve() != repo / 'blog':
+                raise ValueError('Worker is not running the candidate checkout: ' + name)
+            args = Path('/proc/' + pid + '/cmdline').read_bytes().replace(b'\0', b' ').decode()
+            if PYTHON not in args:
+                raise ValueError('Worker process uses another runtime: ' + name)
+            current[name] = pid
+        if previous is not None and current != previous:
+            raise ValueError('Worker restarted during activation verification')
+        previous = current
+        if attempt < 2:
+            time.sleep(2)
+    return current
 
 
 if __name__ == '__main__':

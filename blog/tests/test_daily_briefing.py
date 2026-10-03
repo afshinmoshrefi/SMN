@@ -33,7 +33,47 @@ def review(data):
             'reviewed_at': '2026-10-02T18:00:00-04:00'}
 
 
+def headline_fixture():
+    from briefing_daily import headline_bundle
+    from daily_briefing import HEADLINE_NOTE
+    data=fixture();src=data['sources'][0]
+    src.update(title='Agency output holds steady at 4.2%',publisher='CNBC',url='https://www.cnbc.com/2026/10/02/output.html')
+    discovery={'retrieved_at':src['retrieved_at'],'sources':[src],'scan':[],
+               'files':{'cnbc.discovery':'a'*64}}
+    bundle=headline_bundle(discovery,data['edition_date'],data['cutoff'],data['label'])
+    data.update(sources=bundle['sources'],mode='headline_roundup',coverage_note=HEADLINE_NOTE)
+    claim=data['claims'][0];claim.update(text='CNBC headline: '+src['title'],attribution='CNBC')
+    claim['supports']=[{'source_id':'agency','quote':src['title'],'locator':'official feed headline'}]
+    for surface in ('narrative','script','storyboard'):
+        data[surface][0]['text']='CNBC headlines describe steady output at 4.2%. '+HEADLINE_NOTE
+    return data
+
+
 class DailyBriefingTests(unittest.TestCase):
+    def test_official_headline_evidence_is_narrow_attributed_and_pending(self):
+        self.assertEqual(inspect(headline_fixture())['issues'],[])
+        self.assertEqual(inspect(headline_fixture())['status'],'pending_editorial_review')
+        data=headline_fixture();data['script'][0]['text']='October 2, 2026. '+data['script'][0]['text']
+        self.assertEqual(inspect(data)['issues'],[])
+
+    def test_headline_mutation_fullstory_claim_and_invented_number_hold(self):
+        changes=[('title','Invented revised headline'),('access','full_text')]
+        for key,value in changes:
+            data=headline_fixture();data['sources'][0][key]=value
+            self.assertTrue(inspect(data)['issues'])
+        for field,value in [('text','Output rose because of policy.'),('attribution','Reuters'),
+                            ('event_at','2026-10-02T08:31:00-04:00')]:
+            data=headline_fixture();data['claims'][0][field]=value
+            self.assertTrue(inspect(data)['issues'])
+        data=headline_fixture();data['script'][0]['text']+=' Output reached 9.9%.'
+        self.assertTrue(any('number absent' in e for e in inspect(data)['issues']))
+        data=headline_fixture();data['sources'][0]['capture']['feed_url']='https://evil.test/rss'
+        self.assertTrue(inspect(data)['issues'])
+        data=headline_fixture();data['storyboard'][0]['visual_kind']='presenter'
+        self.assertTrue(inspect(data)['issues'])
+        data=headline_fixture();data['sources'][0]['capture']['record_sha256']='b'*64
+        self.assertTrue(inspect(data)['issues'])
+
     def test_no_ticker_chart_or_fixed_story_count_and_honest_pending_status(self):
         result = inspect(fixture())
         self.assertEqual(result['issues'], [])

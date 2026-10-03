@@ -27,7 +27,7 @@ class _NoRedirect(HTTPRedirectHandler):
         raise Held('Unexpected vendor redirect; credential transmission stopped')
 
 
-def _request(endpoint, payload=None, key_env='ELEVENLABS_API_KEY', binary=False):
+def _request(endpoint, payload=None, key_env='ELEVENLABS_API_KEY', binary=False, with_headers=False):
     secret = os.environ.get(key_env)
     if not secret:
         raise Held('ElevenLabs credential is absent from server environment')
@@ -41,7 +41,10 @@ def _request(endpoint, payload=None, key_env='ELEVENLABS_API_KEY', binary=False)
                 raise Held('Provider response exceeded private media bound')
             if binary:
                 return body, {key: response.headers.get(key) for key in ('request-id', 'history-item-id', 'character-cost')}
-            return json.loads(body)
+            decoded = json.loads(body)
+            if with_headers:
+                return decoded, {key: response.headers.get(key) for key in ('request-id', 'history-item-id', 'character-cost')}
+            return decoded
     except HTTPError as exc:
         raise Held('ElevenLabs HTTP status ' + str(exc.code)) from None
     except (URLError, TimeoutError, OSError):
@@ -111,8 +114,9 @@ def speech(root, text, voice_id, model_id, settings, quote, output, *, key_env='
         raise Held('Partial audio outcome requires reconciliation')
     token = _reserve(root, identity, quote)
     try:
-        audio, headers = _request('/v1/text-to-speech/' + voice_id + '?output_format=mp3_44100_128',
-            {'text': text, 'model_id': model_id, 'voice_settings': settings}, key_env=key_env, binary=True)
+        response, headers = _request('/v1/text-to-speech/' + voice_id + '/with-timestamps?output_format=mp3_44100_128',
+            {'text': text, 'model_id': model_id, 'voice_settings': settings}, key_env=key_env, with_headers=True)
+        audio = base64.b64decode(response['audio_base64'], validate=True)
         if not audio:
             raise Held('Provider returned no audio')
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -124,6 +128,15 @@ def speech(root, text, voice_id, model_id, settings, quote, output, *, key_env='
             'created_at': utc_now(), 'review_status': 'pending', 'publish': False}
         save_json(receipt_path, receipt)
         _finish(root, token, 'received', receipt)
+        # Preserve paid audio even if optional provider alignment is absent. A
+        # missing timing file holds composition without silently buying a retry.
+        from speech_timing import provider_timing
+        try:
+            timing = provider_timing(text, audio, response.get('alignment'))
+            save_json(output.with_suffix('.alignment.json'), timing)
+        except ValueError:
+            receipt['timing_status'] = 'needs_alignment_review'
+            save_json(receipt_path, receipt)
         return receipt
     except Exception:
         _finish(root, token, 'unknown_outcome')

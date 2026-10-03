@@ -186,6 +186,7 @@
     $('membership-preview-state').textContent = 'Draft generation requested. Refresh jobs to follow progress.'; await loadJobs();
   });
   const labels = {queued:'Queued for generation',draft:'Ready for generation',held:'Held — action required',failed:'Generation failed',provider_disabled:'Provider disabled — configuration required',running:'Generation in progress',generated:'Generated — inspect before approval',reviewed:'Media approved; distribution remains disabled',canceled:'Canceled',superseded:'Replaced by a new revision'};
+  function exportJob(job) { return ['social_export','substack_export'].includes(job.kind); }
   function copyJob(job) { return job.kind === 'derivative' || (job.kind === 'daily_briefing' && !(job.artifacts || []).some(item => /^(audio|video)\//.test(item.media_type || ''))); }
   function briefingNeedsImport(job) { return job?.kind === 'daily_briefing' && copyJob(job) && !job.imported_draft; }
   function button(label, callback, disabled = false) { const node = document.createElement('button'); node.type = 'button'; node.textContent = label; node.disabled = disabled; node.onclick = callback; return node; }
@@ -202,7 +203,8 @@
     else status('promotion-status', jobs.length + ' saved jobs.');
     for (const job of jobs) {
       const card = document.createElement('article'); card.className = 'job-card';
-      const title = document.createElement('strong'); title.textContent = job.kind.replaceAll('_',' ') + ' · ' + (job.status === 'reviewed' && copyJob(job) ? 'Copy approved; imported drafts require exact review' : labels[job.status] || job.status); card.append(title);
+      const title = document.createElement('strong'); title.textContent = job.kind.replaceAll('_',' ') + ' · ' + (job.status === 'reviewed' && exportJob(job) ? 'Export approved; distribution remains disabled' : job.status === 'reviewed' && copyJob(job) ? 'Copy approved; imported drafts require exact review' : labels[job.status] || job.status); card.append(title);
+      if (job.subject_label) { const subject = document.createElement('p'); subject.className = 'job-subject'; subject.textContent = job.subject_label; card.append(subject); }
       const details = document.createElement('p'); details.textContent = 'Source revision ' + job.source_revision + ' · Generation: ' + job.generation_status + ' · Review: ' + job.review_status; card.append(details);
       if (job.imported_draft) { const draft = document.createElement('p'); draft.textContent = 'Saved draft: ' + (job.imported_draft.slug || job.imported_draft.briefing_id) + ' · ' + job.imported_draft.review_status + ' · Revision ' + job.imported_draft.revision; card.append(draft); }
       if (job.error || job.holds?.length) { const note = document.createElement('p'); note.textContent = [job.error, ...(job.holds || [])].filter(Boolean).join(' · '); card.append(note); }
@@ -211,12 +213,12 @@
       if (['held','failed'].includes(job.status)) actions.append(button('Retry', () => run('job-' + job.id, 'promotion-status', () => jobAction(job, 'retry')), job.generation_status === 'unknown_outcome' || job.attempts >= 2));
       if (job.status === 'generated' || (job.status === 'reviewed' && copyJob(job))) actions.append(button('Inspect & review', () => run('review', 'promotion-status', async () => {
         reviewJob = await api('/api/promotion/jobs/' + encodeURIComponent(job.id));
-        const textJob = copyJob(reviewJob);
-        $('promotion-review-state').textContent = textJob ? 'Inspect the saved copy and its source claims before approval.' : 'Inspect each artifact before approving generated media.';
+        const textJob = copyJob(reviewJob), exported = exportJob(reviewJob);
+        $('promotion-review-state').textContent = exported ? 'Inspect the exported public copy, qualifications and canonical link before approval.' : textJob ? 'Inspect the saved copy and its source claims before approval.' : 'Inspect each artifact before approving generated media.';
         if (briefingNeedsImport(reviewJob)) $('promotion-review-state').textContent += ' Save the briefing draft before approval.';
-        $('promotion-review-check').textContent = textJob ? 'I checked the exact saved source claims, study identity, qualifications and proposed narration.' : 'I inspected narration, chart identity, captions and qualifications in the exact saved media.';
-        $('promotion-review-scope').textContent = textJob ? 'Copy review approves this exact saved revision. Public preview drafts still require their own approval and publication.' : 'This approves generated media only. It does not authorize posting or replace source review.';
-        $('promotion-approve').textContent = textJob ? (reviewJob.kind === 'daily_briefing' ? 'Approve briefing' : 'Approve generated copy') : 'Approve generated media';
+        $('promotion-review-check').textContent = exported ? 'I checked the exact exported public copy, qualifications and canonical link.' : textJob ? 'I checked the exact saved source claims, study identity, qualifications and proposed narration.' : 'I inspected narration, chart identity, captions and qualifications in the exact saved media.';
+        $('promotion-review-scope').textContent = exported ? 'This approves this exact export only. Distribution remains disabled; this does not authorize posting.' : textJob ? 'Copy review approves this exact saved revision. Public preview drafts still require their own approval and publication.' : 'This approves generated media only. It does not authorize posting or replace source review.';
+        $('promotion-approve').textContent = exported ? 'Approve export' : textJob ? (reviewJob.kind === 'daily_briefing' ? 'Approve briefing' : 'Approve generated copy') : 'Approve generated media';
         $('promotion-review-artifacts').replaceChildren(); artifactLinks($('promotion-review-artifacts'), reviewJob);
         $('promotion-reviewed').checked = false; $('promotion-approve').disabled = true; $('promotion-review').showModal();
       })));

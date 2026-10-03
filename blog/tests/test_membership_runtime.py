@@ -23,6 +23,27 @@ class RuntimeTests(unittest.TestCase):
         self.prepared = {'provenance': {'article_id': 'https://smn-dev.trxstat.com/articles/test.html',
             'revision': 'source-r1', 'article_sha256': 'a' * 64}}
 
+    def test_job_subject_labels_use_public_catalog_and_safe_briefing_identity(self):
+        article=promotion_jobs.create(runtime.jobs_root(),'derivative',{'article_id':self.prepared['provenance']['article_id'],'source_revision':'r1','source_hash':'a'*64},'editor')
+        with patch.object(runtime.article_index,'load_posts',return_value=[{'url':self.prepared['provenance']['article_id'],'title':'ADP research <img src=x>'}]):
+            self.assertEqual(runtime.get_job(article['id'])['subject_label'],'ADP research <img src=x>')
+        with patch.object(runtime.article_index,'load_posts',return_value=[]):
+            self.assertEqual(runtime.get_job(article['id'])['subject_label'],'Research article unavailable')
+        daily=promotion_jobs.create(runtime.jobs_root(),'daily_briefing',{'briefing_id':'2026-10-03-wrap','source_revision':'r1','source_hash':'a'*64},'editor')
+        with patch.object(runtime,'_briefing_record',return_value={'source_bundle':{'edition_date':'2026-10-03','label':'Market Wrap'}}):
+            self.assertEqual(runtime.get_job(daily['id'])['subject_label'],'2026-10-03 · Market Wrap')
+        with patch.object(runtime,'_briefing_record',side_effect=ContentError('private path must not escape')):
+            label=runtime.get_job(daily['id'])['subject_label']
+            self.assertEqual(label,'Daily briefing · 2026-10-03-wrap')
+            self.assertNotIn('private path',label)
+
+    def test_export_origin_is_explicit_server_configuration(self):
+        config = self.root/'promotion.json'
+        config.write_text(json.dumps({'public_origin':'https://configuration.test'}))
+        with patch.dict('os.environ', {'SMN_PROMOTION_CONFIG':str(config),
+                'SMN_PUBLIC_ORIGIN':'https://smn-dev.trxstat.com','SMN_SITE_BASE':'https://fallback.test'}):
+            self.assertEqual(runtime._configuration()['public_origin'], 'https://smn-dev.trxstat.com')
+
     def test_first_derivative_needs_prepared_source_only(self):
         with patch.object(runtime, '_source_record', return_value={'prepared': self.prepared}):
             job = runtime.create_job({'kind': 'derivative', 'slug': 'test'}, 'editor')
@@ -30,6 +51,28 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn('slug', saved['inputs'])
         self.assertEqual(saved['inputs']['payload_sha256'], digest(self.prepared))
         self.assertEqual(saved['inputs']['article_id'], self.prepared['provenance']['article_id'])
+
+    def test_imported_copy_reports_publication_only_for_exact_live_content(self):
+        from subscription_writer import sha256, save_json
+        job = promotion_jobs.create(runtime.jobs_root(), 'derivative',
+            dict(article_id='canonical', source_revision='r1', source_hash='a' * 64), 'editor')
+        folder = promotion_jobs._folder(runtime.jobs_root()) / 'artifacts' / job['id']
+        folder.mkdir(parents=True)
+        copy = {'headline': {'text': 'Reviewed public copy'}}
+        save_json(folder / 'copy.json', copy)
+        promotion_jobs.update(runtime.jobs_root(), job['id'], 1,
+            imported_draft={'slug': 'example', 'revision': 'draft-r1', 'review_status': 'pending'},
+            artifacts=[{'name': 'copy.json', 'relative_path': 'copy.json', 'media_type': 'application/json',
+                        'sha256': sha256((folder / 'copy.json').read_bytes())}])
+        original = promotion_jobs._path(runtime.jobs_root(), job['id']).read_bytes()
+        with patch.object(runtime, '_post', return_value={}), \
+             patch.object(runtime.article_index, 'load_posts', return_value=[]):
+            for content, expected in [(copy, 'published'), ({'headline': {'text': 'Different copy'}}, 'pending')]:
+                with patch.object(runtime.publication, 'source', return_value=('',
+                        {'revision': 'active-r2', 'preview': {'content': content}})):
+                    result = runtime.get_job(job['id'])
+                    self.assertEqual(result['imported_draft']['review_status'], expected)
+        self.assertEqual(promotion_jobs._path(runtime.jobs_root(), job['id']).read_bytes(), original)
 
     def test_video_requires_approved_copy(self):
         with patch.object(runtime, '_source_record', return_value={'prepared': self.prepared}):
