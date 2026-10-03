@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 import promotion_jobs as jobs
 import promotion_worker as worker
+from daily_briefing import digest
+from subscription_writer import sha256
 
 
 class Worker(unittest.TestCase):
@@ -38,6 +40,29 @@ class Worker(unittest.TestCase):
         job=jobs.create(self.root,'daily_briefing',dict(briefing_id='edition',source_revision='r1',source_hash='a'*64),'editor')
         job=jobs.update(self.root,job['id'],1,status='held',generation_status='unknown_outcome')
         with self.assertRaises(jobs.Conflict):worker.run_one(self.root,job['id'],{})
+
+    def test_avatar_submission_then_same_job_poll_without_extra_attempt(self):
+        briefing={'script':[{'text':'Approved intro. Full story.'}]}
+        image=self.root/'person.jpg';image.write_bytes(b'image')
+        audio=self.root/'intro.mp3';audio.write_bytes(b'audio')
+        receipt={'voice_id':'verified','model_id':'existing','settings':{},'audio_sha256':sha256(b'audio')}
+        receipt['request_sha256']=worker.eleven.request_identity('Approved intro.','verified','existing',{})
+        job=jobs.create(self.root,'daily_avatar',{'briefing_id':'edition','source_revision':'r1','source_hash':digest(briefing)},'editor')
+        config=dict(generation_enabled=True,avatar_ready=True,likeness_verified=True,voice_verified=True,
+            credential_ready=True,flows_plan_verified=True,voice_id='verified',presenter_reference_sha256=sha256(b'image'),
+            resolve_source=lambda i:{'briefing':briefing,'review':{},'active_revision':'r1'},
+            avatar_request={'image_path':str(image),'audio_path':str(audio),'audio_receipt':receipt,
+                'script':'Approved intro.','part':'intro','resolution':'720p','quote':{}})
+        with patch('daily_briefing.inspect',return_value={'issues':[],'review_status':'approved'}),\
+                patch('video_render.probe',return_value={'format':{'duration':'3'}}),\
+                patch.object(worker.eleven,'avatar',return_value={'status':'pending'}) as avatar:
+            first=worker.run_one(self.root,job['id'],config);second=worker.run_one(self.root,job['id'],config)
+            self.assertEqual(first['stage'],'avatar_provider');self.assertEqual(second['attempts'],1)
+            self.assertEqual(avatar.call_count,2);self.assertEqual(second['id'],job['id'])
+            # A changed approved speech binding must stop before another provider call.
+            receipt['voice_id']='different'
+            held=worker.run_one(self.root,job['id'],config)
+            self.assertEqual(held['status'],'held');self.assertEqual(avatar.call_count,2)
 
 
 if __name__=='__main__':unittest.main()

@@ -23,7 +23,7 @@ def run_one(root, identifier, configuration):
     job=load_json(jobs._path(root,identifier))
     if job['status'] in {'generated','reviewed','canceled','superseded'} or jobs.is_paused(root,job['kind']):
         return jobs.summary(job)
-    if job['status'] == 'running' or job['generation_status'] == 'unknown_outcome':
+    if (job['status'] == 'running' and not (job['kind']=='daily_avatar' and job['stage']=='avatar_provider')) or job['generation_status'] == 'unknown_outcome':
         raise jobs.Conflict('Provider result requires reconciliation before another attempt')
     if not configuration.get('generation_enabled'):
         return _hold(root,job,'Private generation is disabled')
@@ -141,6 +141,8 @@ def _daily(root,job,configuration,resolver):
         if job['inputs'].get('script',script)!=script:raise ValueError('Daily script changed')
     except (KeyError,ValueError,OSError):return _hold(root,job,'Exact current daily source/script approval is required')
     if job['kind']=='daily_avatar':
+        if configuration.get('avatar_request'):
+            return _avatar_generate(root,job,configuration,briefing)
         return _avatar_import(root,job,configuration,briefing)
     for flag in ('voice_verified','model_verified','credential_ready'):
         if not configuration.get(flag):return _hold(root,job,'Daily ElevenLabs '+flag+' is not verified')
@@ -165,6 +167,41 @@ def _daily(root,job,configuration,resolver):
         unknown=ledger.exists() and any(r['status']=='unknown_outcome' for r in load_json(ledger)['reservations'])
         return jobs.update(root,job['id'],job['version'],status='held',stage='generation',
             generation_status='unknown_outcome' if unknown else 'failed',holds=['Inspect private daily generation receipt before retry'])
+
+
+def _avatar_generate(root,job,configuration,briefing):
+    from video_render import probe
+    for flag in ('avatar_ready','likeness_verified','voice_verified','credential_ready','flows_plan_verified'):
+        if not configuration.get(flag):return _hold(root,job,'Personal avatar '+flag+' is not verified')
+    request=configuration['avatar_request'];private=jobs._folder(root)/'artifacts'/job['id']
+    try:
+        image,audio=Path(request['image_path']),Path(request['audio_path']);receipt=request['audio_receipt']
+        text=request['script'];full=' '.join(b['text'] for b in briefing['script'])
+        if (request['part'] not in {'intro','outro'} or not text
+                or (request['part']=='intro' and not full.startswith(text))
+                or (request['part']=='outro' and not full.endswith(text))
+                or sha256(image.read_bytes())!=configuration['presenter_reference_sha256']
+                or sha256(audio.read_bytes())!=receipt['audio_sha256']
+                or receipt['voice_id']!=configuration['voice_id']
+                or receipt['request_sha256']!=eleven.request_identity(text,receipt['voice_id'],receipt['model_id'],receipt['settings'])):
+            raise ValueError('Verified avatar reference/speech differs')
+        duration=float(probe(audio,configuration.get('ffprobe','ffprobe'))['format']['duration'])
+        if not 0<duration<=8:raise ValueError('Avatar must be brief intro/outro')
+        if job['status']!='running':
+            if job['attempts']>=2:raise ValueError('Avatar attempt ceiling reached')
+            job=jobs.update(root,job['id'],job['version'],status='running',stage='avatar_provider',
+                generation_status='running',attempts=job['attempts']+1,holds=[])
+        result=eleven.avatar(root,image,audio,request['resolution'],request['quote'],private/'provider-avatar.mp4')
+        if result['status']!='avatar_received_pending_qa':return jobs.summary(job)
+        result=dict(result,briefing_sha256=digest(briefing),script=text,part=request['part'],voice_id=receipt['voice_id'])
+        return _avatar_import(root,job,dict(configuration,avatar_delivery={'path':private/'provider-avatar.mp4','receipt':result}),briefing)
+    except Exception:
+        current=load_json(jobs._path(root,job['id']))
+        ledger=Path(root)/'elevenlabs-budget.json'
+        unknown=ledger.exists() and any(r['status']=='unknown_outcome' for r in load_json(ledger)['reservations'])
+        return jobs.update(root,job['id'],current['version'],status='held',stage='avatar_provider',
+            generation_status='unknown_outcome' if unknown else 'held',
+            holds=['Inspect exact avatar account, reference, speech, quote or provider receipt before continuing'])
 
 
 def _avatar_import(root,job,configuration,briefing):
