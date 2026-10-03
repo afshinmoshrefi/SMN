@@ -1,4 +1,6 @@
 import sys
+import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,6 +17,16 @@ class Jobs(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.inputs = {'article_id':'canonical-1', 'source_revision':'r1', 'source_hash':'a'*64, 'script':'Original'}
+
+    def test_advisory_lock_releases_after_process_death_and_blocks_live_owner(self):
+        code = 'import os,sys; import promotion_jobs as jobs; ctx=jobs.locked(sys.argv[1]); ctx.__enter__(); os._exit(0)'
+        env = dict(os.environ, PYTHONPATH=str(Path(jobs.__file__).parent) + os.pathsep + os.environ.get('PYTHONPATH',''))
+        result = subprocess.run([sys.executable,'-c',code,str(self.root)],env=env,capture_output=True,timeout=15)
+        self.assertEqual(result.returncode,0,result.stderr)
+        with jobs.locked(self.root,timeout=0):
+            with self.assertRaises(jobs.Conflict):
+                with jobs.locked(self.root,timeout=0): pass
+        with jobs.locked(self.root,timeout=0): pass
 
     def test_edit_has_new_identity_and_original_create_stays_original(self):
         old = jobs.create(self.root,'article_video', self.inputs,'editor')
