@@ -1,0 +1,44 @@
+{
+  "headline": {
+    "text": "Omnicom's perfect midterm record looks weaker in consecutive years",
+    "source_ids": ["omc-history"],
+    "article_refs": ["sections/2/paragraphs/0"]
+  },
+  "preview": [
+    {
+      "text": "Omnicom's September 22-November 16 window gained in all 10 selected midterm-election years from 1986 through 2022 in this article's TradeWave study. Yet the same dates were profitable in only 50.0% of the consecutive 2016-2025 windows. That contrast changes how much reassurance the selected record can offer. Winning finishes also conceal a rougher journey: the 2022 window ended higher but traded below its starting price along the way. What does the favorable record leave out? The complete article compares the supplied histories and examines movement inside the windows, so readers can judge the pattern with its limitations visible.",
+      "source_ids": ["omc-history"],
+      "article_refs": ["sections/0/paragraphs/1", "sections/2/paragraphs/0", "sections/3/paragraphs/0", "sections/3/paragraphs/1", "sections/4/paragraphs/0"]
+    }
+  ],
+  "full_article_value": {
+    "text": "Compare the year-by-year evidence and the adverse moves hidden inside winning windows.",
+    "source_ids": ["omc-history"],
+    "article_refs": ["sections/3/paragraphs/0", "sections/3/paragraphs/1", "sections/5/paragraphs/1"]
+  },
+  "qualification": {
+    "text": "These are selected historical windows before trading costs, not a forecast; the selection does not establish that elections caused gains.",
+    "source_ids": ["omc-history"],
+    "article_refs": ["sections/2/paragraphs/1", "sections/5/paragraphs/0"]
+  },
+  "social": [
+    {
+      "text": "Omnicom's selected midterm record looks strong. Its consecutive-year comparison is weaker, and winning windows included adverse moves. Explore the evidence and limitations in the complete article.",
+      "source_ids": ["omc-history"],
+      "article_refs": ["sections/2/paragraphs/0", "sections/3/paragraphs/0", "sections/5/paragraphs/1"]
+    }
+  ],
+  "video": {
+    "narration": {
+      "text": "Omnicom's midterm record looks strong, but consecutive years tell a weaker story. Winning windows also had pullbacks. Explore the historical evidence and risks in the complete article.",
+      "source_ids": ["omc-history"],
+      "article_refs": ["sections/2/paragraphs/0", "sections/3/paragraphs/0", "sections/5/paragraphs/1"]
+    },
+    "on_screen": {
+      "text": "OMC long study | September 22-November 16 | 10 selected midterm years, 1986-2022 | Historical evidence, not a forecast",
+      "source_ids": ["omc-history"],
+      "article_refs": ["sections/0/paragraphs/1", "sections/2/paragraphs/0", "sections/5/paragraphs/0"]
+    },
+    "native_chart_id": "bars_mae_mfe"
+  }
+}
