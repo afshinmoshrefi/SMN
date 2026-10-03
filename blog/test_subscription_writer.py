@@ -108,6 +108,17 @@ class SubscriptionHandoffTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_schema('invented_chart',nullable)
 
+    def test_source_alternatives_keep_exact_fields_and_nonempty_support(self):
+        source = {'type': 'object', 'required': ['id', 'quote'], 'additionalProperties': False,
+                  'properties': {'id': {'type': 'string', 'enum': ['fixed-source']},
+                                 'quote': {'type': 'string', 'minLength': 1, 'pattern': r'\S'}}}
+        schema = {'anyOf': [source, {'type': 'null'}]}
+        validate_schema({'id': 'fixed-source', 'quote': 'captured headline'}, schema)
+        validate_schema(None, schema)
+        for value in ({'id': 'changed', 'quote': 'fact'}, {'id': 'fixed-source', 'quote': ' '},
+                      {'id': 'fixed-source', 'quote': ''}, {'id': 'fixed-source'}):
+            with self.assertRaises(ValueError): validate_schema(value, schema)
+
     def test_login_failure_keeps_failed_job_without_api_fallback(self):
         from subscription_writer import load_json
         job=self.job()
