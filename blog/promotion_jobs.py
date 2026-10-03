@@ -32,23 +32,40 @@ def _path(root, identifier):
 
 
 @contextmanager
-def locked(root):
-    path = _folder(root) / '.lock'
-    deadline = time.monotonic() + 5
-    while True:
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            break
-        except FileExistsError:
-            if time.monotonic() >= deadline:
-                raise Conflict('Job store is locked; inspect owner before recovery')
-            time.sleep(.05)
+def locked(root, name='.lock', timeout=5):
+    if name not in {'.lock', '.daemon.lock'}:
+        raise ValueError('Unsupported private lock')
+    path = _folder(root) / name
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
+        import fcntl
+        acquire = lambda: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        release = lambda: fcntl.flock(fd, fcntl.LOCK_UN)
+    except ImportError:
+        import msvcrt
+        if not os.fstat(fd).st_size: os.write(fd, b'0')
+        def acquire():
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        def release():
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    acquired = False
+    try:
+        deadline = time.monotonic() + timeout
+        while not acquired:
+            try:
+                acquire(); acquired = True
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise Conflict('Job store is busy; retry after its current operation') from None
+                time.sleep(.05)
+        os.lseek(fd, 0, os.SEEK_SET)
         os.write(fd, str(os.getpid()).encode())
         yield
     finally:
+        if acquired: release()
         os.close(fd)
-        path.unlink()
 
 
 def summary(job):

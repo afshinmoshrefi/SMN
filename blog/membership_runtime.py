@@ -2,7 +2,6 @@
 from copy import deepcopy
 import json
 from pathlib import Path
-import threading
 import re
 
 import article_index
@@ -127,7 +126,70 @@ def _source_record(slug):
     manifest = publication.store().resolve(publication.path_for(post))
     if record['active_revision'] != manifest['revision']:
         raise ContentError('Article changed. Requalify its derivative before generating new promotion.')
+    if (record.get('canonical') != publication.path_for(post)
+            or record.get('prepared', {}).get('provenance', {}).get('article_id') != post['url']):
+        raise ContentError('The qualified source does not belong to this canonical article.')
+    _verify_retained(record)
     return record
+
+
+def _verify_retained(record):
+    from public_derivative import validate_prepared
+    hashes = record.get('retained_input_hashes')
+    if not isinstance(hashes, dict) or not hashes:
+        raise ContentError('The complete retained article and review capsule must be qualified first.')
+    for name, expected in hashes.items():
+        path = Path(name)
+        if (not path.is_absolute() or any(p.is_symlink() for p in (path, *path.parents))
+                or not path.is_file() or publication.sha(path.read_bytes()) != expected):
+            raise ContentError('Retained source evidence changed. Requalify before generating or reviewing.')
+    validate_prepared(record['prepared'])
+
+
+def _approved_copy(record):
+    from public_derivative import validate_derivative
+    copy, review = record.get('copy'), record.get('source_review') or {}
+    prepared = record['prepared']
+    if (not copy or review.get('status') != 'approved' or not review.get('reviewer')
+            or not review.get('reviewed_at') or review.get('copy_sha256') != digest(copy)
+            or review.get('prepared_sha256') != digest(prepared)
+            or review.get('provenance') != prepared['provenance']
+            or not review.get('checks') or any(value is not True for value in review['checks'].values())):
+        raise ContentError('Generate and explicitly approve this article\'s exact public copy first.')
+    validate_derivative(copy, prepared)
+    job = _reviewed_job(review)
+    provenance = prepared['provenance']
+    if (job['kind'] != 'derivative' or job['inputs'].get('payload_sha256') != digest(prepared)
+            or any(job['inputs'].get(key) != provenance[field] for key, field in
+                   (('article_id','article_id'),('source_revision','revision'),('source_hash','article_sha256')))):
+        raise ContentError('The approved public copy belongs to a different canonical source revision.')
+    if copy.get('video'):
+        chart = record.get('native_charts', {}).get(copy['video']['native_chart_id'])
+        if (not chart or record.get('retained_input_hashes', {}).get(chart['path']) != chart['sha256']
+                or publication.sha(Path(chart['path']).read_bytes()) != chart['sha256']
+                or review.get('chart_sha256') != chart['sha256']):
+            raise ContentError('The approved native chart changed. Requalify its exact source and script.')
+    return copy
+
+
+def _reviewed_job(review):
+    if not review.get('generation_job'):
+        raise ContentError('An exact generated-copy review receipt is required.')
+    import promotion_jobs
+    job = json.loads(promotion_jobs._path(jobs_root(), review['generation_job']).read_text('utf-8'))
+    receipt = job.get('review') or {}
+    if (job['status'] != 'reviewed' or job['review_status'] != 'approved'
+            or receipt.get('payload_sha256') != digest(job['inputs'])
+            or receipt.get('actor') != review.get('reviewer') or receipt.get('at') != review.get('reviewed_at')
+            or receipt.get('artifact_hashes') != {item['name']:item['sha256'] for item in job['artifacts']}):
+        raise ContentError('The exact generated-copy review is not committed yet.')
+    for artifact in job['artifacts']:
+        promotion_jobs.get_artifact(jobs_root(), job['id'], artifact['name'])
+    name, expected = ('copy.json', review['copy_sha256']) if review.get('copy_sha256') else ('output.json', review.get('briefing_sha256'))
+    artifact, _ = promotion_jobs.get_artifact(jobs_root(), job['id'], name)
+    if not expected or digest(json.loads(artifact.read_text('utf-8'))) != expected:
+        raise ContentError('The approved copy differs from its exact generated artifact.')
+    return job
 
 
 def generate_preview(slug, body, actor):
@@ -171,9 +233,7 @@ def create_job(body, actor):
         inputs = {'article_id': provenance['article_id'], 'source_revision': provenance['revision'],
             'source_hash': provenance['article_sha256'], 'payload_sha256': digest(prepared)}
         if kind != 'derivative':
-            copy = record.get('copy')
-            if not copy:
-                raise ContentError('Generate and approve this article\'s public copy first.')
+            copy = _approved_copy(record)
             inputs['payload_sha256'] = digest(copy)
             if kind == 'article_video':
                 if not copy.get('video'):
@@ -188,22 +248,38 @@ def _configuration():
     import os
     config_file = Path(os.environ.get('SMN_PROMOTION_CONFIG', '/etc/SMN/promotion.json'))
     configuration = json.loads(config_file.read_text('utf-8')) if config_file.is_file() else {'generation_enabled': False}
-    configuration['resolve_source'] = _resolve_source
+    configuration['resolve_source'] = _worker_source
     return configuration
 
 
-def _briefing_record(identifier):
+def _worker_source(inputs):
+    with article_index.posts_lock():
+        publication.recover()
+        recover_operations()
+        return _resolve_source(inputs)
+
+
+def _briefing_record(identifier, source_revision=None):
     if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', identifier):
         raise ContentError('Choose a dated briefing')
     folder = publication.store().root / 'briefings' / identifier
-    if folder.is_symlink():
+    if any(p.is_symlink() for p in (folder, *folder.parents)) or any((folder/name).is_symlink() for name in ('sources.json','briefing.json','review.json')):
         raise ContentError('Briefing storage requires inspection.')
+    bundle = json.loads((folder / 'sources.json').read_text('utf-8')) if (folder / 'sources.json').is_file() else None
+    if bundle is not None and source_revision == digest(bundle):
+        return {'source_bundle': bundle, 'active_revision': digest(bundle)}
     if (folder / 'briefing.json').is_file():
         briefing = json.loads((folder / 'briefing.json').read_text('utf-8'))
         review = json.loads((folder / 'review.json').read_text('utf-8')) if (folder / 'review.json').is_file() else {}
+        if review.get('source_bundle_sha256') and (bundle is None or digest(bundle) != review['source_bundle_sha256']):
+            raise ContentError('The daily source bundle changed. Rebuild and review its briefing.')
+        if review.get('status') == 'approved' and review.get('generation_job'):
+            job = _reviewed_job(review)
+            if (job['kind'] != 'daily_briefing' or job['inputs'].get('briefing_id') != identifier
+                    or job['inputs'].get('source_hash') != review.get('source_bundle_sha256')):
+                raise ContentError('The approved briefing belongs to a different dated source bundle.')
         return {'briefing': briefing, 'review': review, 'active_revision': digest(briefing)}
     if (folder / 'sources.json').is_file():
-        bundle = json.loads((folder / 'sources.json').read_text('utf-8'))
         return {'source_bundle': bundle, 'active_revision': digest(bundle)}
     raise ContentError('A source-backed briefing must be prepared before this job can start.')
 
@@ -214,33 +290,102 @@ def list_briefings():
     for folder in sorted(root.iterdir(), reverse=True) if root.is_dir() else []:
         if not folder.is_dir() or folder.is_symlink():
             continue
-        source = _briefing_record(folder.name)
+        capture_path = folder / 'capture-status.json'
+        capture = json.loads(capture_path.read_text('utf-8')) if capture_path.is_file() else {}
+        if not (folder / 'sources.json').is_file() and not (folder / 'briefing.json').is_file():
+            if capture:
+                rows.append({'briefing_id': folder.name, 'date': capture.get('edition_date', folder.name),
+                    'title': capture.get('label', 'Daily source capture'), 'active_revision': None,
+                    'review_status': 'pending', 'kind': 'source_bundle',
+                    'capture_status': capture.get('status', 'failed'), 'holds': capture.get('holds', [])})
+            continue
+        try:
+            source = _briefing_record(folder.name)
+        except ContentError as exc:
+            rows.append({'briefing_id':folder.name,'date':folder.name,'title':'Daily briefing requires inspection',
+                         'active_revision':None,'review_status':'stale','kind':'briefing' if (folder/'briefing.json').is_file() else 'source_bundle',
+                         'capture_status':'held','holds':[str(exc)]})
+            continue
         value = source.get('briefing', source.get('source_bundle'))
-        rows.append({'briefing_id': folder.name, 'date': value.get('edition_date', folder.name),
+        row = {'briefing_id': folder.name, 'date': value.get('edition_date', folder.name),
             'title': value.get('title', 'Daily market briefing'), 'active_revision': source['active_revision'],
             'review_status': source.get('review', {}).get('status', 'pending'),
-            'kind': 'briefing' if 'briefing' in source else 'source_bundle'})
+            'kind': 'briefing' if 'briefing' in source else 'source_bundle'}
+        if capture:
+            bundle = json.loads((folder / 'sources.json').read_text('utf-8')) if (folder / 'sources.json').is_file() else None
+            bound = bundle is not None and capture.get('source_bundle_sha256') == digest(bundle)
+            row.update(capture_status=capture.get('status') if bound else 'stale',
+                       holds=capture.get('holds', []) if bound else ['Capture receipt differs from its saved source bundle.'])
+        rows.append(row)
     return rows
 
 
 def _resolve_source(inputs):
     if inputs.get('briefing_id'):
-        source = _briefing_record(inputs['briefing_id'])
-        if source['active_revision'] != inputs['source_revision']:
+        source = _briefing_record(inputs['briefing_id'], inputs['source_revision'])
+        if source['active_revision'] != inputs['source_revision'] or inputs.get('source_hash') != source['active_revision']:
             raise ContentError('The daily source changed. Create a new job.')
         return source
-    for post in article_index.load_posts():
-        slug = pin_store.article_slug(post)
-        path = publication.store().root / 'qualified-sources' / (publication.sha(slug.encode()) + '.json')
-        if path.is_file():
-            record = json.loads(path.read_text('utf-8'))
-            if record.get('prepared', {}).get('provenance', {}).get('article_id') == inputs.get('article_id'):
-                current = _source_record(slug)
-                provenance = current['prepared']['provenance']
-                if provenance['revision'] != inputs['source_revision'] or provenance['article_sha256'] != inputs['source_hash']:
-                    raise ContentError('The article source changed. Create a new job.')
-                return dict(current, slug=slug)
-    raise ContentError('The original approved article source is unavailable.')
+    matches = [post for post in article_index.load_posts() if post.get('url') == inputs.get('article_id')]
+    if len(matches) != 1:
+        raise ContentError('The exact canonical article source is unavailable or duplicated.')
+    slug = pin_store.article_slug(matches[0])
+    current = _source_record(slug)
+    provenance = current['prepared']['provenance']
+    if provenance['revision'] != inputs['source_revision'] or provenance['article_sha256'] != inputs['source_hash']:
+        raise ContentError('The article source changed. Create a new job.')
+    return dict(current, slug=slug)
+
+
+def _operation_path(job):
+    return publication.store().root / 'promotion-operations' / (job['id'] + '-' + str(job['version']) + '.json')
+
+
+def _apply_operation(path, intent):
+    import promotion_jobs
+    from subscription_writer import save_json
+    # Source identity is checked again on recovery, before committing approval.
+    _resolve_source(intent['old_job']['inputs'])
+    with promotion_jobs.locked(jobs_root()):
+        job_path = promotion_jobs._path(jobs_root(), intent['old_job']['id'])
+        current = json.loads(job_path.read_text('utf-8'))
+        if current not in (intent['old_job'], intent['new_job']):
+            raise ContentError('Interrupted promotion operation conflicts with a newer job.')
+        for artifact in intent['old_job']['artifacts']:
+            promotion_jobs.get_artifact(jobs_root(), current['id'], artifact['name'])
+        for item in intent['files']:
+            target = Path(item['path'])
+            if (publication.store().root.resolve() not in target.resolve().parents
+                    or any(p.is_symlink() for p in (target, *target.parents))):
+                raise ContentError('Private promotion operation storage requires inspection.')
+            actual = json.loads(target.read_text('utf-8')) if target.is_file() else None
+            if actual not in (item['old'], item['new']):
+                raise ContentError('Interrupted promotion operation conflicts with a newer saved draft or review.')
+        for item in intent['files']:
+            publication._write(Path(item['path']), item['new'])
+        save_json(job_path, intent['new_job'])  # Status is durable only after source receipts.
+    path.unlink()
+
+
+def _job_operation(job, actor, files, **fields):
+    from subscription_writer import utc_now
+    new = dict(deepcopy(job), **fields, actor=actor, version=job['version'] + 1, updated_at=utc_now())
+    changes = [{'path': str(path), 'old': json.loads(path.read_text('utf-8')) if path.is_file() else None,
+                'new': value} for path, value in files]
+    intent = {'old_job': job, 'new_job': new, 'files': changes}
+    path = _operation_path(job)
+    if path.exists():
+        raise ContentError('Recover the interrupted promotion operation before another action.')
+    publication._write(path, intent)
+    _apply_operation(path, intent)
+    return get_job(job['id'])
+
+
+def recover_operations():
+    """Caller holds posts_lock; exact private source/job receipts recover together."""
+    root = publication.store().root / 'promotion-operations'
+    for path in sorted(root.glob('*.json')):
+        _apply_operation(path, json.loads(path.read_text('utf-8')))
 
 
 def get_controls():
@@ -249,9 +394,10 @@ def get_controls():
     return {'all': promotion_jobs.is_paused(jobs_root(), 'all'),
         'kinds': {kind: promotion_jobs.is_paused(jobs_root(), kind) for kind in promotion_jobs.KINDS},
         'providers': {
-            'Codex': {'enabled': bool(configuration.get('generation_enabled') and configuration.get('codex')),
+            'Codex': {'enabled': bool(configuration.get('generation_enabled') and configuration.get('codex') and configuration.get('writer_settings')),
                       'reason': 'Uses the configured subscription writer.'},
-            'ElevenLabs': {'enabled': bool(configuration.get('credential_ready')),
+            'ElevenLabs': {'enabled': bool(configuration.get('generation_enabled') and all(configuration.get(flag) for flag in
+                                          ('credential_ready', 'voice_verified', 'model_verified', 'quote'))),
                           'reason': 'A verified server credential, voice, model and credit quote are required.'},
             'Distribution': {'enabled': False, 'reason': 'Reviewable exports are available; connected posting accounts are required.'}}}
 
@@ -273,22 +419,18 @@ def _import_job(identifier, expected_version, actor):
         path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'copy.json')
         copy = json.loads(path.read_text('utf-8'))
         validate_derivative(copy, source['prepared'])
-        with article_index.posts_lock():
-            publication.recover()
-            slug = source['slug']
-            current = get_preview(slug)
-            # An import may not silently discard another editor's saved draft.
-            if _draft_file(slug).is_file():
-                raise ContentError('A preview draft already exists. Review it before importing another.')
-            revision = 'draft-' + digest({'base': current['active_revision'], 'content': copy})[:32]
-            preview = {'provenance': dict(source['prepared']['provenance'], revision=revision, mode='summary'), 'content': copy}
-            publication._write(_draft_file(slug), {'base_revision': current['active_revision'],
-                'revision': revision, 'preview': preview, 'review_status': 'pending',
-                'actor': actor, 'updated_at': publication.now(), 'generation_job': identifier})
-            result = {'slug': slug, 'revision': revision, 'review_status': 'pending'}
-            promotion_jobs.update(jobs_root(), identifier, expected_version, imported_draft=result,
-                                  status='generated', review_status='pending')
-            return result
+        slug = source['slug']
+        current = get_preview(slug)
+        if _draft_file(slug).is_file():
+            raise ContentError('A preview draft already exists. Review it before importing another.')
+        revision = 'draft-' + digest({'base': current['active_revision'], 'content': copy})[:32]
+        preview = {'provenance': dict(source['prepared']['provenance'], revision=revision, mode='summary'), 'content': copy}
+        draft = {'base_revision': current['active_revision'], 'revision': revision, 'preview': preview,
+                 'review_status': 'pending', 'actor': actor, 'updated_at': publication.now(), 'generation_job': identifier}
+        result = {'slug': slug, 'revision': revision, 'review_status': 'pending'}
+        _job_operation(job, actor, [(_draft_file(slug), draft)], imported_draft=result,
+                       status='generated', review_status='pending')
+        return result
     if job['kind'] == 'daily_briefing' and 'source_bundle' in source:
         from daily_briefing import inspect
         path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'output.json')
@@ -296,65 +438,97 @@ def _import_job(identifier, expected_version, actor):
         if inspect(briefing)['issues']:
             raise ContentError('The daily draft has unresolved source or timing checks.')
         folder = publication.store().root / 'briefings' / job['inputs']['briefing_id']
-        publication._write(folder / 'briefing.json', briefing)
-        publication._write(folder / 'review.json', {'status': 'pending', 'briefing_sha256': digest(briefing),
-                                                   'generation_job': identifier})
+        if (folder / 'briefing.json').is_file():
+            raise ContentError('A dated briefing draft already exists. Review it before importing another.')
+        review = {'status': 'pending', 'briefing_sha256': digest(briefing),
+                  'generation_job': identifier, 'source_bundle_sha256': job['inputs']['source_hash']}
         result = {'briefing_id': job['inputs']['briefing_id'], 'revision': digest(briefing), 'review_status': 'pending'}
-        promotion_jobs.update(jobs_root(), identifier, expected_version, imported_draft=result,
-                              status='generated', review_status='pending')
+        _job_operation(job, actor, [(folder / 'briefing.json', briefing), (folder / 'review.json', review)],
+                       imported_draft=result, status='generated', review_status='pending')
         return result
     raise ContentError('Only generated article copy and daily text drafts can be imported.')
 
 
 def action_job(identifier, action, body, actor):
+    with article_index.posts_lock():
+        publication.recover()
+        recover_operations()
+        return _action_job(identifier, action, body, actor)
+
+
+def _action_job(identifier, action, body, actor):
     import promotion_jobs
+    job = json.loads(promotion_jobs._path(jobs_root(), identifier).read_text('utf-8'))
+    if job['version'] != body.get('expected_version'):
+        raise ContentError('Job changed. Reload before continuing.')
     if action == 'import':
-        return _import_job(identifier, body.get('expected_version'), actor)
+        return _import_job(identifier, job['version'], actor)
     if action == 'generate':
-        job = get_job(identifier)
-        if body.get('expected_version') != job['version']:
-            raise ContentError('Job changed. Reload before generating.')
-        # The worker obtains a durable version claim before making a provider call.
-        def run():
-            import promotion_worker
-            promotion_worker.run_one(jobs_root(), identifier, _configuration())
-        threading.Thread(target=run, daemon=True, name='smn-promotion-' + identifier).start()
-        return get_job(identifier)
-    result = promotion_jobs.transition(jobs_root(), identifier, action, body.get('expected_version'), actor, body.get('data'))
-    if action == 'review' and result['kind'] == 'derivative' and body['data']['decision'] == 'approved':
+        if job['status'] != 'draft':
+            raise ContentError('Generation requires a fresh draft or an explicit reconciled retry.')
+        _resolve_source(job['inputs'])
+        # The daemon owns provider calls. A dashboard restart cannot lose this request.
+        return promotion_jobs.update(jobs_root(), identifier, job['version'], status='queued',
+                                     stage='queued', generation_status='queued', actor=actor)
+    if action != 'review':
+        result = promotion_jobs.transition(jobs_root(), identifier, action, job['version'], actor, body.get('data'))
+        return get_job(result['id'])
+    data = body.get('data') or {}
+    if (job['status'] != 'generated' or data.get('payload_sha256') != digest(job['inputs'])
+            or data.get('decision') not in {'approved', 'rejected'} or not actor):
+        raise ContentError('Review requires the exact generated revision and a named explicit decision.')
+    for artifact in job['artifacts']:
+        promotion_jobs.get_artifact(jobs_root(), identifier, artifact['name'])
+    source = _resolve_source(job['inputs'])
+    files, fields = [], {}
+    now = publication.now()
+    if job['kind'] == 'derivative' and data['decision'] == 'approved':
         from public_derivative import validate_derivative
-        full = json.loads(promotion_jobs._path(jobs_root(), identifier).read_text('utf-8'))
-        source = _resolve_source(full['inputs'])
         path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'copy.json')
         copy = json.loads(path.read_text('utf-8'))
         validate_derivative(copy, source['prepared'])
+        if job['inputs'].get('payload_sha256') != digest(source['prepared']):
+            raise ContentError('The reviewed derivative belongs to a different source preparation.')
         source['copy'] = copy
-        review = {'status': 'approved', 'reviewer': actor, 'reviewed_at': publication.now(),
+        review = {'status': 'approved', 'reviewer': actor, 'reviewed_at': now,
                   'copy_sha256': digest(copy), 'prepared_sha256': digest(source['prepared']),
-                  'provenance': source['prepared']['provenance'], 'checks': {'editor_inspected_exact_copy': True}}
+                  'provenance': source['prepared']['provenance'], 'generation_job': identifier,
+                  'checks': {'editor_inspected_exact_copy': True}}
         if copy.get('video'):
             chart = source.get('native_charts', {}).get(copy['video']['native_chart_id'])
-            if not chart or publication.sha(Path(chart['path']).read_bytes()) != chart['sha256']:
+            if (not chart or source.get('retained_input_hashes', {}).get(chart['path']) != chart['sha256']
+                    or publication.sha(Path(chart['path']).read_bytes()) != chart['sha256']):
                 raise ContentError('The approved native chart requires verification before video generation.')
             source.update(chart_path=chart['path'], chart_sha256=chart['sha256'],
                           on_screen=copy['video']['on_screen']['text'])
             review['chart_sha256'] = chart['sha256']
+        else:
+            for key in ('chart_path', 'chart_sha256', 'on_screen'): source.pop(key, None)
         source['source_review'] = review
         qualified = publication.store().root / 'qualified-sources' / (publication.sha(source.pop('slug').encode()) + '.json')
-        publication._write(qualified, source)
-    if action == 'review' and result['kind'] == 'daily_briefing':
-        full = json.loads(promotion_jobs._path(jobs_root(), identifier).read_text('utf-8'))
-        folder = publication.store().root / 'briefings' / full['inputs']['briefing_id']
-        review_path = folder / 'review.json'
-        existing = json.loads(review_path.read_text('utf-8')) if review_path.is_file() else {}
-        if existing.get('generation_job') == identifier:
-            briefing = json.loads((folder / 'briefing.json').read_text('utf-8'))
-            path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'output.json')
-            if digest(briefing) != digest(json.loads(path.read_text('utf-8'))):
-                raise ContentError('Imported briefing changed after generation.')
-            publication._write(review_path, dict(existing, status=body['data']['decision'], reviewer=actor,
-                reviewed_at=publication.now(), briefing_sha256=digest(briefing)))
-    return get_job(result['id'])
+        files.append((qualified, source))
+    if job['kind'] == 'daily_briefing' and 'source_bundle' in source:
+        from daily_briefing import inspect
+        folder = publication.store().root / 'briefings' / job['inputs']['briefing_id']
+        if not job.get('imported_draft') or not (folder / 'review.json').is_file():
+            raise ContentError('Save the dated briefing draft before its explicit review.')
+        existing = json.loads((folder / 'review.json').read_text('utf-8'))
+        briefing = json.loads((folder / 'briefing.json').read_text('utf-8'))
+        path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'output.json')
+        binding = digest(briefing)
+        if (existing.get('generation_job') != identifier or binding != digest(json.loads(path.read_text('utf-8')))
+                or existing.get('briefing_sha256') != binding or job['imported_draft']['revision'] != binding
+                or existing.get('source_bundle_sha256') != job['inputs']['source_hash']):
+            raise ContentError('The imported briefing or its exact source changed after generation.')
+        review = dict(existing, status=data['decision'], reviewer=actor, reviewed_at=now)
+        if data['decision'] == 'approved' and inspect(briefing, review)['issues']:
+            raise ContentError('Resolve the briefing source and timing checks before approval.')
+        files.append((folder / 'review.json', review))
+        fields['imported_draft'] = dict(job['imported_draft'], review_status=data['decision'])
+    receipt = {'actor': actor, 'at': now, 'payload_sha256': data['payload_sha256'],
+               'artifact_hashes': {item['name']: item['sha256'] for item in job['artifacts']}}
+    return _job_operation(job, actor, files, status='reviewed' if data['decision'] == 'approved' else 'held',
+                          review_status=data['decision'], review=receipt, **fields)
 
 
 def artifact(identifier, name):
