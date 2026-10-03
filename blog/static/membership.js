@@ -213,12 +213,14 @@
       if (['held','failed'].includes(job.status)) actions.append(button('Retry', () => run('job-' + job.id, 'promotion-status', () => jobAction(job, 'retry')), job.generation_status === 'unknown_outcome' || job.attempts >= 2));
       if (job.status === 'generated' || (job.status === 'reviewed' && copyJob(job))) actions.append(button('Inspect & review', () => run('review', 'promotion-status', async () => {
         reviewJob = await api('/api/promotion/jobs/' + encodeURIComponent(job.id));
-        const textJob = copyJob(reviewJob), exported = exportJob(reviewJob);
+        const scriptJob = reviewJob.kind === 'article_script', textJob = copyJob(reviewJob) || scriptJob, exported = exportJob(reviewJob);
         $('promotion-review-state').textContent = exported ? 'Inspect the exported public copy, qualifications and canonical link before approval.' : textJob ? 'Inspect the saved copy and its source claims before approval.' : 'Inspect each artifact before approving generated media.';
         if (briefingNeedsImport(reviewJob)) $('promotion-review-state').textContent += ' Save the briefing draft before approval.';
         $('promotion-review-check').textContent = exported ? 'I checked the exact exported public copy, qualifications and canonical link.' : textJob ? 'I checked the exact saved source claims, study identity, qualifications and proposed narration.' : 'I inspected narration, chart identity, captions and qualifications in the exact saved media.';
         $('promotion-review-scope').textContent = exported ? 'This approves this exact export only. Distribution remains disabled; this does not authorize posting.' : textJob ? 'Copy review approves this exact saved revision. Public preview drafts still require their own approval and publication.' : 'This approves generated media only. It does not authorize posting or replace source review.';
         $('promotion-approve').textContent = exported ? 'Approve export' : textJob ? (reviewJob.kind === 'daily_briefing' ? 'Approve briefing' : 'Approve generated copy') : 'Approve generated media';
+        $('promotion-review-script').textContent = reviewJob.script_payload ? 'Narration: ' + reviewJob.script_payload.narration.text + '\nOn screen: ' + reviewJob.script_payload.on_screen.text + '\nNative chart: ' + reviewJob.script_payload.native_chart_id : '';
+        if (scriptJob) { $('promotion-approve').textContent = 'Approve narration & queue video'; $('promotion-review-scope').textContent = 'Approves this exact narration and native chart. Video generation proceeds when capability is ready; generated media still needs review.'; }
         $('promotion-review-artifacts').replaceChildren(); artifactLinks($('promotion-review-artifacts'), reviewJob);
         $('promotion-reviewed').checked = false; $('promotion-approve').disabled = true; $('promotion-review').showModal();
       })));

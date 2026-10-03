@@ -10,9 +10,9 @@ import uuid
 from daily_briefing import digest
 from subscription_writer import load_json, save_json, sha256, utc_now
 
-KINDS = {'derivative', 'article_video', 'daily_briefing', 'daily_avatar', 'social_export', 'substack_export'}
+KINDS = {'derivative', 'article_script', 'article_video', 'daily_briefing', 'daily_avatar', 'social_export', 'substack_export'}
 INPUTS = {'article_id', 'briefing_id', 'source_revision', 'source_hash', 'script', 'chart_id',
-          'channel', 'variant', 'payload_sha256', 'media_job_id'}
+          'channel', 'variant', 'payload_sha256', 'media_job_id', 'script_job_id', 'briefing_media_job_id'}
 
 
 class Conflict(ValueError):

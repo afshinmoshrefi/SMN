@@ -185,11 +185,44 @@ def _reviewed_job(review):
         raise ContentError('The exact generated-copy review is not committed yet.')
     for artifact in job['artifacts']:
         promotion_jobs.get_artifact(jobs_root(), job['id'], artifact['name'])
-    name, expected = ('copy.json', review['copy_sha256']) if review.get('copy_sha256') else ('output.json', review.get('briefing_sha256'))
+    name, expected = (('script.json', review['script_sha256']) if review.get('script_sha256') else
+                      ('copy.json', review['copy_sha256']) if review.get('copy_sha256') else
+                      ('output.json', review.get('briefing_sha256')))
     artifact, _ = promotion_jobs.get_artifact(jobs_root(), job['id'], name)
     if not expected or digest(json.loads(artifact.read_text('utf-8'))) != expected:
         raise ContentError('The approved copy differs from its exact generated artifact.')
     return job
+
+
+def _approved_video_script(record, identifier):
+    from public_derivative import validate_video_script
+    copy = _approved_copy(record)
+    script, review = record.get('video_script'), record.get('video_script_review') or {}
+    prepared = record['prepared']
+    if (not script or review.get('status') != 'approved' or review.get('generation_job') != identifier
+            or review.get('script_sha256') != digest(script) or review.get('copy_sha256') != digest(copy)
+            or review.get('prepared_sha256') != digest(prepared) or review.get('provenance') != prepared['provenance']
+            or not review.get('checks') or any(v is not True for v in review['checks'].values())):
+        raise ContentError('The separate narration requires exact current copy and script approval.')
+    validate_video_script(script, prepared, copy)
+    job = _reviewed_job(review)
+    if job['kind'] != 'article_script' or job['inputs'].get('payload_sha256') != digest(copy):
+        raise ContentError('The reviewed script differs from this approved public copy.')
+    if any(job['inputs'].get(k) != prepared['provenance'][v] for k, v in
+           (('article_id', 'article_id'), ('source_revision', 'revision'), ('source_hash', 'article_sha256'))):
+        raise ContentError('The script belongs to a different source revision.')
+    chart = _native_script_chart(record, script)
+    if review.get('chart_sha256') != chart['sha256']:
+        raise ContentError('The separately approved native chart changed.')
+    return script
+
+
+def _native_script_chart(record, script):
+    chart = record.get('native_charts', {}).get(script['native_chart_id'])
+    if (not chart or record.get('retained_input_hashes', {}).get(chart['path']) != chart['sha256']
+            or publication.sha(Path(chart['path']).read_bytes()) != chart['sha256']):
+        raise ContentError('The retained native chart requires exact verification before narration review.')
+    return chart
 
 
 def generate_preview(slug, body, actor):
@@ -211,6 +244,10 @@ def get_job(identifier):
     job['payload_sha256'] = digest(full['inputs'])
     job['script'] = full['inputs'].get('script', '')
     job['imported_draft'] = full.get('imported_draft')
+    job['automatic_followup'] = full.get('automation_successor')
+    if job['kind'] == 'article_script' and any(a['name'] == 'script.json' for a in job['artifacts']):
+        path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'script.json')
+        job['script_payload'] = load_json(path)
     if job['kind'] == 'derivative' and (job['imported_draft'] or {}).get('slug'):
         try:
             _, manifest = publication.source(_post(job['imported_draft']['slug']))
@@ -250,6 +287,8 @@ def create_job(body, actor):
             raise ContentError('Write and approve the daily briefing before making its avatar.')
         inputs = {'briefing_id': identifier, 'source_revision': digest(briefing),
                   'source_hash': digest(briefing), 'payload_sha256': digest(briefing)}
+        if kind == 'daily_avatar' and body.get('briefing_media_job_id'):
+            inputs['briefing_media_job_id'] = body['briefing_media_job_id']
     else:
         slug = str(body.get('slug') or '')
         record = _source_record(slug)
@@ -261,9 +300,14 @@ def create_job(body, actor):
             copy = _approved_copy(record)
             inputs['payload_sha256'] = digest(copy)
             if kind == 'article_video':
-                if not copy.get('video'):
-                    raise ContentError('This approved copy has no video script.')
-                inputs.update(script=copy['video']['narration']['text'], chart_id=copy['video']['native_chart_id'])
+                script = copy.get('video')
+                if not script:
+                    identifier = (record.get('video_script_review') or {}).get('generation_job')
+                    script = _approved_video_script(record, identifier)
+                    inputs['script_job_id'] = identifier
+                inputs.update(script=script['narration']['text'], chart_id=script['native_chart_id'])
+            if kind == 'article_script' and copy.get('video'):
+                raise ContentError('This approved copy already has narration; its video is queued after approval.')
         if body.get('channel'):
             inputs['channel'] = body['channel']
     return promotion_jobs.create(jobs_root(), kind, inputs, actor)
@@ -360,7 +404,107 @@ def _resolve_source(inputs):
     provenance = current['prepared']['provenance']
     if provenance['revision'] != inputs['source_revision'] or provenance['article_sha256'] != inputs['source_hash']:
         raise ContentError('The article source changed. Create a new job.')
+    payload = inputs.get('payload_sha256')
+    if payload and payload != digest(current['prepared']):
+        if payload != digest(_approved_copy(current)):
+            raise ContentError('The approved public copy changed. Create a new job.')
+    if inputs.get('script_job_id'):
+        script = _approved_video_script(current, inputs['script_job_id'])
+        if (inputs.get('script') != script['narration']['text'] or inputs.get('chart_id') != script['native_chart_id']):
+            raise ContentError('Video inputs differ from the exact reviewed narration.')
+        chart = _native_script_chart(current, script)
+        current = dict(current, chart_path=chart['path'], chart_sha256=chart['sha256'],
+                       on_screen=script['on_screen']['text'])
     return dict(current, slug=slug)
+
+
+def _queue_article_followup(job):
+    """Idempotent private chain; caller holds posts_lock, no provider call here."""
+    import promotion_jobs
+    from subscription_writer import load_json
+    current = load_json(promotion_jobs._path(jobs_root(), job['id']))
+    successor = current.get('automation_successor')
+    if successor:
+        child = promotion_jobs.get_job(jobs_root(), successor['id'])
+        kind = child['kind']
+        if child['status'] != 'draft' and not (child['status'] == 'held' and child['generation_status'] == 'provider_disabled'):
+            return child
+    else:
+        source = _resolve_source(job['inputs'])
+        if job['kind'] == 'daily_briefing':
+            identifier = job['inputs']['briefing_id']
+            if 'source_bundle' in source:
+                approved = _briefing_record(identifier)
+                if 'briefing' not in approved or approved.get('review', {}).get('generation_job') != job['id']:
+                    raise ContentError('The exact approved daily text is unavailable.')
+                kind = 'daily_briefing'
+                child = create_job({'kind': kind, 'briefing_id': identifier}, 'approved-source-automation')
+            else:
+                required = {'briefing.mp4', 'narration.mp3', 'narration.alignment.json', 'narration.receipt.json',
+                            'captions.vtt', 'transcript.txt', 'briefing.receipt.json'}
+                if not required.issubset({item['name'] for item in current['artifacts']}):
+                    raise ContentError('Approve a complete daily narration before its presenter segment.')
+                receipt = current.get('review') or {}
+                if (receipt.get('payload_sha256') != digest(current['inputs']) or
+                        receipt.get('artifact_hashes') != {a['name']: a['sha256'] for a in current['artifacts']}):
+                    raise ContentError('The daily media approval no longer matches its exact artifacts.')
+                for item in current['artifacts']:
+                    promotion_jobs.get_artifact(jobs_root(), current['id'], item['name'])
+                kind = 'daily_avatar'
+                child = create_job({'kind': kind, 'briefing_id': identifier,
+                                    'briefing_media_job_id': job['id']}, 'approved-source-automation')
+        else:
+            copy = _approved_copy(source)
+            if job['kind'] == 'derivative' and source['source_review']['generation_job'] != job['id']:
+                raise ContentError('A newer public copy superseded this automation source.')
+            if job['kind'] == 'article_script':
+                _approved_video_script(source, job['id'])
+                kind = 'article_video'
+            else:
+                kind = 'article_video' if copy.get('video') else 'article_script'
+            child = create_job({'kind': kind, 'slug': source['slug']}, 'approved-source-automation')
+        promotion_jobs.update(jobs_root(), current['id'], current['version'],
+                              automation_successor={'id': child['id'], 'kind': kind})
+    try:
+        configuration = _configuration()
+    except (OSError, ValueError, TypeError):
+        configuration = {}
+    if kind == 'article_script':
+        ready = all(configuration.get(k) for k in ('generation_enabled', 'writer_settings', 'codex'))
+        reason = 'Subscription narration writing is unavailable; enable the configured Codex writer.'
+    elif kind == 'daily_avatar':
+        request = configuration.get('avatar_request')
+        request = request if isinstance(request, dict) else {}
+        ready = bool(configuration.get('generation_enabled') and all(configuration.get(k) for k in
+                     ('avatar_ready', 'likeness_verified', 'voice_verified', 'credential_ready', 'flows_plan_verified'))
+                     and (request.get('quote') or configuration.get('avatar_tariff_path')))
+        reason = 'Presenter video is held: verified likeness, voice, credential, supported plan and an authorized credit quote are required.'
+    else:
+        ready = bool(configuration.get('generation_enabled') and all(configuration.get(k) for k in
+                     ('credential_ready', 'voice_verified', 'model_verified')) and
+                     any(configuration.get(k) for k in ('quote', 'speech_tariff_path', 'resolve_speech_quote')))
+        reason = ('Daily narration' if kind == 'daily_briefing' else 'Article video') + ' is held: a verified ElevenLabs credential, voice, model and authorized credit quote are required.'
+    if child['status'] == 'draft' or (child['status'] == 'held' and child['generation_status'] == 'provider_disabled' and ready):
+        child = promotion_jobs.update(jobs_root(), child['id'], child['version'],
+                    status='queued' if ready else 'held', stage='queued' if ready else 'capability',
+                    generation_status='queued' if ready else 'provider_disabled', holds=[] if ready else [reason])
+    return child
+
+
+def reconcile_article_media():
+    """Resume committed approvals and capability holds without repeating charges."""
+    import promotion_jobs
+    results = []
+    for summary in promotion_jobs.list_jobs(jobs_root()):
+        if summary['kind'] not in {'derivative', 'article_script', 'daily_briefing'} or summary['review_status'] != 'approved' or summary['status'] != 'reviewed':
+            continue
+        try:
+            job = json.loads(promotion_jobs._path(jobs_root(), summary['id']).read_text('utf-8'))
+            results.append(_queue_article_followup(job))
+        except (ContentError, promotion_jobs.Conflict, OSError, ValueError):
+            # Source changes invalidate followups; durable approvals remain intact.
+            continue
+    return results
 
 
 def _operation_path(job):
@@ -515,6 +659,9 @@ def _action_job(identifier, action, body, actor):
         validate_derivative(copy, source['prepared'])
         if job['inputs'].get('payload_sha256') != digest(source['prepared']):
             raise ContentError('The reviewed derivative belongs to a different source preparation.')
+        if source.get('copy') != copy:
+            source.pop('video_script', None)
+            source.pop('video_script_review', None)
         source['copy'] = copy
         review = {'status': 'approved', 'reviewer': actor, 'reviewed_at': now,
                   'copy_sha256': digest(copy), 'prepared_sha256': digest(source['prepared']),
@@ -531,6 +678,23 @@ def _action_job(identifier, action, body, actor):
         else:
             for key in ('chart_path', 'chart_sha256', 'on_screen'): source.pop(key, None)
         source['source_review'] = review
+        qualified = publication.store().root / 'qualified-sources' / (publication.sha(source.pop('slug').encode()) + '.json')
+        files.append((qualified, source))
+    if job['kind'] == 'article_script' and data['decision'] == 'approved':
+        from public_derivative import validate_video_script
+        copy = _approved_copy(source)
+        path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'script.json')
+        script = json.loads(path.read_text('utf-8'))
+        validate_video_script(script, source['prepared'], copy)
+        if job['inputs'].get('payload_sha256') != digest(copy):
+            raise ContentError('The script was generated for a different public copy.')
+        chart = _native_script_chart(source, script)
+        source['video_script'] = script
+        source['video_script_review'] = {'status': 'approved', 'reviewer': actor, 'reviewed_at': now,
+            'script_sha256': digest(script), 'copy_sha256': digest(copy),
+            'prepared_sha256': digest(source['prepared']), 'provenance': source['prepared']['provenance'],
+            'chart_sha256': chart['sha256'], 'generation_job': identifier,
+            'checks': {'editor_inspected_exact_source_script_caption': True}}
         qualified = publication.store().root / 'qualified-sources' / (publication.sha(source.pop('slug').encode()) + '.json')
         files.append((qualified, source))
     if job['kind'] == 'daily_briefing' and 'source_bundle' in source:
@@ -553,8 +717,16 @@ def _action_job(identifier, action, body, actor):
         fields['imported_draft'] = dict(job['imported_draft'], review_status=data['decision'])
     receipt = {'actor': actor, 'at': now, 'payload_sha256': data['payload_sha256'],
                'artifact_hashes': {item['name']: item['sha256'] for item in job['artifacts']}}
-    return _job_operation(job, actor, files, status='reviewed' if data['decision'] == 'approved' else 'held',
-                          review_status=data['decision'], review=receipt, **fields)
+    result = _job_operation(job, actor, files, status='reviewed' if data['decision'] == 'approved' else 'held',
+                            review_status=data['decision'], review=receipt, **fields)
+    if data['decision'] == 'approved' and job['kind'] in {'derivative', 'article_script', 'daily_briefing'}:
+        try:
+            result['automatic_followup'] = _queue_article_followup(dict(job, status='reviewed', review_status='approved'))
+        except (ContentError, promotion_jobs.Conflict, OSError, ValueError):
+            # A committed approval survives a temporary queue/configuration failure.
+            result['automatic_followup'] = {'status': 'pending_reconciliation'}
+        result['version'] = promotion_jobs.get_job(jobs_root(), identifier)['version']
+    return result
 
 
 def artifact(identifier, name):
