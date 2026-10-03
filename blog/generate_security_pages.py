@@ -21,8 +21,9 @@ import os, sys, re, json, math
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-sys.path.insert(0, '/home/flask')
-sys.path.insert(0, '/home/flask/blog')
+if '/home/flask' not in sys.path:
+    sys.path.append('/home/flask')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 import requests
 import numpy as np

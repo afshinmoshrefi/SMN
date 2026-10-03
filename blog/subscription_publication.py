@@ -181,8 +181,11 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
     if (root/'archive-seed.json').exists():
         shutil.copy2(root/'archive-seed.json',target/'archive-seed.json')
     (target/'home-section.html').write_text('<style>'+CSS+'</style>'+section,encoding='utf-8')
+    from membership_pipeline import capture_sources
+    membership_sources, private_files = capture_sources(root, target, date, review_stages)
     manifest={'schema_version':1,'target_origin':target_origin,'target_root':'/var/www/smn','edition_date':date,
       'editorial_gate_version':1,
       'edition_id':'subscription-'+date,'source_commit':source_commit,'production_allowed':production,
-      'files':{p.relative_to(target).as_posix():digest_bytes(p.read_bytes()) for p in target.rglob('*') if p.is_file()}}
+      'membership_sources':membership_sources, 'private_files':private_files,
+      'files':{p.relative_to(target).as_posix():digest_bytes(p.read_bytes()) for p in target.rglob('*') if p.is_file() and not p.relative_to(target).as_posix().startswith('.membership-sources/')}}
     write(target/'manifest.json',manifest);return manifest

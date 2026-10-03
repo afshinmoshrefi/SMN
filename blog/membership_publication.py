@@ -138,10 +138,15 @@ class AssetRewriter:
         else:
             if not absolute.path.startswith(('/articles/', '/editions/', '/datasets/')) or absolute.path.endswith(('.html', '/')):
                 return value
-            if absolute.query or unquote(absolute.path) != absolute.path or '\\' in absolute.path:
+            # Reviewed editions attach a hash-shaped cache version to native PNGs.
+            # The immutable content hash, not the old cache hint, binds the copy.
+            if ((absolute.query and not re.fullmatch(r'v=[a-f0-9]{8,64}', absolute.query))
+                    or unquote(absolute.path) != absolute.path or '\\' in absolute.path):
                 raise ContentError('Unsupported article asset URL')
             source = self.root / absolute.path.lstrip('/')
             data = self._read(source)
+            if absolute.query and not sha(data).startswith(absolute.query[2:]):
+                raise ContentError('Native asset version does not match its saved bytes')
             name = 'assets/' + sha(absolute.path.encode())[:16] + '-' + source.name
         self.assets[name] = data
         if public:

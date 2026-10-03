@@ -1,1 +1,12 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{{ copy.headline.text }} | Seasonal Market News</title><style>body{font:19px/1.65 system-ui;margin:0;color:#172b40;background:#f6f8fa}main{max-width:760px;padding:32px 24px;margin:auto}a{color:#064c89}h1{line-height:1.2}aside{padding:20px;background:white;border:1px solid #cad7e2}header{padding:18px 24px;background:#172b40}header a{color:white}.qualification{font-size:16px}</style></head><body><header><a href="/">Seasonal Market News</a> · <a href="/member/account">Account</a></header><main><h1>{{ copy.headline.text }}</h1>{% if notice %}<p role="status">{{ notice }}</p>{% endif %}{% for paragraph in copy.preview %}<p>{{ paragraph.text }}</p>{% endfor %}<p class="qualification">{{ copy.qualification.text }}</p><aside><p>{{ copy.full_article_value.text }}</p>{% if signed_in %}<a href="/member/account">Check your reader access</a>{% else %}<a href="/member/login?return_to={{ canonical|urlencode }}">Register or sign in to read the complete article</a>{% endif %}</aside></main></body></html>
+{% extends 'reader_base.html' %}
+{% block title %}{{ copy.headline.text }}{% endblock %}
+{% block content %}
+<div class="eyebrow">The public preview</div><h1>{{ copy.headline.text }}</h1>
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+{% if hero %}<img class="hero" src="{{ hero }}" alt="Article illustration">{% endif %}
+{% for paragraph in copy.preview %}<p>{{ paragraph.text }}</p>{% endfor %}
+<p class="qualification">{{ copy.qualification.text }}</p>
+<aside class="card invitation"><div class="eyebrow">Go deeper</div><h2>The complete picture</h2><p>{{ copy.full_article_value.text }}</p>
+{% if signed_in %}<a class="button" href="/member/account">Check your reader access</a>{% else %}<a class="button" href="/member/login?return_to={{ canonical|urlencode }}">Register or sign in to read the complete article</a>{% endif %}
+<p class="small">Public previews are always available without an account.</p></aside>
+{% endblock %}

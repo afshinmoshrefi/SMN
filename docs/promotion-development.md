@@ -86,6 +86,39 @@ Account/key/reference/quote readiness remains an explicit gate, not simulated ge
 Official contracts: https://elevenlabs.io/docs/api-reference/flows/video/create and
 https://elevenlabs.io/docs/eleven-api/guides/cookbooks/image-and-video.
 
+`briefing_daily.py --output-root PRIVATE --codex CODEX --model MODEL --effort medium`
+is the single-run Dev timer entry point. Date defaults to New York today and cutoff
+to 7am on that date (explicit date/cutoff/label are supported). It discovers public
+headlines from fixed CNBC/NYT feeds and Bloomberg/Reuters/WSJ/FT market pages,
+retains each actual discovery response and access failure, caps article candidates,
+deduplicates canonical links, and proposes similar-headline groups for editorial
+event merging. Headlines/feeds are never treated as claim evidence. Automatic full
+text requires actual publisher NewsArticle articleBody of at least 300 words,
+explicit isAccessibleForFree=true and no access-denial/paywall marker. Restricted,
+short, after-cutoff, stale and missing publisher coverage remains explicit in the
+private receipt. Identical full bodies share syndication origin; true narrative
+grouping is independently required in the schema-bound original draft. Actual
+qualified captures go through the configured subscription CLI with no fallback;
+output is always pending editorial review. No provider media call, publication,
+schedule, production change or success inferred from metadata occurs. The root Dev
+timer/runtime owns activation and its explicitly account-supported model selection.
+
+Daily CLI accepts `--registry-root PRIVATE/briefings` or the server environment
+`SMN_READER_PRIVATE_ROOT`, and optional safe `--registry-id`. Each run atomically
+registers immutable sources.json plus hash-bound capture-status.json with real holds;
+successful private drafts add briefing.json but never an invented review.json.
+Default IDs include date/label/run timestamp so retry evidence remains inspectable.
+
+`prototype_import.py --archive TAR --sha256 SHA --private PRIVATE_CAPSULE
+--reader-root PRIVATE_READER` verifies the exact archive and all listed members,
+rejects traversal/links/duplicates/unlisted files and conflicting existing revisions,
+then imports four actual pending-review media jobs plus the dated approved text.
+Source custody is rebuilt at portable private paths with unchanged original bytes;
+portable-import.receipt.json separately binds old/new prepared hashes and exact files.
+Original approvals remain unchanged and no current article qualification is created.
+The exact shared credit ledger is imported without silently replacing a different
+ledger. All files remain private; deployment and service activation belong to root.
+
 Publication aliasing uses optional keyword `publication_identity` on
 `public_derivative.prepare_derivative`: canonical_id, source_original_id,
 article_sha256, revision, binding_sha256 (digest of the first four fields).

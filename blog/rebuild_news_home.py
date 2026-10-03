@@ -6521,6 +6521,8 @@ def _get_header_html():
                     <div id="searchAutocomplete" class="search-autocomplete" role="listbox" aria-label="Search suggestions"></div>
                 </div>
                 <nav>
+                    <a href="/briefings/">Market Briefing</a>
+                    <a href="/member/account">Account</a>
                     <a href="https://tradewave.ai" target="_blank">TradeWave</a>
                 </nav>
             </div>

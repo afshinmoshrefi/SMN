@@ -22,8 +22,9 @@ import statistics
 import sys
 from collections import Counter
 
-sys.path.insert(0, '/home/flask/blog')
-sys.path.insert(0, '/home/flask')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+if '/home/flask' not in sys.path:
+    sys.path.append('/home/flask')
 
 import daily_article_queue as daq   # real logic + real constants
 

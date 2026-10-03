@@ -42,6 +42,7 @@ except Exception:                                            # off-box tests
         pass
     config = _ConfigStub()
 
+import membership_pipeline
 import angle_engine
 import angle_writer
 from article_llm import ArticleLLM, collect_model_usage
@@ -177,6 +178,7 @@ def _approve_seo_title(title: str, approved_html: str, card: dict, send) -> bool
         return False
 
 
+@membership_pipeline.asset_generation
 def _chart_images(resource_id: str, cell: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Story-cell charts via the existing chart engine, with the existing
     caption machinery."""
@@ -188,6 +190,7 @@ def _chart_images(resource_id: str, cell: Dict[str, Any]) -> List[Dict[str, Any]
     return _build_image_manifest(img_paths, cell["symbol"], cell["years"])
 
 
+@membership_pipeline.generation_scope
 def generate_angle_news_article(resource_id: str, symbol: str, *,
                                 anchor: Optional[str] = None,
                                 news_headline: str = "",

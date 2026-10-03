@@ -16,6 +16,18 @@ import sys
 import types
 from urllib.parse import urlsplit
 from install_smn_recovery_edition import validate_package, sha, read, write, atomic
+import membership_publication as membership
+import membership_pipeline as pipeline
+
+if os.environ.get('SMN_MEMBERSHIP_ENV_FILE'):
+    pipeline.load_configuration(os.environ['SMN_MEMBERSHIP_ENV_FILE'])
+    interpreter = os.environ.get('SMN_MEMBERSHIP_PYTHON')
+    if interpreter:
+        target = Path(interpreter)
+        if not target.is_absolute() or not target.is_file() or target.name != 'python':
+            raise ValueError('Explicit membership interpreter is unavailable')
+        if Path(sys.prefix).absolute() != target.parent.parent.absolute():
+            os.execv(str(target), [str(target), *sys.argv])
 
 WEB = Path('/var/www/smn')
 STATE = Path('/var/lib/tradewave/release-state')
@@ -121,7 +133,7 @@ def render(candidate):
     search = {p['url']:p for p in prior}
     for post in posts:
         if post['url'] not in search:
-            search[post['url']] = {**post, 'month':post.get('published_date','')[:7]}
+            search[post['url']] = {k:v for k,v in dict(post, month=post.get('published_date','')[:7]).items() if k != 'path'}
     write(candidate/'search_index.json', list(search.values()))
 
 
@@ -131,35 +143,51 @@ def prepare(package):
     manifest, entries = validate_package(package, ORIGIN, PRODUCTION)
     ident = ('smn-production-' if PRODUCTION else 'smn-primary-')+manifest['edition_date']+'-'+manifest['source_commit'][:10]
     record = STATE/ident
-    record.mkdir(parents=True)
+    record.mkdir(parents=True, mode=0o700)
     candidate = record/'candidate'
     candidate.mkdir()
     with catalog_lock():
         previous = read(WEB/'posts.json')
         before = {n: sha(WEB/n) if (WEB/n).exists() else None for n in GENERATED}
         helpers = {n:(sha(BLOG/n) if (BLOG/n).exists() else None)
-                   for n in ('rebuild_news_home.py','pin_store.py','article_index.py')}
+                   for n in (('rebuild_news_home.py','pin_store.py','article_index.py') +
+                             (('membership_publication.py','article_content_store.py','reader_app.py','membership_pipeline.py') if membership.configured() else ()))}
         if helpers['rebuild_news_home.py'] is None or (not PRODUCTION and None in helpers.values()):
             raise ValueError('Required native renderer missing')
         pin_hash = sha(DASH/'pins.json') if (DASH/'pins.json').exists() else None
-        articles = {str(local_path(p['url']).relative_to(WEB)): sha(local_path(p['url'])) for p in previous}
+        gated = membership.configured()
+        private = None
+        if gated:
+            import article_index
+            if article_index.POSTS_JSON.resolve() != (WEB/'posts.json').resolve():
+                raise ValueError('Membership publication catalog mismatch')
+            membership.recover()
+            previous = read(WEB/'posts.json')
+            before = {n: sha(WEB/n) if (WEB/n).exists() else None for n in GENERATED}
+            # All prior posts must already be valid private revisions.
+            private = pipeline.prepare_batch(entries, package, record, manifest)
+            entries = pipeline.read(private['journal'])['new_posts']
+            articles = {}
+        else:
+            articles = {str(local_path(p['url']).relative_to(WEB)): sha(local_path(p['url'])) for p in previous}
         heroes = {}
         for p in previous:
             url = p.get('hero_image')
-            if url and url.startswith(ORIGIN+'/'):
+            if url and url.startswith(ORIGIN+'/') and not (gated and '/member/public-assets/' in url):
                 path = local_path(url)
                 heroes[str(path.relative_to(WEB))] = sha(path)
         posts = merge_posts(previous, entries)
         write(candidate/'posts.json', posts)
     for rel in manifest['files']:
-        if rel.startswith('editions/'):
+        if rel.startswith('editions/') and not gated:
             dest = candidate/rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(package/rel, dest)
     date = manifest['edition_date']
-    write(candidate/'editions'/date/'entries.json', entries)
-    write(candidate/'editions'/date/'provenance.json', {'source_commit':manifest['source_commit'],
-          'publication_target':TARGET_NAME, 'engine_authority':'TradeWave'})
+    if not gated:
+        write(candidate/'editions'/date/'entries.json', entries)
+        write(candidate/'editions'/date/'provenance.json', {'source_commit':manifest['source_commit'],
+              'publication_target':TARGET_NAME, 'engine_authority':'TradeWave'})
     render(candidate)
     for name in ('index.html', 'search.html'):
         source = candidate/name if name == 'index.html' else WEB/name
@@ -182,9 +210,10 @@ def prepare(package):
             # home-manifest is written below.
             missing = [n for n in GENERATED if n != 'home-manifest.json' and not (candidate/n).is_file()]
             if missing: raise ValueError('Native production outputs missing: '+str(missing))
-    for e in entries:
-        path = urlsplit(e['url']).path.lstrip('/')
-        articles[path] = sha(candidate/path)
+    if not gated:
+        for e in entries:
+            path = urlsplit(e['url']).path.lstrip('/')
+            articles[path] = sha(candidate/path)
     home = {'source_commit':manifest['source_commit'], 'edition_date':date,
             'article_count':len(posts), 'previous_article_urls':[p['url'] for p in previous],
             'articles':articles, 'files':{n:sha(candidate/n) for n in GENERATED if n != 'home-manifest.json'}}
@@ -196,11 +225,23 @@ def prepare(package):
                'expected_pins':read(DASH/'pins.json').get('pins',[]) if pin_hash else [], 'files':files,
                'retained_articles':{k:v for k,v in articles.items() if not k.startswith('editions/'+date+'/')},
                'retained_heroes':heroes, 'production_written':False, 'target_host':HOST_IP, 'urls':[p['url'] for p in entries]}
+    if gated:
+        receipt['membership_publication'] = private
+        home['membership_articles'] = [{k:v for k,v in row.items() if k not in {'source', 'expected_revision', 'raw_asset_urls'}} for row in private['new'] + private['retained']]
+        write(candidate/'home-manifest.json', home)
+        receipt['files']['home-manifest.json'] = sha(candidate/'home-manifest.json')
     write(record/'receipt.json', receipt)
     return {'record':str(record), **receipt}
 
 
 def unchanged(receipt):
+    if receipt.get('membership_publication'):
+        # Incoming revisions are prepared but inactive; retained revisions must remain current.
+        import article_index
+        posts = {membership.path_for(p):p for p in read(article_index.POSTS_JSON)}
+        for row in receipt['membership_publication']['retained']:
+            if pipeline.describe(posts[row['canonical']]) != row:
+                raise ValueError('Retained private article changed')
     for name, digest in receipt['runtime_helpers'].items():
         if (sha(BLOG/name) if (BLOG/name).exists() else None) != digest:
             raise ValueError('Dashboard renderer changed during preparation')
@@ -239,7 +280,13 @@ def activate(record):
                 if (WEB/n).exists(): shutil.copy2(WEB/n, backup/n)
             r['status'] = 'activating'
             write(record/'receipt.json', r)
-            # Articles first, then catalog, then homepage: no link precedes its file.
+            if r.get('membership_publication'):
+                pipeline.activate_batch(r['membership_publication'])
+                qualification = pipeline.register_sources(r['membership_publication'])
+                r['derivative_jobs'] = qualification['jobs']
+                r['derivative_qualification_holds'] = qualification['holds']
+                write(record/'receipt.json', r)
+            # Private registry (or legacy files) first, then catalog, then homepage.
             order = sorted(r['files'], key=lambda n: n in GENERATED)
             for rel in order:
                 dest = WEB/rel
@@ -275,6 +322,8 @@ def rollback(record):
             old = record/'backup'/rel
             if current.exists() and sha(current) not in {digest, sha(old) if old.exists() else None}:
                 raise ValueError('Peer changed published file; targeted recovery required: '+rel)
+        if r.get('membership_publication'):
+            pipeline.rollback_batch(r['membership_publication'])
         for rel in r['files']:
             old = record/'backup'/rel
             if old.exists(): atomic(WEB/rel, old.read_bytes())
@@ -310,10 +359,38 @@ def finish(record):
                 raise ValueError('Public verification missing/changed: '+rel)
         if sum(rel in verified for rel in retained) < min(RETAINED_SAMPLE, len(retained)):
             raise ValueError('Public verification missing/changed: too few %s sampled' % group)
+    if r.get('membership_publication'):
+        pipeline.verify_private(r['membership_publication'])
+        verify_membership_proof(r['membership_publication'], proof)
     r['status'] = 'live_verified'
     write(record/'receipt.json', r)
     release_lock(r)
     return r
+
+
+def verify_membership_proof(private, proof):
+    rows = {row.get('canonical'): row for row in proof.get('membership_articles', [])}
+    selected = private['new'] + sorted(private['retained'], key=lambda row: row['canonical'])[:RETAINED_SAMPLE]
+    for expected in selected:
+        actual = rows.get(expected['canonical'], {})
+        if (actual.get('revision') != expected['revision'] or actual.get('preview_sha256') != expected['preview_sha256']
+                or actual.get('full_html_sha256') != expected['full_html_sha256']
+                or actual.get('public_preview_passed') is not True or actual.get('member_full_passed') is not True
+                or actual.get('anonymous_full_absent') is not True):
+            raise ValueError('Membership public/member verification missing: ' + expected['canonical'])
+        raw = {a.get('url'):a.get('denied') for a in actual.get('raw_assets', [])}
+        if any(raw.get(url) is not True for url in expected.get('raw_asset_urls', [])):
+            raise ValueError('Anonymous raw engine asset denial missing')
+        assets = {a.get('name'): a for a in actual.get('assets', [])}
+        for asset in expected['assets']:
+            result = assets.get(asset['name'], {})
+            if result.get('sha256') != asset['sha256'] or result.get('member_passed') is not True:
+                raise ValueError('Protected native asset verification missing: ' + asset['name'])
+            if asset['public']:
+                if result.get('public_passed') is not True:
+                    raise ValueError('Approved public hero verification missing')
+            elif result.get('anonymous_denied') is not True:
+                raise ValueError('Anonymous protected asset denial missing')
 
 
 if __name__ == '__main__':

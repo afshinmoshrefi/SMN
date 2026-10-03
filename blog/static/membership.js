@@ -185,7 +185,7 @@
     await api('/api/membership/articles/' + encodeURIComponent(currentPreview.slug) + '/generate', 'POST', {expected_revision: currentPreview.revision});
     $('membership-preview-state').textContent = 'Draft generation requested. Refresh jobs to follow progress.'; await loadJobs();
   });
-  const labels = {draft:'Ready for generation',held:'Held — action required',failed:'Generation failed',provider_disabled:'Provider disabled — configuration required',running:'Generation in progress',generated:'Generated — inspect before approval',reviewed:'Media approved; distribution remains disabled',canceled:'Canceled',superseded:'Replaced by a new revision'};
+  const labels = {queued:'Queued for generation',draft:'Ready for generation',held:'Held — action required',failed:'Generation failed',provider_disabled:'Provider disabled — configuration required',running:'Generation in progress',generated:'Generated — inspect before approval',reviewed:'Media approved; distribution remains disabled',canceled:'Canceled',superseded:'Replaced by a new revision'};
   function copyJob(job) { return job.kind === 'derivative' || (job.kind === 'daily_briefing' && !(job.artifacts || []).some(item => /^(audio|video)\//.test(item.media_type || ''))); }
   function briefingNeedsImport(job) { return job?.kind === 'daily_briefing' && copyJob(job) && !job.imported_draft; }
   function button(label, callback, disabled = false) { const node = document.createElement('button'); node.type = 'button'; node.textContent = label; node.disabled = disabled; node.onclick = callback; return node; }

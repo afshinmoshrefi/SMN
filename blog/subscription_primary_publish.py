@@ -8,6 +8,7 @@ import subscription_dev_publish as shared
 
 HOST = 'root@192.168.1.180'
 PYTHON = '/home/flask/venv-smn-integrity-20260711T205457Z/bin/python'
+PUBLICATION_PYTHON = 'SMN_MEMBERSHIP_ENV_FILE=/etc/SMN/membership.env ' + PYTHON
 
 
 def remote(command, **kwargs):
@@ -15,11 +16,14 @@ def remote(command, **kwargs):
 
 
 def call(receipt, action):
-    return json.loads(remote(PYTHON+' '+receipt['remote']+'/source/blog/install_smn_primary_edition.py '+action+' '+receipt['record']))
+    return json.loads(remote(PUBLICATION_PYTHON+' '+receipt['remote']+'/source/blog/install_smn_primary_edition.py '+action+' '+receipt['record']))
 
 
 def stage(root, repo):
-    extra = ('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs','blog/claude_subscription_writer.py')
+    extra = ('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs','blog/claude_subscription_writer.py',
+             'blog/membership_pipeline.py','blog/membership_publication.py','blog/article_content_store.py',
+             'blog/article_index.py','blog/pin_store.py','blog/reader_app.py','blog/reader_auth.py',
+             'blog/public_derivative.py','blog/promotion_jobs.py','blog/daily_briefing.py')
     shared.SOURCE_FILES += tuple(f for f in extra if f not in shared.SOURCE_FILES)
     receipt = shared.stage(root, repo)
     receipt['target_host'] = HOST
@@ -46,7 +50,7 @@ def activate(root, repo, node, playwright):
         shared.run(['scp',str(root/name),HOST+':'+receipt['remote']+'/'+name])
     code = "import tarfile;from pathlib import Path;p=Path(%r);[tarfile.open(p/n).extractall(p,filter='data') for n in ('committed-source.tar','publication-package.tar')]" % receipt['remote']
     remote(PYTHON+' -',input=code)
-    prepared = remote(PYTHON+' '+receipt['remote']+'/source/blog/install_smn_primary_edition.py prepare '+receipt['remote']+'/publication-package')
+    prepared = remote(PUBLICATION_PYTHON+' '+receipt['remote']+'/source/blog/install_smn_primary_edition.py prepare '+receipt['remote']+'/publication-package')
     record = json.loads(prepared)
     if record['record'] != receipt['record']:
         raise ValueError('Unexpected primary receipt path')

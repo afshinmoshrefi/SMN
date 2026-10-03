@@ -7,7 +7,10 @@ if(!['https://smn-dev.trxstat.com','https://seasonalmarketnews.com'].includes(ba
 const production=base==='https://seasonalmarketnews.com',robots=production?'index,follow':'noindex,nofollow';
 const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
 (async()=>{
- browser=await chromium.launch({...(process.env.SMN_BROWSER_CHANNEL==='bundled'?{}:{channel:process.env.SMN_BROWSER_CHANNEL||'chrome'}),headless:true});const page=await browser.newPage({viewport:{width:1440,height:1050}});
+ const activation=read(path.join(R,'primary-activation.json'));
+ const membership=activation.membership_publication;
+ if(membership&&!process.env.SMN_READER_VERIFICATION_STATE)throw Error('Gated publication requires a verified reader browser session');
+ browser=await chromium.launch({...(process.env.SMN_BROWSER_CHANNEL==='bundled'?{}:{channel:process.env.SMN_BROWSER_CHANNEL||'chrome'}),headless:true});let page=await browser.newPage({viewport:{width:1440,height:1050}});
  const home=await page.goto(base+'/',{waitUntil:'domcontentloaded',timeout:60000});assert(home.status()===200,'Dev home HTTP');
  if(!production)assert(await page.locator('meta[name="robots"]').getAttribute('content')==='noindex,nofollow','Dev homepage noindex');
  assert(new URL(page.url()).pathname==='/','Cumulative home must not redirect to one edition');
@@ -19,7 +22,6 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  assert(entries.every(e=>catalogUrls.includes(e.url)),'All new articles retained');
  assert(homeManifest.previous_article_urls.every(url=>catalogUrls.includes(url)),'All prior articles retained');
  assert(homeManifest.source_commit===manifest.source_commit,'Homepage source provenance');
- const activation=read(path.join(R,'primary-activation.json'));
  const expectedPins=(activation.expected_pins||[]).filter(p=>!p.expires_at||Date.parse(p.expires_at)>Date.now());
  const ordered=await page.locator('.wire-lead h2 a,.wire-lead h1 a,.wire-headline-item h3 a,.wire-headline-item h2 a').evaluateAll(a=>a.map(x=>x.href));
  for(const pin of expectedPins){const entry=catalog.find(p=>p.slug===pin.slug);assert(entry,'Pinned catalog entry retained');if(pin.position===1)assert(await page.locator('.wire-lead a').evaluateAll((a,url)=>a.some(x=>x.href===url),entry.url),'Pinned lead retained');}
@@ -61,6 +63,10 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
   const titleText=t=>t.replace(/[—–]/g,'-').replace(/\s+/g,' ').trim();
   assert(titleText(await page.locator('h1').innerText())===titleText(archived.title),'Older article content retained');
  }
+ const anonymousPage=page;
+ const memberContext=membership?await browser.newContext({storageState:process.env.SMN_READER_VERIFICATION_STATE}):null;
+ const memberPage=memberContext?await memberContext.newPage():null;
+ if(memberPage)page=memberPage;
  const pages=[];
  for(const e of entries){
   const local=path.join(R,'results',e.symbol),native=read(path.join(local,'seasonal-manifest.json'));
@@ -81,6 +87,35 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
    await page.locator('.data-figure details>summary').click();
    await page.screenshot({path:path.join(local,'live-'+kind+'-top.png')});
    pages.push({symbol:e.symbol,kind,title:state.title,rows:state.rows.length,study_url:native.study_url,passed:true});
+  }
+ }
+ if(membership)page=anonymousPage;
+ const membershipArticles=[];
+ if(membership){
+  const selected=[...membership.new,...[...membership.retained].sort((a,b)=>a.canonical.localeCompare(b.canonical)).slice(0,40)];
+  const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+  for(const expected of selected){
+   const res=await page.goto(expected.url,{waitUntil:'domcontentloaded',timeout:60000});
+   assert(res.status()===200,'Canonical public preview HTTP');
+   const shown=await page.evaluate(()=>({headline:document.querySelector('main>h1')?.textContent,preview:[...document.querySelectorAll('main>p:not(.qualification):not([role=status])')].map(p=>p.textContent),qualification:document.querySelector('main>.qualification')?.textContent,full_article_value:document.querySelector('main>aside>p')?.textContent}));
+   const copy=expected.preview_content;
+   assert(shown.headline===copy.headline.text&&JSON.stringify(shown.preview)===JSON.stringify(copy.preview.map(p=>p.text))&&shown.qualification===copy.qualification.text&&shown.full_article_value===copy.full_article_value.text,'Public preview exact source-bound copy');
+   const anonymousHash=sha(await res.body());
+   assert(anonymousHash!==expected.full_html_sha256&&await page.locator('[data-native-chart]').count()===0,'Anonymous full article absent');
+   const full=await memberContext.request.get(expected.url,{timeout:60000,headers:{'Cache-Control':'no-cache'}});
+   assert(full.status()===200&&sha(await full.body())===expected.full_html_sha256,'Member full private bytes');
+   const assets=[];
+   for(const asset of expected.assets){
+    const member=await memberContext.request.get(base+asset.url,{timeout:60000});
+    assert(member.status()===200&&sha(await member.body())===asset.sha256,'Member native asset exact bytes');
+    const anon=await page.context().request.get(base+asset.url,{timeout:60000});
+    if(asset.public)assert(anon.status()===200&&sha(await anon.body())===asset.sha256,'Approved public hero bytes');
+    else assert([401,403,404].includes(anon.status()),'Anonymous native asset denied');
+    assets.push({name:asset.name,sha256:asset.sha256,member_passed:true,public_passed:asset.public,anonymous_denied:!asset.public});
+   }
+   const rawAssets=[];
+   for(const url of expected.raw_asset_urls||[]){const res=await page.context().request.get(url,{timeout:60000});assert([401,403,404].includes(res.status()),'Raw engine asset denied');rawAssets.push({url,denied:true,status:res.status()});}
+   membershipArticles.push({canonical:expected.canonical,revision:expected.revision,preview_sha256:expected.preview_sha256,full_html_sha256:expected.full_html_sha256,public_preview_passed:true,member_full_passed:true,anonymous_full_absent:true,assets,raw_assets:rawAssets});
   }
  }
  const homeManifestBytes=await page.evaluate(async ()=>Array.from(new Uint8Array(await (await fetch('/home-manifest.json',{cache:'no-store'})).arrayBuffer())));
@@ -109,8 +144,8 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
   }))]),{batch:files.slice(i,i+6),base,retained:Object.keys(activation.retained_articles)});
   for(const r of results)assert(r.passed,'Public asset hash: '+r.rel);checked.push(...results);
  }
- const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');
- const proof={passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,home_redirect:false,home_links:{desktop:desktopHomeLinks,mobile:mobileHomeLinks},archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true};
+ if(!membership){const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');}
+ const proof={passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,membership_articles:membershipArticles,home_redirect:false,home_links:{desktop:desktopHomeLinks,mobile:mobileHomeLinks},archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true};
  fs.writeFileSync(path.join(R,'live-verification.json'),JSON.stringify(proof,null,2));console.log(JSON.stringify({passed:true,article_layouts:pages.length,public_files:checked.length,source_commit:manifest.source_commit}));
  await browser.close();
 })().catch(async e=>{console.error(e.message);if(browser)await browser.close();process.exitCode=1});
