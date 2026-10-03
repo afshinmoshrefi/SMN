@@ -5,7 +5,7 @@ from PIL import Image
 from subscription_writer import sha256
 from video_render import article_layout,compose,_run,probe
 
-IDENTITY='TradeWave study: ADP common stock (Nasdaq: ADP)\nLong | October 11–30, 2026 | 10 selected midterm-election years (1986–2022)\n9 of 10 finished higher; median full-window long result: 6.89%. Positive long results mean stock strength.\nSelected years, not consecutive. Compare the same window across histories; historical results are not future probabilities.\nSource: TradeWave engine; prices recorded through October 1, before the prospective entry.'
+IDENTITY='TradeWave study: ADP common stock (Nasdaq: ADP)\nLong | October 11â€“30, 2026 | 10 selected midterm-election years (1986â€“2022)\n9 of 10 finished higher; median full-window long result: 6.89%. Positive long results mean stock strength.\nSelected years, not consecutive. Compare the same window across histories; historical results are not future probabilities.\nSource: TradeWave engine; prices recorded through October 1, before the prospective entry.'
 FONT=next((str(p) for p in [Path('C:/Windows/Fonts/arial.ttf'),Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')] if p.is_file()),None)
 
 @unittest.skipUnless(FONT,'Readable local font required')
