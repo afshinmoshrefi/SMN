@@ -13,8 +13,7 @@ SITE = Path('/etc/nginx/sites-available/smn.conf')
 SNIPPET = Path('/etc/nginx/snippets/smn_reader.conf')
 UNIT = Path('/etc/systemd/system/smn-reader.service')
 DASH = Path('/etc/systemd/system/pub_dashboard.service.d/60-membership.conf')
-PYTHON = '/home/flask/venv-smn-integrity-20260711T205457Z/bin/python'
-GUNICORN = '/home/flask/venv-smn-integrity-20260711T205457Z/bin/gunicorn'
+PYTHON = '/home/flask/venv-smn-membership-20261003/bin/python'
 
 
 def run(*args):
@@ -47,6 +46,7 @@ def configuration():
         'SMN_MEMBERSHIP_ADMIN_KEY_FILE=/etc/SMN/membership-admin-service.key',
         'SMN_NEWS_ROOT=/var/www/smn',
         'SMN_DASHBOARD_STATE=/var/lib/smn-dashboard',
+        'SMN_MEMBERSHIP_PYTHON=' + PYTHON,
         'PYTHONDONTWRITEBYTECODE=1', ''])
 
 
@@ -90,7 +90,7 @@ After=network.target
 User=root
 WorkingDirectory={repo}/blog
 EnvironmentFile={ENV}
-ExecStart={GUNICORN} --workers 2 --timeout 60 --bind 127.0.0.1:7173 "reader_app:create_app()"
+ExecStart={PYTHON} -m gunicorn --workers 2 --timeout 60 --bind 127.0.0.1:7173 "reader_app:create_app()"
 Restart=on-failure
 UMask=0077
 NoNewPrivileges=true
@@ -100,7 +100,8 @@ ReadWritePaths=/var/lib/smn/reader
 [Install]
 WantedBy=multi-user.target
 '''
-    dashboard = f'[Service]\nWorkingDirectory={repo}/blog\nEnvironmentFile={ENV}\nEnvironment=PYTHONDONTWRITEBYTECODE=1\n'
+    dashboard = (f'[Service]\nWorkingDirectory={repo}/blog\nEnvironmentFile={ENV}\nEnvironment=PYTHONDONTWRITEBYTECODE=1\n'
+                 f'ExecStart=\nExecStart={PYTHON} -m gunicorn --workers 2 --timeout 900 --bind 127.0.0.1:7172 --bind 192.168.1.180:7172 pub_dashboard:app\n')
     original = SITE.read_text('utf-8')
     if 'server_name smn-dev.trxstat.com localhost;' not in original:
         raise ValueError('SMN Dev nginx site drifted')

@@ -46,6 +46,14 @@ class MembershipPublicationTests(unittest.TestCase):
         _, repeated = publication.prepare(self.post, self.raw)
         self.assertEqual(repeated, manifest)
 
+    def test_native_cache_version_is_replaced_with_private_hash_bound_url(self):
+        version = publication.sha(b'EXACT_ENGINE_CHART')[:16]
+        updated, manifest = publication.prepare(self.post, self.raw.replace('src="chart.png"', f'src="chart.png?v={version}"'))
+        self.assertTrue(manifest['assets'])
+        self.assertNotIn('?v=', publication.store()._private_file(manifest, 'full.html').read_text())
+        with self.assertRaises(ContentError):
+            publication.prepare(self.post, self.raw.replace('src="chart.png"', 'src="chart.png?download=../../outside"'))
+
     def test_catalog_failure_recovers_exact_revision_and_keeps_unrelated_post(self):
         old, _ = self.publish()
         other = dict(self.post, url='https://smn-dev.trxstat.com/articles/other.html', title='Unrelated')
