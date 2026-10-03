@@ -242,7 +242,7 @@ def register_sources(membership):
         private_owner(path)
         job = promotion_jobs.create(store.root/'promotion', 'derivative',
             {'article_id': row['url'], 'source_revision': row['revision'],
-             'source_hash': prepared['provenance']['article_sha256']}, 'qualified-edition-publisher')
+             'source_hash': prepared['provenance']['article_sha256'], 'payload_sha256':digest(prepared)}, 'qualified-edition-publisher')
         jobs.append(job)
         private_owner(promotion_jobs._path(store.root/'promotion', job['id']))
     return {'jobs':jobs, 'holds':holds}
