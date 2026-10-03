@@ -1,0 +1,67 @@
+<section class="panel" id="membership-panel" data-base="{{ base }}" hidden>
+  <style>
+    #membership-panel .membership-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    #membership-panel textarea,#membership-preview textarea,#promotion-review textarea{font:inherit;min-height:90px}
+    #membership-panel fieldset,#membership-preview fieldset{border:1px solid var(--line);border-radius:8px;padding:12px}
+    #membership-panel input[type=checkbox]{width:auto}#membership-panel .checks label{display:inline-flex;gap:6px;margin-right:16px;align-items:center}
+    #membership-panel .status{padding:8px 0;color:var(--muted)}#membership-panel .status.bad{color:var(--danger)}
+    #membership-panel button:disabled{opacity:.5;cursor:not-allowed}
+    #membership-panel .job-list{display:grid;gap:12px;margin-top:12px}#membership-panel .job-card{border:1px solid var(--line);border-radius:8px;padding:12px;overflow-wrap:anywhere}
+    #membership-panel [hidden]{display:none!important}#membership-preview textarea{width:100%}#membership-preview .dlg-body{gap:14px}
+  </style>
+  <h2>Membership &amp; Promotion</h2>
+  <p class="muted">Manage reader access, review public previews, and prepare article or briefing media.</p>
+  <p id="membership-status" class="status" role="status" aria-live="polite"></p>
+  <p id="membership-summary"></p><p id="membership-counts" class="muted"></p>
+  <form id="membership-settings-form">
+    <fieldset><legend>New membership enrollments</legend>
+      <div class="membership-grid">
+        <div><label for="membership-mode">Access mode</label><select id="membership-mode"><option value="free">Free registered membership</option><option value="paid">Paid membership</option></select></div>
+        <div data-paid-field><label for="membership-monthly">Monthly price (USD)</label><input id="membership-monthly" inputmode="decimal" type="text" value="0.00" required></div>
+        <div data-paid-field><label for="membership-annual-mode">Annual pricing</label><select id="membership-annual-mode"><option value="explicit">Set annual amount</option><option value="discount">Discount from 12 monthly payments</option></select></div>
+        <div data-paid-field id="membership-annual-price-field"><label for="membership-annual">Annual price (USD, charged yearly)</label><input id="membership-annual" inputmode="decimal" type="text" value="0.00"></div>
+        <div data-paid-field id="membership-discount-field"><label for="membership-discount">Annual discount (%)</label><input id="membership-discount" inputmode="decimal" type="text" value="0.00"></div>
+        <div data-paid-field><label for="membership-trial">Trial days (0–365)</label><input id="membership-trial" type="number" min="0" max="365" step="1" value="0"></div>
+      </div>
+      <div class="row checks" data-paid-field><label><input id="membership-month" type="checkbox" checked>Monthly plan</label><label><input id="membership-year" type="checkbox" checked>Annual plan</label></div>
+      <p id="membership-free-note" class="muted">Readers register and verify their identity. No card or hidden trial countdown is required.</p>
+      <div class="row"><button class="primary" type="submit" id="membership-save">Save offer draft</button><button type="button" id="membership-refresh">Reload settings</button></div>
+    </fieldset>
+  </form>
+  <div class="row"><label for="membership-draft">Saved offer draft</label><select id="membership-draft" style="max-width:440px"></select><button id="membership-activate" type="button">Activate selected offer</button></div>
+  <p id="membership-draft-summary" class="muted"></p><p class="muted">Activation affects new enrollments. Existing free-launch grants and recorded member terms stay unchanged.</p>
+  <hr><h3>Public article preview</h3>
+  <div class="row"><label for="membership-article">Article</label><select id="membership-article" style="max-width:700px"><option value="">Choose an article</option></select><button id="membership-preview-open" type="button">Edit public preview</button></div>
+  <p class="muted">Save a new draft, check its claims and qualifications, then approve and publish that exact revision. The published version remains available while you edit.</p>
+  <hr><h3>Promotion jobs</h3>
+  <form id="promotion-create-form" class="row">
+    <label for="promotion-kind">Format</label><select id="promotion-kind" style="max-width:260px"><option value="derivative">Public preview package</option><option value="article_video">Article video</option><option value="daily_briefing">Daily briefing</option><option value="daily_avatar">Daily briefing avatar</option><option value="social_export">Social copy export</option><option value="substack_export">Substack export</option></select>
+    <button class="primary" type="submit">Create job</button><button id="promotion-refresh" type="button">Refresh jobs</button>
+  </form>
+  <p class="muted">Article jobs use the selected article's current approved source. Daily jobs use the server's current briefing. External posting is disabled until accounts and distribution rules are configured.</p>
+  <p id="promotion-status" class="status" role="status" aria-live="polite"></p><div id="promotion-jobs" class="job-list"></div>
+</section>
+<dialog id="membership-preview">
+  <form id="membership-preview-form">
+    <div class="dlg-head">Public preview draft</div>
+    <div class="dlg-body"><p id="membership-preview-state" class="muted" role="status"></p>
+      <details><summary>Read the complete source article</summary><iframe id="preview-full-article" title="Complete source article for preview review" sandbox="" referrerpolicy="no-referrer" style="width:100%;height:500px;border:1px solid var(--line);background:white"></iframe><p id="preview-full-note" class="muted"></p></details>
+      <fieldset><legend>Public reading experience</legend>
+        <label for="preview-headline">Headline</label><input id="preview-headline" required maxlength="500">
+        <label for="preview-lead">Lead</label><textarea id="preview-lead" required></textarea>
+        <label for="preview-key-points">Key points (up to two additional paragraphs, one per line)</label><textarea id="preview-key-points"></textarea>
+        <label for="preview-value">Why it matters / what the complete article adds</label><textarea id="preview-value" required></textarea>
+        <label for="preview-qualification">Historical and study qualification</label><textarea id="preview-qualification" required></textarea>
+        <label for="preview-cta">Membership invitation</label><input id="preview-cta" readonly value="Register or sign in to read the complete article">
+      </fieldset>
+      <p class="muted">Keep the relevant limitation beside the finding. Historic results are not a forecast. Editing creates a new hash and invalidates prior approvals and media bindings.</p>
+      <label for="preview-review-note">Review note</label><input id="preview-review-note" maxlength="2000" placeholder="Explain evidence, qualifications and reader value">
+      <label><input id="preview-reviewed" type="checkbox" style="width:auto">I checked the exact saved preview against its full article and source evidence.</label>
+    </div>
+    <div class="dlg-foot"><button type="button" id="preview-generate">Generate draft</button><button type="button" id="preview-approve" disabled>Approve &amp; publish saved revision</button><button class="primary" type="submit">Save new draft</button><button type="button" id="preview-close">Close</button></div>
+  </form>
+</dialog>
+<dialog id="promotion-review">
+  <div class="dlg-head">Review generated promotion</div><div class="dlg-body"><p id="promotion-review-state"></p><div id="promotion-review-artifacts"></div><label><input id="promotion-reviewed" type="checkbox" style="width:auto">I inspected the saved artifacts and checked narration, chart identity, captions and qualifications.</label><p class="muted">This approves generated media only. It does not authorize posting or replace source review.</p></div>
+  <div class="dlg-foot"><button id="promotion-approve" type="button" disabled>Approve generated media</button><button id="promotion-reject" type="button">Hold for correction</button><button id="promotion-review-close" type="button">Close</button></div>
+</dialog>
