@@ -4,6 +4,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from flask import Blueprint, g, jsonify, request, send_file
+from article_content_store import ContentError
+
+PROMOTION_KINDS = ('derivative', 'article_video', 'daily_briefing', 'daily_avatar', 'social_export', 'substack_export')
 
 
 class PanelError(ValueError):
@@ -102,6 +105,11 @@ def register(app, handlers, client=None):
     def failed(exc):
         if isinstance(exc, PanelError) or isinstance(exc, getattr(client, 'MembershipError', PanelError)):
             return jsonify(ok=False, error={'code': exc.code, 'message': str(exc), 'hint': ''}), exc.status
+        if isinstance(exc, ContentError):
+            message = str(exc)
+            if (not 1 <= len(message) <= 500 or re.search(r'[<>\x00-\x1f]|[A-Za-z]:[\\/]|(?:^|\s)/\S+|\b(?:bearer|token|secret|password)\b|sk-[A-Za-z0-9]', message, re.I)):
+                message = 'The saved revision changed or this action is invalid. Refresh before retrying.'
+            return jsonify(ok=False, error={'code': 'conflict', 'message': message, 'hint': ''}), 409
         if isinstance(exc, ValueError):
             return jsonify(ok=False, error={'code': 'conflict', 'message': 'The saved revision changed or this action is invalid. Refresh before retrying.', 'hint': ''}), 409
         # Provider and filesystem errors never expose tokens, paths or raw responses.
@@ -178,10 +186,25 @@ def register(app, handlers, client=None):
     def jobs():
         return ok(invoke('list_jobs'))
 
+    @bp.get('/api/promotion/briefings')
+    def briefings():
+        return ok(invoke('list_briefings'))
+
+    @bp.get('/api/promotion/controls')
+    def controls():
+        return ok(invoke('get_controls'))
+
+    @bp.put('/api/promotion/controls')
+    def set_controls():
+        body = _body(('scope', 'paused'), ('scope', 'paused'))
+        if body['scope'] not in ('all', *PROMOTION_KINDS) or type(body['paused']) is not bool:
+            raise PanelError('Choose a promotion scope and a pause or resume action.')
+        return ok(invoke('set_controls', body, actor()))
+
     @bp.post('/api/promotion/jobs')
     def create_job():
         body = _body(('kind', 'slug', 'briefing_id', 'variant', 'channel'), ('kind',))
-        if body['kind'] not in ('derivative', 'article_video', 'daily_briefing', 'daily_avatar', 'social_export', 'substack_export'):
+        if body['kind'] not in PROMOTION_KINDS:
             raise PanelError('Choose a supported promotion format.')
         if body.get('slug'):
             _identifier(body['slug'])
@@ -190,6 +213,8 @@ def register(app, handlers, client=None):
                 _identifier(body[field])
         if body['kind'] not in ('daily_briefing', 'daily_avatar') and not body.get('slug'):
             raise PanelError('Choose an article for this promotion.')
+        if body['kind'] in ('daily_briefing', 'daily_avatar') and not body.get('briefing_id'):
+            raise PanelError('Choose the dated briefing or source bundle for this daily job.')
         return ok(invoke('create_job', body, actor()))
 
     @bp.get('/api/promotion/jobs/<ident>')
@@ -198,7 +223,7 @@ def register(app, handlers, client=None):
 
     @bp.post('/api/promotion/jobs/<ident>/<action>')
     def job_action(ident, action):
-        if action not in ('generate', 'retry', 'cancel', 'review', 'edit'):
+        if action not in ('generate', 'retry', 'cancel', 'review', 'edit', 'import'):
             raise PanelError('Choose a supported job action.')
         allowed = ('expected_version', 'data') if action in ('review', 'edit') else ('expected_version',)
         body = _body(allowed, ('expected_version',))

@@ -34,11 +34,17 @@
   <div class="row"><label for="membership-article">Article</label><select id="membership-article" style="max-width:700px"><option value="">Choose an article</option></select><button id="membership-preview-open" type="button">Edit public preview</button></div>
   <p class="muted">Save a new draft, check its claims and qualifications, then approve and publish that exact revision. The published version remains available while you edit.</p>
   <hr><h3>Promotion jobs</h3>
+  <fieldset><legend>Generation controls</legend>
+    <p id="promotion-providers" class="muted"></p>
+    <div class="row"><label for="promotion-scope">Scope</label><select id="promotion-scope" style="max-width:260px"><option value="all">All promotion jobs</option><option value="derivative">Public preview packages</option><option value="article_video">Article videos</option><option value="daily_briefing">Daily briefings</option><option value="daily_avatar">Daily avatars</option><option value="social_export">Social exports</option><option value="substack_export">Substack exports</option></select><button id="promotion-pause" type="button">Pause generation</button><button id="promotion-resume" type="button">Resume generation</button></div>
+    <p id="promotion-controls-state" class="status" role="status" aria-live="polite"></p>
+  </fieldset>
   <form id="promotion-create-form" class="row">
     <label for="promotion-kind">Format</label><select id="promotion-kind" style="max-width:260px"><option value="derivative">Public preview package</option><option value="article_video">Article video</option><option value="daily_briefing">Daily briefing</option><option value="daily_avatar">Daily briefing avatar</option><option value="social_export">Social copy export</option><option value="substack_export">Substack export</option></select>
-    <button class="primary" type="submit">Create job</button><button id="promotion-refresh" type="button">Refresh jobs</button>
+    <div id="promotion-briefing-field" hidden><label for="promotion-briefing">Dated briefing / source bundle</label><select id="promotion-briefing" style="max-width:440px"><option value="">Choose a date and source</option></select></div>
+    <button class="primary" type="submit">Create job</button><button id="promotion-refresh" type="button">Refresh jobs and sources</button>
   </form>
-  <p class="muted">Article jobs use the selected article's current approved source. Daily jobs use the server's current briefing. External posting is disabled until accounts and distribution rules are configured.</p>
+  <p class="muted">Article jobs use the selected article's current approved source. Select a dated source bundle to write a briefing, or an approved briefing to prepare narration. Imported copy stays a draft until its exact claims and qualifications are reviewed. External posting is disabled until accounts and distribution rules are configured.</p>
   <p id="promotion-status" class="status" role="status" aria-live="polite"></p><div id="promotion-jobs" class="job-list"></div>
 </section>
 <dialog id="membership-preview">
@@ -62,6 +68,6 @@
   </form>
 </dialog>
 <dialog id="promotion-review">
-  <div class="dlg-head">Review generated promotion</div><div class="dlg-body"><p id="promotion-review-state"></p><div id="promotion-review-artifacts"></div><label><input id="promotion-reviewed" type="checkbox" style="width:auto">I inspected the saved artifacts and checked narration, chart identity, captions and qualifications.</label><p class="muted">This approves generated media only. It does not authorize posting or replace source review.</p></div>
+  <div class="dlg-head">Review generated promotion</div><div class="dlg-body"><p id="promotion-review-state"></p><div id="promotion-review-artifacts"></div><label><input id="promotion-reviewed" type="checkbox" style="width:auto"><span id="promotion-review-check">I inspected the saved artifacts and checked narration, chart identity, captions and qualifications.</span></label><p id="promotion-review-scope" class="muted">This approves generated media only. It does not authorize posting or replace source review.</p></div>
   <div class="dlg-foot"><button id="promotion-approve" type="button" disabled>Approve generated media</button><button id="promotion-reject" type="button">Hold for correction</button><button id="promotion-review-close" type="button">Close</button></div>
 </dialog>
