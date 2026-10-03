@@ -15,6 +15,9 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
   let settings = {settings_version:1,active_offer:offer,draft_offers:[],readiness:{billing_enabled:true,stripe_mode:'test'},member_counts:{total:5,free_launch:5}};
   let preview = {slug:'test',canonical:'/editions/test/article.html',revision:'r1',payload_sha256:'a'.repeat(64),review_status:'pending',full_html:'<p>Complete source evidence</p><script>window.top.document.body.dataset.unsafe="yes"</script>',preview:{content:{headline:statement('Original headline'),preview:[statement('Useful original lead')],full_article_value:statement('Read the risk evidence'),qualification:statement('History is not a forecast'),social:[],video:null},provenance:{revision:'r1'}}};
   let job = {id:'job1',kind:'article_video',status:'generated',version:2,source_revision:'r1',generation_status:'complete',review_status:'pending',payload_sha256:'c'.repeat(64),artifacts:[{name:'clip.mp4'}],holds:[],attempts:1};
+  let copy = {...job,id:'copy1',kind:'derivative',artifacts:[{name:'derivative.json',media_type:'application/json'}]};
+  let daily = {...job,id:'daily1',kind:'daily_briefing',payload_sha256:'d'.repeat(64),artifacts:[{name:'output.json',media_type:'application/json'}]};
+  let controls = {all:false,kinds:{},providers:{codex:{enabled:true},elevenlabs:{enabled:false,reason:'Missing credential'}}};
   const requests = [];
   const browser = await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL || 'chrome'});
   try {
@@ -34,9 +37,15 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
         if (method === 'PUT') { assert.equal(body.expected_revision,'r1'); preview={...preview,revision:'r2',payload_sha256:'b'.repeat(64),preview:{...preview.preview,content:body.content}}; }
         data=preview;
       } else if (url.pathname === '/api/membership/articles/test/review') { assert.equal(body.expected_revision,'r2'); assert.equal(body.payload_sha256,'b'.repeat(64)); preview.review_status='approved'; data=preview; }
-      else if (url.pathname === '/api/promotion/jobs') data=[job];
+      else if (url.pathname === '/api/promotion/briefings') data=[{briefing_id:'2026-10-03-source',date:'2026-10-03',kind:'source_bundle',title:'Selected sources <img src=x>'}];
+      else if (url.pathname === '/api/promotion/controls') { if(method==='PUT'){assert.deepEqual(body,{scope:'all',paused:true});controls={...controls,all:true};}data=controls; }
+      else if (url.pathname === '/api/promotion/jobs') { if(method==='POST'){assert.deepEqual(body,{kind:'daily_briefing',briefing_id:'2026-10-03-source'});data=copy;} else data=[job,copy,daily]; }
       else if (url.pathname === '/api/promotion/jobs/job1') data=job;
       else if (url.pathname === '/api/promotion/jobs/job1/review') { assert.deepEqual(body,{expected_version:2,data:{decision:'approved',payload_sha256:'c'.repeat(64)}}); job={...job,status:'reviewed',review_status:'approved',version:3}; data=job; }
+      else if (url.pathname === '/api/promotion/jobs/copy1/import') { assert.deepEqual(body,{expected_version:2}); preview={...preview,revision:'r3',review_status:'pending',payload_sha256:'e'.repeat(64)};data={slug:'test',revision:'r3',review_status:'pending'}; }
+      else if (url.pathname === '/api/promotion/jobs/daily1') data=daily;
+      else if (url.pathname === '/api/promotion/jobs/daily1/import') { assert.deepEqual(body,{expected_version:2});data={briefing_id:'2026-10-03-source',revision:'dated-r1',review_status:'pending'};daily={...daily,version:3,imported_draft:data}; }
+      else if (url.pathname === '/api/promotion/jobs/daily1/review') { assert.deepEqual(body,{expected_version:3,data:{decision:'approved',payload_sha256:'d'.repeat(64)}});daily={...daily,status:'reviewed',version:4,review_status:'approved',imported_draft:{...daily.imported_draft,review_status:'approved'}};data=daily; }
       else return route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({ok:false,error:{message:'Unknown test route'}})});
       return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data})});
     });
@@ -50,12 +59,24 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.fill('#preview-headline','Edited safe headline'); await page.check('#preview-reviewed'); assert(await page.locator('#preview-approve').isDisabled());
     await page.locator('#membership-preview-form button[type=submit]').click(); await page.locator('#membership-preview-state').filter({hasText:'r2'}).waitFor();
     await page.check('#preview-reviewed'); await page.click('#preview-approve'); await page.locator('#membership-preview-state').filter({hasText:'approved'}).waitFor(); await page.click('#preview-close');
-    await page.getByText('Inspect & review',{exact:true}).click(); await page.locator('#promotion-review[open]').waitFor();
+    await page.locator('.job-card').filter({hasText:'article video'}).getByText('Inspect & review',{exact:true}).click(); await page.locator('#promotion-review[open]').waitFor();
     assert((await page.locator('#promotion-review-artifacts a').getAttribute('href')).endsWith('/api/promotion/jobs/job1/artifacts/clip.mp4'));
     await page.check('#promotion-reviewed'); await page.click('#promotion-approve'); await page.getByText('article video · Media approved; distribution remains disabled',{exact:true}).waitFor();
+    await page.locator('#promotion-providers').filter({hasText:'ElevenLabs: Disabled (Missing credential)'}).waitFor();
+    await page.click('#promotion-pause'); await page.locator('#promotion-controls-state').filter({hasText:'Generation paused'}).waitFor();
+    await page.selectOption('#promotion-kind','daily_briefing'); await page.selectOption('#promotion-briefing','2026-10-03-source');
+    await page.locator('#promotion-create-form button[type=submit]').click();
+    await page.waitForFunction(() => document.querySelector('#promotion-status').textContent.includes('saved jobs'));
+    await page.click('text=Import preview draft'); await page.locator('#membership-preview[open]').waitFor();
+    await page.locator('#membership-preview-state').filter({hasText:'r3'}).waitFor();assert(await page.locator('#preview-approve').isDisabled());await page.click('#preview-close');
+    const dailyCard=page.locator('.job-card').filter({hasText:'daily briefing'});
+    await dailyCard.getByText('Inspect & review',{exact:true}).click();await page.locator('#promotion-review[open]').waitFor();await page.check('#promotion-reviewed');assert(await page.locator('#promotion-approve').isDisabled());await page.click('#promotion-review-close');
+    await dailyCard.getByText('Save briefing draft',{exact:true}).click();await dailyCard.getByText(/Saved draft:.*pending/).waitFor();
+    await dailyCard.getByText('Inspect & review',{exact:true}).click();await page.locator('#promotion-review[open]').waitFor();await page.check('#promotion-reviewed');await page.getByRole('button',{name:'Approve briefing',exact:true}).click();await page.locator('#promotion-status').filter({hasText:'Exact briefing draft approved'}).waitFor();
     assert(requests.every(item => item.header === '1')); assert.equal(await page.locator('#membership-panel img').count(),0);
     const output=process.argv[2];
     if(output){fs.mkdirSync(output,{recursive:true});await page.screenshot({path:path.join(output,'membership-desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(output,'membership-mobile.png'),fullPage:true});}
-    console.log(JSON.stringify({passed:true,checks:['integer cents and basis points','server annual amount','activation version','immutable preview review hash','generated media review binding','XSS-safe labels','dashboard mutation header']}));
+    assert(requests.some(item=>item.path==='/api/promotion/jobs'&&item.body.briefing_id==='2026-10-03-source'));
+    console.log(JSON.stringify({passed:true,checks:['integer cents and basis points','server annual amount','activation version','immutable preview review hash','generated media review binding','dated briefing selector','pause control','provider readiness','imported draft requires review','XSS-safe labels','dashboard mutation header']}));
   } finally {await browser.close();}
 })().catch(error=>{console.error(error.message);process.exit(1);});

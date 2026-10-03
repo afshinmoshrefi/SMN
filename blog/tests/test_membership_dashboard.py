@@ -6,6 +6,7 @@ import unittest
 
 from flask import Flask, g, request
 from membership_dashboard import register
+from article_content_store import ContentError
 
 
 class MembershipPanelTests(unittest.TestCase):
@@ -26,6 +27,9 @@ class MembershipPanelTests(unittest.TestCase):
         self.handlers = {name: callback(name) for name in ('get_preview', 'save_preview', 'review_preview', 'generate_preview', 'create_job', 'get_job', 'job_action')}
         self.handlers['list_articles'] = callback('list_articles', [{'slug': 'test', 'title': 'Test article'}])
         self.handlers['list_jobs'] = callback('list_jobs', [])
+        self.handlers['list_briefings'] = callback('list_briefings', [{'briefing_id':'2026-10-03-source','date':'2026-10-03','kind':'source_bundle'}])
+        self.handlers['get_controls'] = callback('get_controls', {'all':False,'kinds':{}})
+        self.handlers['set_controls'] = callback('set_controls', {'all':True,'kinds':{}})
         register(self.app, self.handlers, self.client_api)
         self.client = self.app.test_client()
         self.headers = {'X-SMN-Dashboard': '1', 'Origin': 'http://localhost'}
@@ -107,3 +111,25 @@ class MembershipPanelTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn(b'SECRET', response.data)
         self.assertNotIn(b'/private/path', response.data)
+
+    def test_dated_briefing_controls_and_import_keep_authority_on_server(self):
+        self.assertEqual(self.client.get('/api/promotion/briefings').status_code, 200)
+        self.assertEqual(self.client.get('/api/promotion/controls').status_code, 200)
+        self.assertEqual(self.client.put('/api/promotion/controls',json={'scope':'daily_briefing','paused':True},headers=self.headers).status_code, 200)
+        self.assertEqual(self.calls[-1][1], ({'scope':'daily_briefing','paused':True},'7'))
+        for body in ({'scope':'all','paused':'false'},{'scope':'unknown','paused':True},{'scope':'all','paused':True,'path':'/private'}):
+            self.assertEqual(self.client.put('/api/promotion/controls',json=body,headers=self.headers).status_code, 400)
+        self.assertEqual(self.client.post('/api/promotion/jobs',json={'kind':'daily_briefing'},headers=self.headers).status_code, 400)
+        self.assertEqual(self.client.post('/api/promotion/jobs',json={'kind':'daily_briefing','briefing_id':'2026-10-03-source'},headers=self.headers).status_code, 200)
+        self.assertEqual(self.client.post('/api/promotion/jobs/test/import',json={'expected_version':2},headers=self.headers).status_code, 200)
+        self.assertEqual(self.calls[-1][1], ('test','import',{'expected_version':2},'7'))
+        self.assertEqual(self.client.post('/api/promotion/jobs/test/import',json={'expected_version':2,'data':{'path':'/private'}},headers=self.headers).status_code, 400)
+
+    def test_actionable_source_errors_are_bounded_and_sanitized(self):
+        self.handlers['list_jobs'] = lambda: (_ for _ in ()).throw(ContentError('Requalify this article before generating promotion.'))
+        response = self.client.get('/api/promotion/jobs')
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('Requalify this article', response.get_json()['error']['message'])
+        for message in ('Missing /var/tmp/private/key','C:\\Users\\private\\key','Bearer abc123','secret abc123','<script>private</script>'):
+            self.handlers['list_jobs'] = lambda: (_ for _ in ()).throw(ContentError(message))
+            self.assertNotIn(message, self.client.get('/api/promotion/jobs').get_json()['error']['message'])
