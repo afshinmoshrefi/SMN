@@ -18,7 +18,8 @@ class MembershipPublicationTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {'SMN_READER_PRIVATE_ROOT': str(root / 'private')})
         self.env.start(); self.addCleanup(self.env.stop)
         for name, value in {'NEWS_ROOT': public, 'POSTS_JSON': public / 'posts.json',
-                            'LOCK_FILE': root / 'posts.lock', 'BACKUP_DIR': root / 'backups'}.items():
+                            'LOCK_FILE': root / 'posts.lock', 'BACKUP_DIR': root / 'backups',
+                            'UNPUBLISHED_JSON': root / 'held.json'}.items():
             active = patch.object(article_index, name, value); active.start(); self.addCleanup(active.stop)
         asset = public / 'editions/2026-10-03/test/chart.png'
         asset.parent.mkdir(parents=True); asset.write_bytes(b'EXACT_ENGINE_CHART')
@@ -53,7 +54,7 @@ class MembershipPublicationTests(unittest.TestCase):
         with article_index.posts_lock():
             with patch.object(article_index, 'save_posts', side_effect=OSError('interrupted catalog')):
                 with self.assertRaises(OSError): publication.commit_post([old, other], old, new, manifest, 'edit')
-            with self.assertRaises(ContentError): publication.source(old)
+            self.assertEqual(publication.source(old)[1]['revision'], old['membership_revision'])
             self.assertEqual(len(list((publication.store().root / 'publishing').glob('*.json'))), 1)
             publication.recover(); publication.recover()
         self.assertEqual(article_index.load_posts(), [new, other])
@@ -99,6 +100,76 @@ class MembershipPublicationTests(unittest.TestCase):
         self.assertNotIn(previous['revision'], rendered)
         name = next(iter(manifest['assets']))
         self.assertEqual(publication.store().private_asset_path(publication.path_for(new), manifest['revision'], name).read_bytes(), b'EXACT_ENGINE_CHART')
+
+    def test_held_creation_catalog_and_pointer_failure_resume_without_early_access(self):
+        updated, _ = publication.prepare(self.post, self.raw)
+        record = {'post': updated, 'held_path': updated['path']}
+        with article_index.posts_lock():
+            with patch.object(article_index, 'save_unpublished', side_effect=OSError('held write')):
+                with self.assertRaises(OSError): publication.commit_state(None, None, 'test', None, record)
+            with self.assertRaises(ContentError): publication.source(updated)
+            publication.recover()
+            for boundary in ('save_posts', 'save_unpublished', 'activate_revision'):
+                module = publication.ContentStore if boundary == 'activate_revision' else article_index
+                with patch.object(module, boundary, side_effect=OSError(boundary)):
+                    with self.assertRaises(OSError): publication.commit_state(None, updated, 'test', record, None)
+                with self.assertRaises(ContentError): publication.source(updated)
+                publication.recover()
+                self.assertEqual(article_index.load_posts(), [updated])
+                self.assertNotIn('test', article_index.load_unpublished())
+                publication.commit_state(updated, None, 'test', None, record)
+
+    def test_withdrawal_and_delete_boundaries_resume_preserving_peer_held_record(self):
+        updated, _ = self.publish()
+        record = {'post': updated, 'held_path': updated['path']}
+        peer = {'post': {'title': 'Peer held row'}}
+        article_index.save_unpublished({'peer': peer})
+        with article_index.posts_lock():
+            for boundary in ('withdraw', 'save_posts', 'save_unpublished'):
+                module = publication.ContentStore if boundary == 'withdraw' else article_index
+                with patch.object(module, boundary, side_effect=OSError(boundary)):
+                    with self.assertRaises(OSError): publication.commit_state(updated, None, 'test', None, record)
+                if boundary != 'withdraw':
+                    with self.assertRaises(ContentError): publication.source(updated)
+                publication.recover()
+                self.assertEqual(article_index.load_posts(), [])
+                self.assertEqual(article_index.load_unpublished(), {'peer': peer, 'test': record})
+                publication.commit_state(None, updated, 'test', record, None)
+            with patch.object(article_index, 'save_posts', side_effect=OSError('delete catalog')):
+                with self.assertRaises(OSError): publication.commit_state(updated, None, 'test', None, None)
+            with self.assertRaises(ContentError): publication.source(updated)
+            publication.recover()
+            publication.commit_state(None, None, 'test', None, record)
+            with patch.object(article_index, 'save_unpublished', side_effect=OSError('held delete')):
+                with self.assertRaises(OSError): publication.commit_state(None, None, 'test', record, None)
+            publication.recover()
+        self.assertEqual(article_index.load_posts(), [])
+        self.assertEqual(article_index.load_unpublished(), {'peer': peer})
+
+    def test_recovery_rejects_changed_held_record_and_private_pointer(self):
+        updated, _ = publication.prepare(self.post, self.raw)
+        record = {'post': updated, 'held_path': updated['path']}
+        with article_index.posts_lock():
+            with patch.object(article_index, 'save_unpublished', side_effect=OSError('held write')):
+                with self.assertRaises(OSError): publication.commit_state(None, None, 'test', None, record)
+            changed = dict(record, reason='Newer administrator action')
+            article_index.save_unpublished({'test': changed})
+            with self.assertRaises(ContentError): publication.recover()
+            self.assertEqual(article_index.load_unpublished()['test'], changed)
+            article_index.save_unpublished({})
+            publication.store().activate_revision(publication.path_for(updated), updated['membership_revision'], 'external')
+            with self.assertRaises(ContentError): publication.recover()
+
+    def test_completed_transaction_receipt_cannot_rebind_or_reactivate_after_withdrawal(self):
+        updated, _ = publication.prepare(self.post, self.raw)
+        with article_index.posts_lock():
+            publication.commit_state(None, updated, transaction_id='exact-create')
+            publication.commit_state(updated, None, transaction_id='withdraw-later')
+            publication.commit_state(None, updated, transaction_id='exact-create')
+            with self.assertRaises(ContentError):
+                publication.commit_state(None, dict(updated, title='Rebound'), transaction_id='exact-create')
+        self.assertEqual(article_index.load_posts(), [])
+        with self.assertRaises(ContentError): publication.source(updated)
 
 
 if __name__ == '__main__': unittest.main()

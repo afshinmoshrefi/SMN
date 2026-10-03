@@ -48,12 +48,35 @@ def _plain(value):
 
 def opening_preview(post, raw):
     """An exact source excerpt is a supported preview mode, not generated copy."""
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(raw, 'html.parser')
-    opening = soup.select_one('section[data-role="opening"] p, .lede, .lead')
-    if opening is None:
-        opening = soup.select_one('.article-body > p, article > p, main > p')
-    text = _plain(str(opening)) if opening else _plain(post.get('dek'))
+    from html.parser import HTMLParser
+    class OpeningParser(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.stack, self.paragraphs, self.current = [], [], None
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if tag == 'p':
+                priority = 0 if ('lede' in attributes.get('class', '').split() or
+                    'lead' in attributes.get('class', '').split() or
+                    any(a.get('data-role') == 'opening' for _, a in self.stack)) else 1
+                self.current = [priority, []]
+            if tag not in {'area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'}:
+                self.stack.append((tag, attributes))
+        def handle_endtag(self, tag):
+            if tag == 'p' and self.current:
+                self.paragraphs.append(self.current)
+                self.current = None
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i][0] == tag:
+                    del self.stack[i:]
+                    break
+        def handle_data(self, value):
+            if self.current and not any(t in {'script','style','sup'} for t, _ in self.stack):
+                self.current[1].append(value)
+    parser = OpeningParser()
+    parser.feed(raw)
+    opening = next((''.join(parts) for priority, parts in parser.paragraphs if priority == 0), None)
+    text = _plain(opening) if opening else _plain(post.get('dek'))
     if not text:
         raise ContentError('Article has no usable opening; write and review a public preview first')
     # Keep complete source sentences, with a hard bound for archive anomalies.
@@ -193,46 +216,153 @@ def _write(path, value):
     _atomic_write_json(path, value)
 
 
-def commit_post(posts, old, updated, manifest, transaction_id=None):
-    """Caller holds posts_lock. A durable intent makes a crash recoverable."""
+def _catalog_row(posts, canonical):
+    # Unrelated legacy origins are not part of this transaction.
+    matches = [(i, p) for i, p in enumerate(posts) if urlsplit(p.get('url', '')).path == canonical]
+    if len(matches) > 1:
+        raise ContentError('Duplicate canonical catalog entries require administrator recovery')
+    return matches[0] if matches else (None, None)
+
+
+def _pointer(canonical):
+    with store().database() as db:
+        row = db.execute('SELECT revision FROM articles WHERE path=?', (canonical,)).fetchone()
+    return row[0] if row else None
+
+
+def _editor_draft(intent, db):
+    import article_editor as editor
+    context = intent['editor']
+    draft = editor.read(db, context['draft_id'], context['owner'])
+    if (draft['version'] != context['version'] or draft['base_fingerprint'] != context['base_fingerprint']
+            or sha(editor.current(draft)['html'].encode()) != context['html_sha256']
+            or draft['status'] not in {'idle', 'failed', 'published'}):
+        raise ContentError('Interrupted publication conflicts with a newer editor draft')
+    return draft
+
+
+def _finish_editor(intent, db=None):
+    context = intent.get('editor')
+    if not context:
+        return
+    import article_editor as editor
+    if db is None:
+        with editor.database() as opened:
+            _finish_editor(intent, opened)
+        return
+    draft = _editor_draft(intent, db)
+    rendered, _ = source(intent['new_post'])
+    fingerprint = editor.fingerprint(intent['new_post'], rendered)
+    if draft['status'] == 'published' and draft.get('published_fingerprint') != fingerprint:
+        raise ContentError('Published editor receipt does not match its private revision')
+    draft.update(status='published', error='', published_fingerprint=fingerprint,
+                 published_revision=intent['revision'])
+    editor.save(db, draft)
+    db.commit()  # The durable journal remains until this succeeds.
+
+
+def _apply_intent(marker, intent, editor_db=None):
     import article_index
-    transaction_id = transaction_id or uuid.uuid4().hex
-    canonical = path_for(updated)
-    previous_revision = (old or {}).get('membership_revision')
-    marker = store().root / 'publishing' / (sha(transaction_id.encode()) + '.json')
-    intent = {'transaction_id': transaction_id, 'canonical': canonical,
-        'old_post': old, 'new_post': updated, 'expected_revision': previous_revision,
-        'revision': manifest['revision']}
-    _write(marker, intent)
-    store().activate_revision(canonical, manifest['revision'], transaction_id, previous_revision)
-    index = next((i for i, item in enumerate(posts) if path_for(item) == canonical), None)
-    if index is None:
-        posts.append(updated)
-    else:
-        posts[index] = updated
-    article_index.save_posts(posts)
+    if intent.get('editor'):
+        if editor_db is None:
+            import article_editor as editor
+            with editor.database() as opened:
+                return _apply_intent(marker, intent, opened)
+        _editor_draft(intent, editor_db)
+    posts = article_index.load_posts()
+    index, actual = _catalog_row(posts, intent['canonical'])
+    if actual not in (intent['old_post'], intent['new_post']):
+        raise ContentError('Interrupted membership publication conflicts with a newer catalog change')
+    held = article_index.load_unpublished() if 'slug' in intent else None
+    if held is not None and held.get(intent['slug']) not in (intent['old_held'], intent['new_held']):
+        raise ContentError('Interrupted publication conflicts with a newer held record')
+    current = _pointer(intent['canonical'])
+    if current not in (intent['expected_revision'], intent['revision']):
+        raise ContentError('Interrupted publication conflicts with a newer private revision')
+    private = store()
+    with private.database() as db:
+        applied = db.execute('SELECT payload FROM transactions WHERE id=?', (intent['transaction_id'],)).fetchone()
+    if applied and current != intent['revision']:
+        raise ContentError('Completed pointer transaction conflicts with a newer private revision')
+    # Removal denies access before changing catalogs. Addition opens access only
+    # after the held record is removed and its public catalog row is durable.
+    if intent['revision'] is None:
+        private.withdraw(intent['canonical'], intent['transaction_id'])
+    if actual != intent['new_post']:
+        if index is not None:
+            if intent['new_post'] is None: posts.pop(index)
+            else: posts[index] = intent['new_post']
+        elif intent['new_post'] is not None:
+            posts.append(intent['new_post'])
+        article_index.save_posts(posts)
+    if held is not None and held.get(intent['slug']) != intent['new_held']:
+        if intent['new_held'] is None: held.pop(intent['slug'], None)
+        else: held[intent['slug']] = intent['new_held']
+        article_index.save_unpublished(held)
+    if intent['revision'] is not None:
+        private.activate_revision(intent['canonical'], intent['revision'],
+                                  intent['transaction_id'], intent['expected_revision'])
+    _finish_editor(intent, editor_db)
+    _write(store().root / 'publishing-receipts' / marker.name, intent)
     marker.unlink()
-    return updated
+
+
+def commit_state(old_post, new_post, slug=None, old_held=None, new_held=None,
+                 transaction_id=None, editor_context=None, editor_db=None):
+    """Caller holds posts_lock; journal only exact row states, preserving peers."""
+    identity = new_post or old_post or (new_held or old_held)['post']
+    canonical = path_for(identity)
+    if not identity.get('membership_revision'):
+        raise ContentError('A prepared private article revision is required')
+    for value in (old_post, new_post, (old_held or {}).get('post'), (new_held or {}).get('post')):
+        if value is not None and path_for(value) != canonical:
+            raise ContentError('Publication cannot change the canonical article identity')
+    import article_index
+    _, actual = _catalog_row(article_index.load_posts(), canonical)
+    if old_post is not None and actual is not None and dict(actual, slug=old_post.get('slug')) == old_post:
+        old_post = actual
+    transaction_id = transaction_id or uuid.uuid4().hex
+    intent = {'transaction_id': transaction_id, 'canonical': canonical,
+              'old_post': old_post, 'new_post': new_post,
+              'expected_revision': (old_post or {}).get('membership_revision'),
+              'revision': (new_post or {}).get('membership_revision')}
+    if slug is not None:
+        intent.update(slug=slug, old_held=old_held, new_held=new_held)
+    if editor_context:
+        intent['editor'] = editor_context
+    marker = store().root / 'publishing' / (sha(transaction_id.encode()) + '.json')
+    receipt = store().root / 'publishing-receipts' / marker.name
+    if receipt.exists():
+        if json.loads(receipt.read_text('utf-8')) != intent:
+            raise ContentError('Publication transaction ID reused for another operation')
+        return new_post
+    if marker.exists():
+        if json.loads(marker.read_text('utf-8')) != intent:
+            raise ContentError('Publication transaction ID reused for another operation')
+    else:
+        if actual != old_post or _pointer(canonical) != intent['expected_revision']:
+            raise ContentError('Article changed before publication; reload before retrying')
+        if slug is not None and article_index.load_unpublished().get(slug) != old_held:
+            raise ContentError('Held article changed before publication; reload before retrying')
+        _write(marker, intent)
+    _apply_intent(marker, intent, editor_db)
+    return new_post
+
+
+def commit_post(posts, old, updated, manifest, transaction_id=None, editor_context=None, editor_db=None):
+    if manifest['revision'] != updated.get('membership_revision') or manifest['canonical_path'] != path_for(updated):
+        raise ContentError('Prepared revision does not match its catalog article')
+    result = commit_state(old, updated, transaction_id=transaction_id,
+                          editor_context=editor_context, editor_db=editor_db)
+    import article_index
+    posts[:] = article_index.load_posts()
+    return result
 
 
 def recover():
-    """Caller holds posts_lock. Finish only the exact interrupted catalog write."""
-    import article_index
+    """Authenticated caller holds posts_lock. Finish exact interrupted writes."""
     for marker in sorted((store().root / 'publishing').glob('*.json')):
-        intent = json.loads(marker.read_text('utf-8'))
-        posts = article_index.load_posts()
-        index = next((i for i, item in enumerate(posts) if path_for(item) == intent['canonical']), None)
-        actual = posts[index] if index is not None else None
-        if actual not in (intent['old_post'], intent['new_post']):
-            raise ContentError('Interrupted membership publication conflicts with a newer catalog change')
-        store().activate_revision(intent['canonical'], intent['revision'],
-                                  intent['transaction_id'], intent['expected_revision'])
-        if index is None:
-            posts.append(intent['new_post'])
-        else:
-            posts[index] = intent['new_post']
-        article_index.save_posts(posts)
-        marker.unlink()
+        _apply_intent(marker, json.loads(marker.read_text('utf-8')))
 
 
 def source(post):
@@ -242,12 +372,23 @@ def source(post):
     return store().read_revision(path_for(post), 'full'), manifest
 
 
-def publish_edited(posts, post, updated, raw, actor):
+def stored_source(post):
+    """Verified immutable revision for an authenticated held-article editor."""
+    private = store()
+    with private.database() as db:
+        manifest = private._manifest(db, path_for(post), post['membership_revision'])
+    body = private._private_file(manifest, 'full.html').read_bytes()
+    if sha(body) != manifest['full_html_sha256']:
+        raise ContentError('Private article changed')
+    return body.decode('utf-8'), manifest
+
+
+def publish_edited(posts, post, updated, raw, actor, editor_context=None, editor_db=None):
     previous = store().resolve(path_for(post))
     # Editing the full text invalidates its generated summary. Publish a fresh,
     # exact opening until a new independent derivative review is complete.
     new, manifest = prepare(updated, raw, previous=previous)
-    commit_post(posts, post, new, manifest)
+    commit_post(posts, post, new, manifest, editor_context=editor_context, editor_db=editor_db)
     return new
 
 
