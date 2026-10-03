@@ -23,6 +23,20 @@ class RuntimeTests(unittest.TestCase):
         self.prepared = {'provenance': {'article_id': 'https://smn-dev.trxstat.com/articles/test.html',
             'revision': 'source-r1', 'article_sha256': 'a' * 64}}
 
+    def test_job_subject_labels_use_public_catalog_and_safe_briefing_identity(self):
+        article=promotion_jobs.create(runtime.jobs_root(),'derivative',{'article_id':self.prepared['provenance']['article_id'],'source_revision':'r1','source_hash':'a'*64},'editor')
+        with patch.object(runtime.article_index,'load_posts',return_value=[{'url':self.prepared['provenance']['article_id'],'title':'ADP research <img src=x>'}]):
+            self.assertEqual(runtime.get_job(article['id'])['subject_label'],'ADP research <img src=x>')
+        with patch.object(runtime.article_index,'load_posts',return_value=[]):
+            self.assertEqual(runtime.get_job(article['id'])['subject_label'],'Research article unavailable')
+        daily=promotion_jobs.create(runtime.jobs_root(),'daily_briefing',{'briefing_id':'2026-10-03-wrap','source_revision':'r1','source_hash':'a'*64},'editor')
+        with patch.object(runtime,'_briefing_record',return_value={'source_bundle':{'edition_date':'2026-10-03','label':'Market Wrap'}}):
+            self.assertEqual(runtime.get_job(daily['id'])['subject_label'],'2026-10-03 · Market Wrap')
+        with patch.object(runtime,'_briefing_record',side_effect=ContentError('private path must not escape')):
+            label=runtime.get_job(daily['id'])['subject_label']
+            self.assertEqual(label,'Daily briefing · 2026-10-03-wrap')
+            self.assertNotIn('private path',label)
+
     def test_first_derivative_needs_prepared_source_only(self):
         with patch.object(runtime, '_source_record', return_value={'prepared': self.prepared}):
             job = runtime.create_job({'kind': 'derivative', 'slug': 'test'}, 'editor')

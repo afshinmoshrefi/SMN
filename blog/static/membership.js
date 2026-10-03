@@ -203,6 +203,7 @@
     for (const job of jobs) {
       const card = document.createElement('article'); card.className = 'job-card';
       const title = document.createElement('strong'); title.textContent = job.kind.replaceAll('_',' ') + ' · ' + (job.status === 'reviewed' && copyJob(job) ? 'Copy approved; imported drafts require exact review' : labels[job.status] || job.status); card.append(title);
+      if (job.subject_label) { const subject = document.createElement('p'); subject.className = 'job-subject'; subject.textContent = job.subject_label; card.append(subject); }
       const details = document.createElement('p'); details.textContent = 'Source revision ' + job.source_revision + ' · Generation: ' + job.generation_status + ' · Review: ' + job.review_status; card.append(details);
       if (job.imported_draft) { const draft = document.createElement('p'); draft.textContent = 'Saved draft: ' + (job.imported_draft.slug || job.imported_draft.briefing_id) + ' · ' + job.imported_draft.review_status + ' · Revision ' + job.imported_draft.revision; card.append(draft); }
       if (job.error || job.holds?.length) { const note = document.createElement('p'); note.textContent = [job.error, ...(job.holds || [])].filter(Boolean).join(' · '); card.append(note); }

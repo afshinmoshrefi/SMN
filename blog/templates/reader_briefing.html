@@ -1,6 +1,6 @@
 {% extends 'reader_base.html' %}{% block title %}{{ item.title }}{% endblock %}{% block content %}
 <div class="eyebrow">{{ item.date }} · {{ item.label }} · Free to read</div><h1>{{ item.title }}</h1>
-{% if has_video %}<video controls preload="metadata" playsinline style="width:100%;max-height:620px" src="/briefings/{{ item.id }}/video"><track kind="captions" srclang="en" label="English" src="/briefings/{{ item.id }}/captions.vtt"></video>{% endif %}
+{% if has_video %}<video controls preload="metadata" playsinline style="width:100%;max-height:620px" src="/briefings/{{ item.id }}/video"><track kind="captions" srclang="en" label="English" src="/briefings/{{ item.id }}/captions.vtt"></video><p class="small">AI-generated narration.</p>{% endif %}
 {% for paragraph in item.narrative %}<p>{{ paragraph.text }}</p>{% endfor %}
 <section class="card"><h2>Sources</h2><ul>{% for source in item.sources %}<li><a href="{{ source.url }}" rel="noopener noreferrer">{{ source.title }}</a> <span class="small">· {{ source.publisher }}</span></li>{% endfor %}</ul><p class="small">This briefing reflects the information available at {{ item.cutoff }}. It is a selection of the day’s stories, not a complete record of every market development.</p></section>
 <p><a href="/briefings/">All market briefings</a> · <a href="/">Explore the full research articles</a></p>{% endblock %}

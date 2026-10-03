@@ -34,6 +34,14 @@ class PublicBriefingTests(unittest.TestCase):
         self.assertEqual(result['narrative'], self.value['narrative'])
         self.assertIsNone(public_briefing.video(self.root, result))
 
+    def test_public_video_discloses_ai_narration_only_when_present(self):
+        from jinja2 import Environment,FileSystemLoader
+        environment=Environment(loader=FileSystemLoader(Path(__file__).resolve().parents[1]/'templates'),autoescape=True)
+        template=environment.get_template('reader_briefing.html')
+        item=dict(self.value,id=self.folder.name,date=self.value['edition_date'])
+        self.assertIn('AI-generated narration.',template.render(item=item,has_video=True))
+        self.assertNotIn('AI-generated narration.',template.render(item=item,has_video=False))
+
     def test_unavailable_and_traversal_are_closed(self):
         for identifier in ('missing', '../private', 'x/y'):
             with self.assertRaises(ContentError): public_briefing.load(self.root, identifier)
