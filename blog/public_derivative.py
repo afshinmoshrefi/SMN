@@ -24,6 +24,7 @@ def prepare_derivative(article_dir, review_job, article_id, revision, *, publica
     review = load_json(job / 'output.json')
     receipt = load_json(job / 'receipt.json')
     manifest = load_json(job / 'job.json')
+    from editorial_gate import hard_review_passed
     validate_bundle(bundle)
     original_id=source['card']['production_original']
     if publication_identity is not None:
@@ -52,10 +53,7 @@ def prepare_derivative(article_dir, review_job, article_id, revision, *, publica
             or manifest.get('publish') is not False
             or manifest.get('stage') != binding.get('review_stage')
             or receipt.get('stage') != binding.get('review_stage')
-            or review.get('passed') is not True
-            or review.get('issues')
-            or not review.get('checks')
-            or any(c.get('passed') is not True for c in review['checks'].values())
+            or not hard_review_passed(review)
             or any(x.get('evidence_sha256') != bundle['evidence_sha256']
                    for x in (receipt, manifest))):
         raise ValueError('Successful full-article reviewer receipt required')
