@@ -4,6 +4,8 @@ Suitable for a Dev timer; this command never approves, publishes or schedules.
 All discovery endpoints and article hosts are server-owned constants.
 """
 import argparse
+import os
+import tempfile
 from datetime import datetime,timedelta,timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
@@ -106,6 +108,26 @@ def discover(output,cutoff,*,opener=None):
     writer.save_json(output/'discovery.json',result);return result
 
 
+def register(output,registry_root,identifier):
+    """Atomically expose immutable sources and honest holds to the private dashboard."""
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',identifier):raise ValueError('Safe briefing registry ID required')
+    output=Path(output);registry=Path(registry_root).absolute();registry.mkdir(parents=True,exist_ok=True)
+    bundle=writer.load_json(output/'qualified-sources.json');receipt=writer.load_json(output/'run.receipt.json')
+    if receipt['source_bundle_sha256']!=digest(bundle) or receipt.get('publish') is not False:
+        raise ValueError('Daily run receipt/source binding differs')
+    destination=registry/identifier
+    if destination.exists():
+        if (destination/'sources.json').exists() and digest(writer.load_json(destination/'sources.json'))==digest(bundle):return str(destination)
+        raise ValueError('Existing immutable briefing capture differs; use a new registry ID')
+    with tempfile.TemporaryDirectory(prefix='.briefing-stage-',dir=registry.parent) as stage:
+        stage=Path(stage);writer.save_json(stage/'sources.json',bundle);writer.save_json(stage/'capture-status.json',receipt)
+        drafted=output/'draft/writer-job/output.json'
+        if receipt['status']=='editorial_review_required' and drafted.exists():
+            writer.save_json(stage/'briefing.json',writer.load_json(drafted))
+        os.rename(stage,destination)
+    return str(destination)
+
+
 def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Before the Open'):
     cutoff_dt=datetime.fromisoformat(cutoff.replace('Z','+00:00'))
     if cutoff_dt.utcoffset() is None or cutoff_dt.astimezone(ZoneInfo('America/New_York')).date().isoformat()!=edition_date:
@@ -148,12 +170,17 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--output-root',required=True);p.add_argument('--date')
     p.add_argument('--cutoff');p.add_argument('--codex',required=True);p.add_argument('--model',required=True)
     p.add_argument('--effort',required=True);p.add_argument('--label',choices=['Before the Open','Intraday','Market Wrap'],default='Before the Open')
+    p.add_argument('--registry-root');p.add_argument('--registry-id')
     args=p.parse_args();now=datetime.now(ZoneInfo('America/New_York'));date=args.date or now.date().isoformat()
     cutoff=args.cutoff or datetime.fromisoformat(date+'T07:00:00').replace(tzinfo=ZoneInfo('America/New_York')).isoformat()
     output=Path(args.output_root)/(date+'-'+datetime.now(timezone.utc).strftime('%H%M%S%f'))
     result=run(output,date,cutoff,codex=args.codex,model=args.model,effort=args.effort,label=args.label)
+    registry=args.registry_root or (str(Path(os.environ['SMN_READER_PRIVATE_ROOT'])/'briefings') if os.environ.get('SMN_READER_PRIVATE_ROOT') else None)
+    if registry:
+        identifier=args.registry_id or date+'-'+args.label.lower().replace(' ','-')+'-'+output.name.rsplit('-',1)[-1]
+        result['registry_path']=register(output,registry,identifier)
     print(__import__('json').dumps({'output':str(output),'status':result['status'],'qualified_count':result['qualified_count'],
-                                  'holds':result['holds'],'publish':False}))
+                                  'holds':result['holds'],'registry_path':result.get('registry_path'),'publish':False}))
 
 
 if __name__=='__main__':main()
