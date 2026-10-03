@@ -223,7 +223,11 @@ def inspect(briefing, review=None):
                 if not re.search(r'\bheadlines?\b',block['text'],re.I) or any(p not in block['text'] for p in publishers):
                     issues.append(surface+': headline-only wording needs explicit outlet/headline attribution')
                 allowed_numbers=set(re.findall(r'\d+(?:[,.]\d+)*%?',' '.join(sources[s]['title'] for s in referenced_sources)))
-                if set(re.findall(r'\d+(?:[,.]\d+)*%?',block['text']))-allowed_numbers:
+                number_text=block['text']
+                if edition:
+                    edition_label=edition.strftime('%B')+' '+str(edition.day)
+                    number_text=re.sub(r'\b'+re.escape(edition_label)+r'(?:,? '+str(edition.year)+r')?\b','',number_text)
+                if set(re.findall(r'\d+(?:[,.]\d+)*%?',number_text))-allowed_numbers:
                     issues.append(surface+': number absent from referenced headlines')
     if headline_mode:
         for surface in ('narrative','script'):

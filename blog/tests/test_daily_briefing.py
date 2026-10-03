@@ -53,6 +53,8 @@ class DailyBriefingTests(unittest.TestCase):
     def test_official_headline_evidence_is_narrow_attributed_and_pending(self):
         self.assertEqual(inspect(headline_fixture())['issues'],[])
         self.assertEqual(inspect(headline_fixture())['status'],'pending_editorial_review')
+        data=headline_fixture();data['script'][0]['text']='October 2, 2026. '+data['script'][0]['text']
+        self.assertEqual(inspect(data)['issues'],[])
 
     def test_headline_mutation_fullstory_claim_and_invented_number_hold(self):
         changes=[('title','Invented revised headline'),('access','full_text')]
