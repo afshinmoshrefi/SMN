@@ -211,6 +211,15 @@ def get_job(identifier):
     job['payload_sha256'] = digest(full['inputs'])
     job['script'] = full['inputs'].get('script', '')
     job['imported_draft'] = full.get('imported_draft')
+    if job['kind'] == 'derivative' and (job['imported_draft'] or {}).get('slug'):
+        try:
+            _, manifest = publication.source(_post(job['imported_draft']['slug']))
+            copy_path, _ = promotion_jobs.get_artifact(jobs_root(), identifier, 'copy.json')
+            if digest(manifest['preview']['content']) == digest(load_json(copy_path)):
+                job['imported_draft'] = dict(job['imported_draft'], review_status='published',
+                                             revision=manifest['revision'])
+        except (ContentError, OSError, ValueError, KeyError):
+            pass  # Keep the saved import receipt when its live binding is unavailable.
     inputs=full['inputs']
     if inputs.get('briefing_id'):
         identifier=inputs['briefing_id']

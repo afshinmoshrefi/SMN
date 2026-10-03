@@ -45,6 +45,28 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(saved['inputs']['payload_sha256'], digest(self.prepared))
         self.assertEqual(saved['inputs']['article_id'], self.prepared['provenance']['article_id'])
 
+    def test_imported_copy_reports_publication_only_for_exact_live_content(self):
+        from subscription_writer import sha256, save_json
+        job = promotion_jobs.create(runtime.jobs_root(), 'derivative',
+            dict(article_id='canonical', source_revision='r1', source_hash='a' * 64), 'editor')
+        folder = promotion_jobs._folder(runtime.jobs_root()) / 'artifacts' / job['id']
+        folder.mkdir(parents=True)
+        copy = {'headline': {'text': 'Reviewed public copy'}}
+        save_json(folder / 'copy.json', copy)
+        promotion_jobs.update(runtime.jobs_root(), job['id'], 1,
+            imported_draft={'slug': 'example', 'revision': 'draft-r1', 'review_status': 'pending'},
+            artifacts=[{'name': 'copy.json', 'relative_path': 'copy.json', 'media_type': 'application/json',
+                        'sha256': sha256((folder / 'copy.json').read_bytes())}])
+        original = promotion_jobs._path(runtime.jobs_root(), job['id']).read_bytes()
+        with patch.object(runtime, '_post', return_value={}), \
+             patch.object(runtime.article_index, 'load_posts', return_value=[]):
+            for content, expected in [(copy, 'published'), ({'headline': {'text': 'Different copy'}}, 'pending')]:
+                with patch.object(runtime.publication, 'source', return_value=('',
+                        {'revision': 'active-r2', 'preview': {'content': content}})):
+                    result = runtime.get_job(job['id'])
+                    self.assertEqual(result['imported_draft']['review_status'], expected)
+        self.assertEqual(promotion_jobs._path(runtime.jobs_root(), job['id']).read_bytes(), original)
+
     def test_video_requires_approved_copy(self):
         with patch.object(runtime, '_source_record', return_value={'prepared': self.prepared}):
             with self.assertRaisesRegex(ContentError, 'approve'):
