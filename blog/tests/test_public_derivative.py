@@ -11,6 +11,57 @@ from subscription_publication import CHECKS
 
 
 class DerivativeTests(unittest.TestCase):
+    def test_script_retry_retains_first_output_and_cannot_exceed_two_attempts(self):
+        from unittest.mock import patch
+        import promotion_jobs as jobs
+        from public_derivative_jobs import generate_script
+        approved = copy.deepcopy(self.copy); approved['video'] = None
+        valid = copy.deepcopy(self.copy['video'])
+        valid['narration']['text'] = ('Positive short results reflect stock price declines. Adverse rebounds can hurt this historical study; '
+                                     'selected years are historical evidence, never a reliable future forecast.')
+        provenance = self.prepared['provenance']
+        inputs = {'article_id':provenance['article_id'], 'source_revision':provenance['revision'],
+                  'source_hash':provenance['article_sha256'], 'payload_sha256':digest(approved)}
+        job = jobs.create(self.root, 'article_script', inputs, 'editor')
+        def run(path, codex):
+            output = copy.deepcopy(valid)
+            if path.name == 'model-job': output['narration']['text'] = 'Too short.'
+            save_json(path / 'output.json', output)
+            return {'status':'output_ready_for_smn_validation'}
+        with patch('public_derivative_jobs.writer.run_job', side_effect=run) as provider:
+            with self.assertRaises(ValueError):
+                generate_script(self.root,self.prepared,approved,{'model':'gpt-5.6-sol','effort':'medium'},'unused',job_id=job['id'])
+            first = jobs._folder(self.root)/'artifacts'/job['id']/'model-job'/'output.json'
+            original = first.read_bytes()
+            held = jobs.get_job(self.root, job['id'])
+            jobs.transition(self.root,job['id'],'retry',held['version'],'editor')
+            result = generate_script(self.root,self.prepared,approved,{'model':'gpt-5.6-sol','effort':'medium'},'unused',job_id=job['id'])
+            self.assertEqual(result['status'],'generated'); self.assertEqual(result['attempts'],2)
+            self.assertEqual(first.read_bytes(),original)
+            generate_script(self.root,self.prepared,approved,{'model':'gpt-5.6-sol','effort':'medium'},'unused',job_id=job['id'])
+            self.assertEqual(provider.call_count,2)
+
+    def test_separate_script_binding_length_and_cumulative_budget(self):
+        from public_derivative import validate_video_script
+        approved = copy.deepcopy(self.copy); approved['video'] = None
+        original = copy.deepcopy(approved)
+        script = copy.deepcopy(self.copy['video'])
+        script['narration']['text'] = ('Positive short results reflect stock price declines. Adverse rebounds can hurt this historical study; '
+                                      'selected years are historical evidence, never a reliable future forecast.')
+        self.assertEqual(validate_video_script(script, self.prepared, approved)['narration_words'], 24)
+        self.assertEqual(approved, original)
+        bad = copy.deepcopy(script); bad['native_chart_id'] = 'unknown'
+        with self.assertRaises(ValueError): validate_video_script(bad, self.prepared, approved)
+        bad = copy.deepcopy(script); bad['narration']['text'] = 'Too short.'
+        with self.assertRaises(ValueError): validate_video_script(bad, self.prepared, approved)
+        tight = copy.deepcopy(self.prepared)
+        # Give history a finite allowance that admits the original copy alone.
+        checks = validate_derivative(approved, tight)
+        tight['full_source_words']['news']['maximum'] = checks['source_words']['news']['combined_total'] + 1
+        script['narration']['source_ids'].append('news')
+        script['narration']['article_refs'].append('sections/1/paragraphs/0')
+        with self.assertRaises(ValueError): validate_video_script(script, tight, approved)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

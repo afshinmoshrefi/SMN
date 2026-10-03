@@ -15,6 +15,89 @@ from visual_evidence import digest
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_successor_is_durable_and_terminal_reconciliation_does_not_read_sources(self):
+        parent = promotion_jobs.create(runtime.jobs_root(), 'derivative',
+            {'article_id': 'canonical', 'source_revision': 'r1', 'source_hash': 'a'*64}, 'editor')
+        parent = promotion_jobs.update(runtime.jobs_root(), parent['id'], parent['version'], status='reviewed', review_status='approved')
+        child = promotion_jobs.create(runtime.jobs_root(), 'article_script',
+            {'article_id': 'canonical', 'source_revision': 'r1', 'source_hash': 'a'*64, 'payload_sha256': 'b'*64}, 'automation')
+        source = {'slug': 'test', 'source_review': {'generation_job': parent['id']}}
+        with patch.object(runtime, '_resolve_source', return_value=source) as resolve, \
+             patch.object(runtime, '_approved_copy', return_value={'video': None}), \
+             patch.object(runtime, 'create_job', return_value=child), \
+             patch.object(runtime, '_configuration', return_value={'generation_enabled': True, 'writer_settings': {'model':'test'}, 'codex':'test'}):
+            first = runtime._queue_article_followup(dict(parent, inputs={}))
+            self.assertEqual(first['status'], 'queued')
+            second = runtime._queue_article_followup(dict(parent, inputs={}))
+            self.assertEqual(first, second)
+            self.assertEqual(resolve.call_count, 1)
+        saved = json.loads(promotion_jobs._path(runtime.jobs_root(), parent['id']).read_text())
+        self.assertEqual(saved['automation_successor']['id'], child['id'])
+
+    def test_capability_recovery_preserves_identity_and_never_retries_unknown_outcome(self):
+        parent = promotion_jobs.create(runtime.jobs_root(), 'article_script', {'article_id':'canonical', 'source_revision':'r1', 'source_hash':'a'*64}, 'editor')
+        child = promotion_jobs.create(runtime.jobs_root(), 'article_video', {'article_id':'canonical', 'source_revision':'r1', 'source_hash':'a'*64}, 'automation')
+        child = promotion_jobs.update(runtime.jobs_root(), child['id'], 1, status='held', generation_status='provider_disabled')
+        promotion_jobs.update(runtime.jobs_root(), parent['id'], 1, automation_successor={'id':child['id'], 'kind':'article_video'})
+        with patch.object(runtime, '_resolve_source', side_effect=AssertionError('must not rehash sources')), \
+             patch.object(runtime, '_configuration', return_value={'generation_enabled':True, 'credential_ready':True,
+                'voice_verified':True, 'model_verified':True, 'speech_tariff_path':'verified-test-tariff'}):
+            resumed = runtime._queue_article_followup(parent)
+        self.assertEqual(resumed['id'], child['id']); self.assertEqual(resumed['status'], 'queued')
+        self.assertEqual(resumed['attempts'], 0)
+        child = promotion_jobs.update(runtime.jobs_root(), child['id'], resumed['version'], status='held', generation_status='unknown_outcome')
+        with patch.object(runtime, '_configuration', side_effect=AssertionError('unknown outcomes stay held')):
+            self.assertEqual(runtime._queue_article_followup(parent), child)
+
+    def test_approved_daily_text_queues_distinct_media_source_once(self):
+        parent = promotion_jobs.create(runtime.jobs_root(), 'daily_briefing',
+            {'briefing_id':'2026-10-03-wrap', 'source_revision':'bundle', 'source_hash':'a'*64}, 'editor')
+        parent = promotion_jobs.update(runtime.jobs_root(), parent['id'], 1, status='reviewed', review_status='approved')
+        briefing = {'title':'Approved dated briefing'}
+        approved = {'briefing':briefing, 'review':{'generation_job':parent['id']}}
+        with patch.object(runtime, '_resolve_source', return_value={'source_bundle':{}}), \
+             patch.object(runtime, '_briefing_record', return_value=approved), \
+             patch.object(runtime, '_configuration', return_value={}):
+            child = runtime._queue_article_followup(dict(parent, inputs={'briefing_id':'2026-10-03-wrap'}))
+        self.assertNotEqual(child['id'], parent['id'])
+        self.assertEqual(child['source_hash'], digest(briefing))
+        self.assertEqual(child['generation_status'], 'provider_disabled')
+
+    def test_daily_successor_requires_exact_committed_text_approval(self):
+        parent = promotion_jobs.create(runtime.jobs_root(), 'daily_briefing',
+            {'briefing_id':'2026-10-03-wrap','source_revision':'bundle','source_hash':'a'*64},'editor')
+        with patch.object(runtime,'_resolve_source',side_effect=AssertionError('unreviewed job must be skipped')):
+            self.assertEqual(runtime.reconcile_article_media(),[])
+        with patch.object(runtime,'_resolve_source',return_value={'source_bundle':{}}), \
+             patch.object(runtime,'_briefing_record',return_value={'briefing':{},'review':{'generation_job':'different'}}), \
+             patch.object(runtime,'create_job',side_effect=AssertionError('must not enqueue a stale approved text')):
+            with self.assertRaises(ContentError):
+                runtime._queue_article_followup(dict(parent,inputs={'briefing_id':'2026-10-03-wrap'}))
+
+    def test_reviewed_complete_daily_media_queues_bound_avatar_once(self):
+        from subscription_writer import sha256
+        inputs = {'briefing_id':'2026-10-03-wrap', 'source_revision':'r1', 'source_hash':'a'*64}
+        parent = promotion_jobs.create(runtime.jobs_root(), 'daily_briefing', inputs, 'editor')
+        folder = promotion_jobs._folder(runtime.jobs_root())/'artifacts'/parent['id']; folder.mkdir(parents=True)
+        names = ['briefing.mp4','narration.mp3','narration.alignment.json','narration.receipt.json',
+                 'captions.vtt','transcript.txt','briefing.receipt.json']
+        artifacts = []
+        for name in names:
+            (folder/name).write_bytes(b'exact test artifact')
+            artifacts.append({'name':name,'relative_path':name,'sha256':sha256((folder/name).read_bytes()), 'media_type':'application/octet-stream'})
+        parent = promotion_jobs.update(runtime.jobs_root(), parent['id'], 1, status='reviewed',review_status='approved',
+            artifacts=artifacts,review={'payload_sha256':digest(inputs),'artifact_hashes':{a['name']:a['sha256'] for a in artifacts}})
+        with patch.object(runtime,'_resolve_source',return_value={'briefing':{}}), \
+             patch.object(runtime,'_briefing_record',return_value={'briefing':{'title':'Approved text'}}), \
+             patch.object(runtime,'_configuration',return_value={}):
+            child = runtime._queue_article_followup(dict(parent,inputs=inputs))
+        saved = json.loads(promotion_jobs._path(runtime.jobs_root(),child['id']).read_text())
+        self.assertEqual(saved['inputs']['briefing_media_job_id'],parent['id'])
+        self.assertEqual(child['kind'],'daily_avatar'); self.assertEqual(child['status'],'held')
+        with patch.object(runtime,'_resolve_source',side_effect=AssertionError('no repeated capsule checks')), \
+             patch.object(runtime,'_configuration',return_value={}):
+            self.assertEqual(runtime._queue_article_followup(parent),child)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
