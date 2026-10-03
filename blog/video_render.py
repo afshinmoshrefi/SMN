@@ -19,6 +19,35 @@ def probe(path, ffprobe='ffprobe'):
     return json.loads(_run([ffprobe, '-v', 'error', '-show_format', '-show_streams', '-of', 'json', str(path)]))
 
 
+def _fit_text(draw,text,font_path,maximum,minimum,width,height,spacing=8):
+    from PIL import ImageFont
+    for size in range(maximum,minimum-1,-1):
+        font=ImageFont.truetype(font_path,size);lines=[];line=''
+        for word in text.split():
+            if draw.textlength(word,font=font)>width:break
+            candidate=(line+' '+word).strip()
+            if line and draw.textlength(candidate,font=font)>width:lines.append(line);line=word
+            else:line=candidate
+        else:
+            if line:lines.append(line)
+            wrapped='\n'.join(lines);box=draw.multiline_textbbox((0,0),wrapped,font=font,spacing=spacing)
+            if wrapped and box[2]-box[0]<=width and box[3]-box[1]<=height:
+                return {'text':wrapped,'font':font,'size':size,'height':box[3]-box[1],'offset_y':box[1]}
+    raise ValueError('Complete study text cannot fit at a readable size; shorten only with editorial review')
+
+
+def article_layout(title,identity,font_path):
+    from PIL import Image,ImageDraw
+    draw=ImageDraw.Draw(Image.new('RGB',(1080,1920)))
+    title_block=_fit_text(draw,title,font_path,62,42,970,220,12)
+    identity_block=_fit_text(draw,identity,font_path,37,30,970,580)
+    title_y=135;identity_y=1865-identity_block['height']
+    chart_top=title_y+title_block['height']+35;chart_bottom=identity_y-35
+    if chart_bottom-chart_top<700:raise ValueError('Complete text leaves insufficient room for the native chart')
+    return {'title':title_block,'identity':identity_block,'title_y':title_y,'identity_y':identity_y,
+            'chart_box':[55,chart_top,1025,chart_bottom]}
+
+
 def compose(output, audio, chart, *, script, title, identity, chart_sha256,
             ffmpeg='ffmpeg', ffprobe='ffprobe', font=None, timing=None):
     """No financial calculations, fake narration, cropping or audio speed changes."""
@@ -38,20 +67,23 @@ def compose(output, audio, chart, *, script, title, identity, chart_sha256,
     font_path = next((p for p in fonts if p and Path(p).is_file()), None)
     if not font_path:
         raise ValueError('A readable font must be configured')
-    large, small = ImageFont.truetype(font_path, 62), ImageFont.truetype(font_path, 37)
-    native = Image.open(chart).convert('RGB')
-    native.thumbnail((1000, 1350))
-    def frame(name, opening=False, closing=False):
-        image = Image.new('RGB', (1080, 1920), '#101b2a'); draw = ImageDraw.Draw(image)
-        draw.text((55, 55), 'TradeWave | Archival study', font=small, fill='#9ee1cf')
-        draw.multiline_text((55, 135), '\n'.join(textwrap.wrap(title, 26)), font=large, fill='white', spacing=12)
+    large, small = ImageFont.truetype(font_path,62),ImageFont.truetype(font_path,37)
+    layout=article_layout(title,identity,font_path)
+    native=Image.open(chart).convert('RGB');left,top,right,bottom=layout['chart_box']
+    native.thumbnail((right-left,bottom-top))
+    def frame(name,opening=False,closing=False):
+        image=Image.new('RGB',(1080,1920),'#101b2a');draw=ImageDraw.Draw(image)
+        draw.text((55,55),'SMN | TradeWave research',font=small,fill='#9ee1cf')
+        for key,y in [('title',layout['title_y']),('identity',layout['identity_y'])]:
+            block=layout[key]
+            draw.multiline_text((55,y-block['offset_y']),block['text'],font=block['font'],fill='white',spacing=12 if key=='title' else 8)
         if not opening and not closing:
-            image.paste(native, ((1080-native.width)//2, 390))
+            image.paste(native,((1080-native.width)//2,int(top+(bottom-top-native.height)//2)))
         else:
-            message = 'History has a path.\nUnderstand the risks.' if opening else 'Read the full study\nfor context and risks.'
-            draw.multiline_text((55, 760), message, font=large, fill='white', spacing=20)
-        draw.multiline_text((55, 1640), '\n'.join(textwrap.wrap(identity, 46)), font=small, fill='white', spacing=10)
-        path = output.parent / name; image.save(path); return path
+            message='History has a path. Understand the risks.' if opening else 'Read the full study for context and risks.'
+            block=_fit_text(draw,message,font_path,62,42,right-left,bottom-top,20)
+            draw.multiline_text((55,top+(bottom-top-block['height'])/2-block['offset_y']),block['text'],font=block['font'],fill='white',spacing=20)
+        path=output.parent/name;image.save(path);return path
     opening, middle, closing = frame('opening.png', opening=True), frame('chart.png'), frame('closing.png', closing=True)
     # Six seconds for the complete native chart; the remaining real audio is split around it.
     lead = (duration - 6) / 2
@@ -73,6 +105,9 @@ def compose(output, audio, chart, *, script, title, identity, chart_sha256,
         'chart_sha256': chart_sha256, 'audio_sha256': sha256(audio.read_bytes()),
         'video_sha256': sha256(output.read_bytes()), 'script_sha256': sha256(script.encode()),
         'dimensions': [1080,1920], 'decoded': True, 'caption_timing':timing['method'],
+        'layout':{'title':title,'identity':identity,'title_font_size':layout['title']['size'],
+                  'identity_font_size':layout['identity']['size'],'chart_box':layout['chart_box'],
+                  'identity_box':[55,layout['identity_y'],1025,1865]},
         'review_status': 'pending', 'publish': False}
     save_json(output.with_suffix('.receipt.json'), receipt)
     return receipt
