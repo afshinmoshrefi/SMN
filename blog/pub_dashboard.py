@@ -54,6 +54,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import article_index
 import dashboard_auth
 import dashboard_workos
+import membership_admin_client
+import membership_publication
 import pin_store
 import schedule_store
 import smn_cost_report
@@ -218,6 +220,17 @@ def workos_login():
 
 @app.route("/auth/callback", methods=["GET"])
 def workos_callback():
+    # Dev can reuse the already-allowlisted provider callback. Reader state is
+    # validated by its own server-held PKCE session, never by the admin flow.
+    if str(request.args.get('state', '')).startswith('smnr_'):
+        if dashboard_auth.this_env() != 'dev' or os.environ.get('SMN_READER_SHARED_DEV_CALLBACK') != '1':
+            return fail('invalid_callback', 'Reader callback is unavailable.', 400)
+        from urllib.parse import urlencode
+        query = {key: request.args[key] for key in ('state', 'code', 'error') if key in request.args}
+        response = redirect('/member/callback?' + urlencode(query))
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        return response
     if not dashboard_workos.enabled():
         return fail("not_found", "Not found", 404)
     try:
@@ -252,6 +265,10 @@ def auth_ticket():
 def logout():
     identity = session.get("identity") or {}
     who = identity.get("name")
+    try:
+        membership_admin_client.logout(identity)
+    except (membership_admin_client.MembershipError, OSError):
+        pass
     session.clear()
     if who:
         audit("logout", "", who)
@@ -974,7 +991,10 @@ def api_article(slug):
     include = {i.strip() for i in request.args.get("include", "").split(",")}
     if include & {"html", "text"}:
         path = Path(row.get("path") or "")
-        raw = path.read_text("utf-8", errors="replace") if path.is_file() else None
+        if row.get('membership_revision') and row.get('published'):
+            raw, _ = membership_publication.source(row)
+        else:
+            raw = path.read_text("utf-8", errors="replace") if path.is_file() else None
         if "html" in include:
             row["html"] = raw
         if "text" in include:
@@ -1034,12 +1054,25 @@ def api_create_article():
                         hint="send a different 'slug', or PATCH the existing article",
                         field="slug")
         post = _create_post(data, slug, who)
-        posts.append(post)
-        article_index.save_posts(posts)
+        if post.get('membership_revision'):
+            if hold:
+                held = article_index.load_unpublished()
+                held[slug] = {'post': post, 'held_path': post['path'], 'unpublished_at': iso(utcnow()),
+                              'by': who, 'reason': 'created unpublished'}
+                article_index.save_unpublished(held)
+            else:
+                private_store = membership_publication.store()
+                with private_store.database() as db:
+                    manifest = private_store._manifest(db, membership_publication.path_for(post), post['membership_revision'])
+                membership_publication.commit_post(posts, None, post, manifest)
+        else:
+            posts.append(post)
+            article_index.save_posts(posts)
     audit("create", slug, who, title=post["title"])
     result: Dict[str, Any] = {"article": post, "published": not hold}
     if hold:
-        do_unpublish(slug, who, "created unpublished")
+        if not post.get('membership_revision'):
+            do_unpublish(slug, who, "created unpublished")
         if publish_when is not None:
             result["scheduled"] = schedule_store.add(slug, "publish", publish_when, who,
                                                      note="publish_at on create")
@@ -1058,8 +1091,9 @@ def _create_post(data: Dict[str, Any], slug: str, who: str) -> Dict[str, Any]:
     published = data.get("published_date") or now
     family = str(data.get("market_family") or "US").upper()
     target = _article_target(str(data["symbol"]), family, published, slug)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(str(data["html"]), encoding="utf-8")
+    if not membership_publication.configured():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(str(data["html"]), encoding="utf-8")
 
     relative = target.relative_to(NEWS_ROOT).as_posix()
     post: Dict[str, Any] = {
@@ -1087,6 +1121,8 @@ def _create_post(data: Dict[str, Any], slug: str, who: str) -> Dict[str, Any]:
         "publish_status": str(data.get("publish_status", "true")).lower(),
         "created_by": who,
     }
+    if membership_publication.configured():
+        post, manifest = membership_publication.prepare(post, str(data['html']))
     return post
 
 
@@ -1107,6 +1143,18 @@ def api_update_article(slug):
 
         post = posts[index]
         old_key_post = dict(post)
+        if post.get('membership_revision'):
+            raw, _ = membership_publication.source(post)
+            updated = dict(post)
+            changed = [f for f in WRITABLE_FIELDS if f in data and post.get(f) != data[f]]
+            for field in changed:
+                updated[field] = data[field]
+            updated['updated_date'] = iso(utcnow())
+            post = membership_publication.publish_edited(posts, post, updated,
+                str(data['html']) if data.get('html') is not None else raw, who)
+            sync_redis(post)
+            audit('update', slug, who, fields=changed, html='html' in data)
+            return ok({'article': post, 'rebuild': queue_refresh(data.get('rebuild', True))})
         if "html" in data and data["html"] is not None:
             path = Path(post.get("path") or "")
             if not path.is_file():
@@ -1143,6 +1191,8 @@ def api_delete_article(slug):
         if index is not None:
             post = posts.pop(index)
             path = Path(post.get("path") or "")
+            if post.get('membership_revision'):
+                membership_publication.withdraw(post)
             article_index.save_posts(posts)
         else:
             held = article_index.load_unpublished()
@@ -1155,7 +1205,12 @@ def api_delete_article(slug):
 
     # Files go to a trash folder, never rm -rf, so a mistake is recoverable.
     trashed = None
-    if path.is_file():
+    if post.get('membership_revision'):
+        destination = TRASH_DIR / utcnow().strftime('%Y%m%dT%H%M%S%fZ') / slug
+        destination.mkdir(parents=True, exist_ok=True)
+        article_index._atomic_write_json(destination / 'post.json', post)
+        trashed = str(destination)
+    elif path.is_file():
         stamp = utcnow().strftime("%Y%m%dT%H%M%SZ")
         destination = TRASH_DIR / stamp / slug
         destination.mkdir(parents=True, exist_ok=True)
@@ -1205,7 +1260,10 @@ def do_unpublish(slug: str, who: str, reason: str = "") -> Dict[str, Any]:
         post = posts[index]
         path = Path(post.get("path") or "")
         held_path = article_index.HELD_DIR / slug / (path.name or "article.html")
-        if path.is_file():
+        if post.get('membership_revision'):
+            membership_publication.withdraw(post)
+            held_path = path
+        elif path.is_file():
             held_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(path), str(held_path))
             prune_empty_dirs(path.parent)
@@ -1241,10 +1299,13 @@ def do_publish(slug: str, who: str, as_new: bool = False) -> Dict[str, Any]:
         post = dict(record["post"])
         target = Path(post.get("path") or "")
         source = Path(record.get("held_path") or "")
-        if target.exists():
+        protected = bool(post.get('membership_revision'))
+        if protected:
+            membership_publication.restore(post)
+        elif target.exists():
             raise ActionError("url_taken", f"a file already exists at {target}",
                               hint="delete or move that file, then try again")
-        if source.is_file():
+        if not protected and source.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source), str(target))
             try:
@@ -2047,6 +2108,9 @@ def handle_500(exc):  # pragma: no cover
 
 import article_editor_routes
 article_editor_routes.register(app, sys.modules[__name__])
+import membership_dashboard
+import membership_runtime
+membership_dashboard.register(app, membership_runtime.handlers())
 
 
 if __name__ == "__main__":

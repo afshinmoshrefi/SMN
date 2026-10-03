@@ -197,7 +197,19 @@
   });
   $('promotion-review-close').onclick = () => $('promotion-review').close();
   (async () => {
-    try { const identity = await api('/api/whoami'); if (identity.kind !== 'admin') return; panel.hidden = false; }
+    try {
+      const identity = await api('/api/whoami'); if (identity.kind !== 'admin') return;
+      const toggle = $('btn-membership');
+      if (toggle) {
+        toggle.style.display = '';
+        toggle.onclick = async () => {
+          panel.hidden = !panel.hidden;
+          if (!panel.hidden) await Promise.allSettled([run('settings','membership-status',loadSettings), run('articles','membership-status',loadArticles), run('jobs','promotion-status',loadJobs)]);
+        };
+        return;
+      }
+      panel.hidden = false;
+    }
     catch (_) { return; }
     await Promise.allSettled([run('settings','membership-status',loadSettings), run('articles','membership-status',loadArticles), run('jobs','promotion-status',loadJobs)]);
   })();

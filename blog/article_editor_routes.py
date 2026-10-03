@@ -13,6 +13,7 @@ import article_editor as editor
 import article_index
 import dashboard_auth
 import pin_store
+import membership_publication as membership
 
 
 def register(app, dashboard):
@@ -38,6 +39,13 @@ def register(app, dashboard):
         if post is None:
             raise editor.EditorError("Published article not found.", 404)
         path = Path(post.get("path") or "")
+        protected = bool(post.get('membership_revision')) and membership.configured()
+        if protected:
+            try:
+                raw, _ = membership.source(post)
+            except membership.ContentError as exc:
+                raise editor.EditorError(str(exc)) from None
+            return posts, dict(post, slug=slug), path, raw
         if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(article_index.NEWS_ROOT.resolve()):
             raise editor.EditorError("The article source is unavailable.", 409)
         post = dict(post, slug=slug)
@@ -58,6 +66,8 @@ def register(app, dashboard):
         owner()
         # A durable intent bridges SQLite and the two existing publication files.
         with article_index.posts_lock():
+            if membership.configured():
+                membership.recover()
             for marker in sorted((editor.root() / "publishing").glob("*.json")):
                 recover_publish(marker, dashboard)
 
@@ -129,6 +139,16 @@ def register(app, dashboard):
             editor.validate_metadata(revision["dek"])
             previous = [dict(p) for p in posts]
             updated = dict(post, title=revision["title"], dek=revision["dek"], updated_date=pin_store.iso(pin_store.utcnow()))
+            if post.get('membership_revision'):
+                updated = membership.publish_edited(posts, post, updated, revision['html'], dashboard.actor())
+                draft.update(status='published', error='',
+                             published_fingerprint=editor.fingerprint(updated, revision['html']))
+                editor.save(db, draft)
+                db.commit()
+                dashboard.sync_redis(updated)
+                dashboard.audit('editor_publish', draft['slug'], dashboard.actor(), draft_id=ident, version=version, provider=draft['provider'])
+                dashboard.queue_refresh(True)
+                return state(draft)
             for index, item in enumerate(posts):
                 if pin_store.article_slug(item) == draft["slug"]:
                     posts[index] = updated
