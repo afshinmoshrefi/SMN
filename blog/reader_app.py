@@ -52,7 +52,7 @@ def create_app(config=None, store=None, auth=None):
         response.headers['Pragma'] = 'no-cache'
         response.headers['Vary'] = 'Cookie'
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['Referrer-Policy'] = 'same-origin'
+        response.headers['Referrer-Policy'] = 'no-referrer'
         return response
 
     @app.errorhandler(ReaderError)
