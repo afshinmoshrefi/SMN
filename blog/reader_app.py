@@ -194,6 +194,15 @@ def create_app(config=None, store=None, auth=None):
             raise ContentError('Video is unavailable')
         return send_file(str(path), mimetype='video/mp4', conditional=True, etag=False)
 
+    @app.get('/briefings/<identifier>/captions.vtt')
+    def briefing_captions(identifier):
+        import public_briefing
+        item = public_briefing.load(private_root, identifier)
+        path = public_briefing.video(private_root, item, 'text/vtt')
+        if not path:
+            raise ContentError('Captions are unavailable')
+        return send_file(str(path), mimetype='text/vtt', conditional=True, etag=False)
+
     @app.get('/<path:path>')
     def article(path):
         path = '/' + path

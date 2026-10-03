@@ -40,7 +40,7 @@ def listing(root):
     return sorted(result, key=lambda row: (row['date'], row['id']), reverse=True)
 
 
-def video(root, briefing):
+def video(root, briefing, media_type='video/mp4'):
     import promotion_jobs
     jobs_root = Path(root) / 'promotion'
     for summary in promotion_jobs.list_jobs(jobs_root):
@@ -49,7 +49,10 @@ def video(root, briefing):
         job = json.loads(promotion_jobs._path(jobs_root, summary['id']).read_text('utf-8'))
         if job['source_hash'] != briefing['sha256'] or job['status'] != 'reviewed':
             continue
+        if not any(a['media_type'] == 'video/mp4' for a in job['artifacts']):
+            continue
         for artifact in job['artifacts']:
-            if artifact['media_type'] == 'video/mp4' and job.get('review', {}).get('artifact_hashes', {}).get(artifact['name']) == artifact['sha256']:
+            if artifact['media_type'] == media_type and job.get('review', {}).get('artifact_hashes', {}).get(artifact['name']) == artifact['sha256']:
                 return promotion_jobs.get_artifact(jobs_root, job['id'], artifact['name'])[0]
+        return None  # Never pair captions from an older, different video.
     return None
