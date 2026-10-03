@@ -1,0 +1,31 @@
+{
+  "headline": {
+    "text": "Lennar's delivery cut puts its favorable seasonal record in perspective",
+    "source_ids": ["lennar", "len-history"],
+    "article_refs": ["title", "sections/2/paragraphs/0"]
+  },
+  "preview": [
+    {
+      "text": "Lennar reduced its delivery outlook after September 16 earnings.",
+      "source_ids": ["lennar"],
+      "article_refs": ["sections/0/paragraphs/0", "sections/1/paragraphs/1"]
+    },
+    {
+      "text": "How much reassurance can the seasonal record offer? This article's long study covers October 5, 2026-January 8, 2027. Nine of 10 matching windows starting in selected midterm-election years from 1986 through 2022 gained, versus 50.0% of consecutive windows starting in 2016-2025. The latest matched window, October 5, 2022-January 8, 2023, finished 19.92% higher but also moved 12.04% below its starting price. Those extremes do not reveal which move came first. The complete article compares the supplied histories and explains why a profitable finish can still involve a difficult path. The overlapping histories do not provide independent confirmation.",
+      "source_ids": ["len-history"],
+      "article_refs": ["sections/0/paragraphs/1", "sections/2/paragraphs/0", "sections/3/paragraphs/0", "sections/3/paragraphs/1", "sections/4/paragraphs/0"]
+    }
+  ],
+  "full_article_value": {
+    "text": "Explore the overlapping historical comparisons and the adverse moves behind favorable finishes.",
+    "source_ids": ["len-history"],
+    "article_refs": ["sections/3/paragraphs/0", "sections/4/paragraphs/0", "sections/5/paragraphs/1"]
+  },
+  "qualification": {
+    "text": "Selected historical results are not a forecast, and the comparison does not establish that elections caused the gains. Highs and lows do not measure a peak-to-trough loss.",
+    "source_ids": ["len-history"],
+    "article_refs": ["sections/2/paragraphs/0", "sections/3/paragraphs/1", "sections/5/paragraphs/0"]
+  },
+  "social": [],
+  "video": null
+}
