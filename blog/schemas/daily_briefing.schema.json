@@ -134,7 +134,8 @@
               "primary_release",
               "snippet",
               "metadata",
-              "unavailable"
+              "unavailable",
+              "headline_only"
             ]
           },
           "capture": {
@@ -162,8 +163,21 @@
                 "type": "string",
                 "enum": [
                   "complete_document",
-                  "selected_passages_from_accessed_document"
+                  "selected_passages_from_accessed_document",
+                  "headline_record"
                 ]
+              },
+              "feed_url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "feed_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "record_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
               }
             }
           },
@@ -180,7 +194,10 @@
           },
           "cutoff_basis": {
             "type": "string",
-            "enum": ["publication_metadata", "observed_capture"]
+            "enum": [
+              "publication_metadata",
+              "observed_capture"
+            ]
           }
         }
       },
@@ -406,6 +423,17 @@
         }
       },
       "minItems": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "full_text",
+        "headline_roundup"
+      ]
+    },
+    "coverage_note": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
