@@ -78,6 +78,24 @@ class DerivativeTests(unittest.TestCase):
         self.assertTrue(result['semantic_review_required'])
         self.assertEqual(result['provenance']['study_identity']['direction'], 'short')
 
+    def test_publication_alias_keeps_source_and_rebuilds_exact_binding(self):
+        canonical='https://seasonalmarketnews.com/editions/2026-10-03/TEST/article.html'
+        mapping={'canonical_id':canonical,'source_original_id':self.url,
+            'article_sha256':self.prepared['provenance']['article_sha256'],'revision':'v2'}
+        mapping['binding_sha256']=digest(mapping)
+        original=(self.article_dir/'source.json').read_bytes()
+        prepared=prepare_derivative(self.article_dir,self.job,canonical,'v2',publication_identity=mapping)
+        self.assertTrue(validate_derivative(self.copy,prepared)['mechanical_passed'])
+        self.assertEqual((self.article_dir/'source.json').read_bytes(),original)
+        self.assertEqual(prepared['publication_identity']['source_original_id'],self.url)
+        for field,value in [('source_original_id','https://seasonalmarketnews.com/other.html'),
+                            ('article_sha256','a'*64),('revision','wrong'),('canonical_id',self.url)]:
+            changed=dict(mapping);changed[field]=value
+            changed['binding_sha256']=digest({k:v for k,v in changed.items() if k!='binding_sha256'})
+            with self.assertRaises(ValueError):prepare_derivative(self.article_dir,self.job,canonical,'v2',publication_identity=changed)
+        edited=copy.deepcopy(prepared);edited['publication_identity']['source_original_id']='other'
+        with self.assertRaises(ValueError):validate_derivative(self.copy,edited)
+
     def test_stale_full_article_and_evidence_are_rejected(self):
         for name in ('article.json', 'bundle.json', 'source.json', 'output.json'):
             path = (self.job if name == 'output.json' else self.article_dir) / name

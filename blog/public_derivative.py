@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from subscription_writer import load_json, save_json, sha256, validate_schema
 from visual_evidence import digest, validate_bundle
@@ -12,7 +13,7 @@ def _fingerprints(paths):
     return {str(p.resolve()): sha256(p.read_bytes()) for p in paths}
 
 
-def prepare_derivative(article_dir, review_job, article_id, revision):
+def prepare_derivative(article_dir, review_job, article_id, revision, *, publication_identity=None):
     """Bind retained successful reviews without restarting expired writer jobs."""
     root, job = Path(article_dir).resolve(), Path(review_job).resolve()
     article = load_json(root / 'article.json')
@@ -24,7 +25,19 @@ def prepare_derivative(article_dir, review_job, article_id, revision):
     receipt = load_json(job / 'receipt.json')
     manifest = load_json(job / 'job.json')
     validate_bundle(bundle)
-    if not article_id or not revision or article_id != source['card']['production_original']:
+    original_id=source['card']['production_original']
+    if publication_identity is not None:
+        required={'canonical_id','source_original_id','article_sha256','revision','binding_sha256'}
+        if not isinstance(publication_identity,dict) or set(publication_identity)!=required:
+            raise ValueError('Explicit exact publication identity mapping required')
+        material={k:publication_identity[k] for k in required-{'binding_sha256'}}
+        parsed=urlsplit(str(publication_identity['canonical_id']))
+        if (publication_identity['canonical_id']!=article_id or publication_identity['source_original_id']!=original_id
+                or publication_identity['article_sha256']!=digest(article) or publication_identity['revision']!=revision
+                or publication_identity['binding_sha256']!=digest(material)
+                or parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password):
+            raise ValueError('Publication mapping differs from retained article/source/current revision')
+    if not article_id or not revision or (publication_identity is None and article_id != original_id):
         raise ValueError('Canonical article identity and explicit revision required')
     if (binding.get('article_sha256') != digest(article)
             or mechanical.get('article_sha256') != digest(article)
@@ -86,11 +99,14 @@ def prepare_derivative(article_dir, review_job, article_id, revision):
                   'study_window': history['window'], 'study_cohort': history['cohort'],
                   'engine_last_trade_date': history.get('stats', {}).get('last_trade_date'),
                   'as_of': bundle['as_of']}
-    return {'version': 1, 'provenance': provenance, 'input_hashes': _fingerprints(paths),
+    prepared={'version': 1, 'provenance': provenance, 'input_hashes': _fingerprints(paths),
             'article': article, 'bundle': bundle, 'passages': passages,
             'native_chart_ids': native,
             'full_source_words': full_source_words,
             'publish': False}
+    if publication_identity is not None:
+        prepared['publication_identity']=dict(publication_identity)
+    return prepared
 
 
 def derivative_schema(prepared):
@@ -129,7 +145,8 @@ def prepare_prompt(prepared):
                          ensure_ascii=False, sort_keys=True))
 
 
-def validate_derivative(copy, prepared):
+def validate_prepared(prepared):
+    """Rebuild source custody before drafting or validating any derivative."""
     if prepared.get('publish') is not False or prepared.get('version') != 1:
         raise ValueError('Private prepared handoff required')
     for name, expected in prepared['input_hashes'].items():
@@ -139,9 +156,14 @@ def validate_derivative(copy, prepared):
     names = list(prepared['input_hashes'])
     root = Path(next(n for n in names if Path(n).name == 'article.json')).parent
     job = Path(next(n for n in names if Path(n).name == 'receipt.json')).parent
-    rebuilt = prepare_derivative(root, job, prepared['provenance']['article_id'], prepared['provenance']['revision'])
+    rebuilt = prepare_derivative(root, job, prepared['provenance']['article_id'], prepared['provenance']['revision'],
+                                 publication_identity=prepared.get('publication_identity'))
     if prepared != rebuilt:
         raise ValueError('Prepared handoff differs from retained inputs')
+
+
+def validate_derivative(copy, prepared):
+    validate_prepared(prepared)
     validate_schema(copy, derivative_schema(prepared))
     statements = [copy['headline'], *copy['preview'], copy['full_article_value'], copy['qualification'], *copy['social']]
     if copy['video']:
@@ -182,6 +204,7 @@ def main():
     prepare = sub.add_parser('prepare')
     for flag in ('article-dir', 'review-job', 'article-id', 'revision', 'output'):
         prepare.add_argument('--' + flag, required=True)
+    prepare.add_argument('--publication-identity',help='Server publication mapping JSON; original retained source stays unchanged')
     for command in ('validate', 'receive'):
         check = sub.add_parser(command)
         check.add_argument('--prepared', required=True)
@@ -190,7 +213,8 @@ def main():
             check.add_argument('--output', required=True)
     args = parser.parse_args()
     if args.command == 'prepare':
-        data = prepare_derivative(args.article_dir, args.review_job, args.article_id, args.revision)
+        data = prepare_derivative(args.article_dir, args.review_job, args.article_id, args.revision,
+                                  publication_identity=load_json(args.publication_identity) if args.publication_identity else None)
         output = Path(args.output)
         output.mkdir(parents=True, exist_ok=False)
         save_json(output / 'prepared.json', data)

@@ -68,3 +68,11 @@ server avatar_ready/likeness_verified, verified voice/reference hash and avatar_
 voice/reference, video hash, provider generation ID/model and received shared-budget
 reservation. Only real <=8-second intro/outro deliveries are admitted for pending review.
 No stock substitute, fabricated avatar success, external post or provider switch occurs.
+
+Publication aliasing uses optional keyword `publication_identity` on
+`public_derivative.prepare_derivative`: canonical_id, source_original_id,
+article_sha256, revision, binding_sha256 (digest of the first four fields).
+The publisher supplies it only after binding the new canonical ContentStore URL/revision
+to the exact retained article JSON. Original source/card/engine files remain unchanged.
+Preparation and later rebuild validation reject cross-article aliases, stale revisions
+and edited mappings; writing validates this complete prepared custody before a CLI call.

@@ -4,15 +4,13 @@ from pathlib import Path
 
 from daily_briefing import digest
 import promotion_jobs as jobs
-from public_derivative import derivative_schema, prepare_prompt, validate_derivative
+from public_derivative import derivative_schema, prepare_prompt, validate_derivative,validate_prepared
 import subscription_writer as writer
 
 
 def generate(root, prepared, settings, codex, *, job_id=None):
     # Recheck custody before any model call, even before prepared/schema creation.
-    for name, expected in prepared['input_hashes'].items():
-        if writer.sha256(Path(name).read_bytes()) != expected:
-            raise ValueError('Retained input changed')
+    validate_prepared(prepared)
     inputs = {'article_id': prepared['provenance']['article_id'],
         'source_revision': prepared['provenance']['revision'],
         'source_hash': prepared['provenance']['article_sha256'], 'payload_sha256': digest(prepared)}
