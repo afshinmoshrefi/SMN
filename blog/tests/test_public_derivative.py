@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from public_derivative import prepare_derivative, validate_derivative, receive_derivative
+from public_derivative import prepare_derivative, validate_derivative, receive_derivative, prepare_prompt
 from subscription_writer import save_json, sha256
 from visual_evidence import digest
 from subscription_edition import source_word_counts
@@ -88,6 +88,18 @@ class DerivativeTests(unittest.TestCase):
         prepared = prepare_derivative(self.article_dir, self.job, self.url, 'v1')
         self.assertEqual(prepared['provenance']['review_sha256'], sha256(original))
         self.assertEqual((self.job / 'output.json').read_bytes(), original)
+
+    def test_prompt_exposes_exact_cumulative_remaining_budgets(self):
+        import json
+        prepared = copy.deepcopy(self.prepared)
+        prepared['full_source_words']['news'].update(total=131, maximum=200)
+        prompt = prepare_prompt(prepared)
+        body = json.loads(prompt.split('\n\n', 1)[1])
+        self.assertEqual(body['remaining_source_word_budgets']['news'], 69)
+        self.assertEqual(body['full_source_words']['news']['total'], 131)
+        self.assertIn('EACH source ID', prompt)
+        self.assertIn('Never omit a source needed for a claim', prompt)
+        self.assertIn('65-100 preview words', prompt)
 
     def test_minor_hard_issues_and_missing_checks_cannot_qualify(self):
         from subscription_writer import load_json
