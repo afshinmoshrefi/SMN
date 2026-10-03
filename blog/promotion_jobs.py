@@ -123,6 +123,8 @@ def transition(root, identifier, action, expected_version, actor, data=None):
             decision = data.get('decision')
             if decision not in {'approved', 'rejected'}:
                 raise ValueError('Explicit review decision required')
+            for artifact in job['artifacts']:
+                get_artifact(root,identifier,artifact['name'])
             job.update(status='reviewed' if decision == 'approved' else 'held', review_status=decision,
                        review={'actor': actor, 'at': utc_now(), 'payload_sha256': data['payload_sha256'],
                                'artifact_hashes': {a['name']: a['sha256'] for a in job['artifacts']}})
@@ -179,7 +181,10 @@ def get_artifact(root, identifier, name):
     item = next((a for a in job['artifacts'] if a['name'] == name), None)
     if not item:
         raise ValueError('Artifact is not allowlisted')
-    private = (_folder(root) / 'artifacts' / identifier).resolve()
+    raw_private = _folder(root) / 'artifacts' / identifier
+    if any(p.is_symlink() for p in (raw_private,*raw_private.parents)):
+        raise ValueError('Private artifact directory contains a symlink')
+    private = raw_private.resolve()
     raw = private / item['relative_path']
     path = raw.resolve()
     if private not in path.parents or any(p.is_symlink() for p in (raw, *raw.parents)) or sha256(path.read_bytes()) != item['sha256']:
