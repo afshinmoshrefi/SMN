@@ -86,6 +86,23 @@ Account/key/reference/quote readiness remains an explicit gate, not simulated ge
 Official contracts: https://elevenlabs.io/docs/api-reference/flows/video/create and
 https://elevenlabs.io/docs/eleven-api/guides/cookbooks/image-and-video.
 
+`briefing_daily.py --output-root PRIVATE --codex CODEX --model MODEL --effort medium`
+is the single-run Dev timer entry point. Date defaults to New York today and cutoff
+to 7am on that date (explicit date/cutoff/label are supported). It discovers public
+headlines from fixed CNBC/NYT feeds and Bloomberg/Reuters/WSJ/FT market pages,
+retains each actual discovery response and access failure, caps article candidates,
+deduplicates canonical links, and proposes similar-headline groups for editorial
+event merging. Headlines/feeds are never treated as claim evidence. Automatic full
+text requires actual publisher NewsArticle articleBody of at least 300 words,
+explicit isAccessibleForFree=true and no access-denial/paywall marker. Restricted,
+short, after-cutoff, stale and missing publisher coverage remains explicit in the
+private receipt. Identical full bodies share syndication origin; true narrative
+grouping is independently required in the schema-bound original draft. Actual
+qualified captures go through the configured subscription CLI with no fallback;
+output is always pending editorial review. No provider media call, publication,
+schedule, production change or success inferred from metadata occurs. The root Dev
+timer/runtime owns activation and its explicitly account-supported model selection.
+
 Publication aliasing uses optional keyword `publication_identity` on
 `public_derivative.prepare_derivative`: canonical_id, source_original_id,
 article_sha256, revision, binding_sha256 (digest of the first four fields).
