@@ -21,6 +21,12 @@ class ArticleEditorTests(DashboardFixture):
         self.assertEqual(response.status_code, 200, response.get_json())
         return response.get_json()["data"]
 
+    def test_dashboard_renders_editor_controls(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Edit with ChatGPT", response.text)
+        self.assertIn("Edit with Claude", response.text)
+
     def changed(self):
         draft = self.open()
         ident = draft["id"]
