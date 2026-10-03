@@ -7,6 +7,7 @@ from public_derivative import prepare_derivative, validate_derivative, receive_d
 from subscription_writer import save_json, sha256
 from visual_evidence import digest
 from subscription_edition import source_word_counts
+from subscription_publication import CHECKS
 
 
 class DerivativeTests(unittest.TestCase):
@@ -40,7 +41,7 @@ class DerivativeTests(unittest.TestCase):
         bundle['sources'][1]['payload'] = {'window': {'start_date': '2026-09-22', 'end_date': '2026-10-11', 'calendar_days': 20},
                                           'cohort': {'label': 'Synthetic selected years', 'years': [2018, 2022]}}
         bundle['evidence_sha256'] = digest(bundle)
-        review = {'passed': True, 'issues': [], 'checks': {'facts': {'passed': True}}}
+        review = {'passed': True, 'issues': [], 'checks': {name: {'passed': True} for name in CHECKS}}
         save_json(self.job / 'output.json', review)
         for name in ('prompt.txt', 'schema.json'):
             (self.job / name).write_text('{}', encoding='utf-8')
@@ -69,6 +70,38 @@ class DerivativeTests(unittest.TestCase):
                      'qualification': statement('Historical evidence is not a forecast.'), 'social': [],
                      'video': {'narration': statement('Stock weakness can favor this short study, but rebounds can hurt.'),
                                'on_screen': statement('Historical short study'), 'native_chart_id': 'bars_mae_mfe'}}
+
+    def _bind_review(self, review):
+        from subscription_writer import load_json
+        save_json(self.job / 'output.json', review)
+        output_hash = sha256((self.job / 'output.json').read_bytes())
+        for path, field in ((self.job / 'receipt.json', 'output_sha256'),
+                            (self.article_dir / 'review-binding.json', 'review_sha256')):
+            value = load_json(path); value[field] = output_hash; save_json(path, value)
+
+    def test_authoritative_advisory_style_review_is_retained_exactly(self):
+        from subscription_writer import load_json
+        review = load_json(self.job / 'output.json')
+        review['issues'] = [{'severity': 'minor', 'category': 'style', 'problem': 'Explain an abbreviation.'}]
+        self._bind_review(review)
+        original = (self.job / 'output.json').read_bytes()
+        prepared = prepare_derivative(self.article_dir, self.job, self.url, 'v1')
+        self.assertEqual(prepared['provenance']['review_sha256'], sha256(original))
+        self.assertEqual((self.job / 'output.json').read_bytes(), original)
+
+    def test_minor_hard_issues_and_missing_checks_cannot_qualify(self):
+        from subscription_writer import load_json
+        original = load_json(self.job / 'output.json')
+        for category in ('factual', 'temporal', 'numeric', 'coverage'):
+            review = copy.deepcopy(original)
+            review['issues'] = [{'severity': 'minor', 'category': category, 'problem': 'Correction needed.'}]
+            self._bind_review(review)
+            with self.assertRaisesRegex(ValueError, 'reviewer receipt'):
+                prepare_derivative(self.article_dir, self.job, self.url, 'v1')
+        review = copy.deepcopy(original); review['checks'].pop('facts_and_sources')
+        self._bind_review(review)
+        with self.assertRaisesRegex(ValueError, 'reviewer receipt'):
+            prepare_derivative(self.article_dir, self.job, self.url, 'v1')
 
     def test_valid_retained_review_keeps_direction_without_generation_or_approval(self):
         result = validate_derivative(self.copy, self.prepared)
