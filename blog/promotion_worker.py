@@ -112,16 +112,10 @@ def _export(root,job,configuration,resolver):
         p=prepared['provenance'];inputs=job['inputs']
         if any(inputs.get(k)!=p[v] for k,v in [('article_id','article_id'),('source_revision','revision'),('source_hash','article_sha256')]):
             raise ValueError('Export current source differs')
-        result=substack_export.export(root,prepared,copy,job['actor'],job_id=job['id'])
-        exported=load_json(jobs._path(root,result['id']))
-        private=jobs._folder(root)/'artifacts'/job['id'];private.mkdir(parents=True,exist_ok=True)
-        if result['id']!=job['id']:
-            import shutil
-            for item in exported['artifacts']:
-                path,_=jobs.get_artifact(root,result['id'],item['name'])
-                shutil.copyfile(path,private/item['relative_path'])
-        return jobs.update(root,job['id'],job['version'],status='generated',stage='export_review',
-            generation_status='generated',review_status='pending',artifacts=exported['artifacts'],dispatch_status='disabled')
+        return substack_export.export(root,prepared,copy,job['actor'],job_id=job['id'],
+            public_origin=configuration.get('public_origin'))
+    except jobs.Conflict:
+        raise
     except (KeyError,ValueError,OSError):
         return _hold(root,job,'Current validated public derivative required for private export')
 

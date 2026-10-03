@@ -23,6 +23,13 @@ class RuntimeTests(unittest.TestCase):
         self.prepared = {'provenance': {'article_id': 'https://smn-dev.trxstat.com/articles/test.html',
             'revision': 'source-r1', 'article_sha256': 'a' * 64}}
 
+    def test_export_origin_is_explicit_server_configuration(self):
+        config = self.root/'promotion.json'
+        config.write_text(json.dumps({'public_origin':'https://configuration.test'}))
+        with patch.dict('os.environ', {'SMN_PROMOTION_CONFIG':str(config),
+                'SMN_PUBLIC_ORIGIN':'https://smn-dev.trxstat.com','SMN_SITE_BASE':'https://fallback.test'}):
+            self.assertEqual(runtime._configuration()['public_origin'], 'https://smn-dev.trxstat.com')
+
     def test_first_derivative_needs_prepared_source_only(self):
         with patch.object(runtime, '_source_record', return_value={'prepared': self.prepared}):
             job = runtime.create_job({'kind': 'derivative', 'slug': 'test'}, 'editor')
