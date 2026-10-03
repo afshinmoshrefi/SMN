@@ -12,7 +12,7 @@ import pub_dashboard
 class ArticleEditorTests(DashboardFixture):
     def setUp(self):
         super().setUp()
-        self.setting = patch.object(pub_dashboard.app, "testing", True)
+        self.setting = patch.dict(pub_dashboard.app.config, {"TESTING": True})
         self.setting.start()
         self.addCleanup(self.setting.stop)
 
@@ -97,7 +97,7 @@ class ArticleEditorTests(DashboardFixture):
             editor.get(draft["id"], "other-user")
 
     def test_only_owner_admin_may_use_subscription(self):
-        with patch.object(pub_dashboard.app, "testing", False), patch.dict("os.environ", {"SMN_EDITOR_OWNER_USER_ID": "owner"}):
+        with patch.dict(pub_dashboard.app.config, {"TESTING": False}), patch.dict("os.environ", {"SMN_EDITOR_OWNER_USER_ID": "owner"}):
             self.assertEqual(self.client.post("/api/articles/a0/editor").status_code, 403)
 
     def test_worker_failure_preserves_draft_and_no_auto_retry(self):
@@ -127,3 +127,21 @@ class ArticleEditorTests(DashboardFixture):
         for altered in (source.replace("12%", "13%"), source.replace("draw(12)", "fetch(12)"), source.replace("<p>", '<p onclick="evil()">'), source + '<img src="https://evil.test/collect">'):
             with self.assertRaises(editor.EditorError):
                 editor.validate(source, altered)
+
+    def test_metadata_and_source_link_removal_are_rejected(self):
+        with self.assertRaises(editor.EditorError):
+            editor.validate_metadata('<img src=x onerror=alert(1)>')
+        with self.assertRaises(editor.EditorError):
+            editor.validate('<p><a href="https://source.test">Source</a></p>', '<p>Source</p>')
+
+    def test_interrupted_publication_recovers_both_files(self):
+        draft = self.changed()
+        old = draft["post"]
+        new = dict(old, title="Updated title")
+        marker = editor.root() / "publishing" / (draft["id"] + ".json")
+        editor.subscription_writer.save_json(marker, {"draft_id": draft["id"], "owner": "test-owner",
+            "old_post": old, "new_post": new, "old_html": draft["revisions"][0]["html"], "new_html": editor.current(draft)["html"]})
+        (self.news / "a0.html").write_text(editor.current(draft)["html"])
+        self.client.get(f"/api/editor/{draft['id']}")
+        self.assertEqual((self.news / "a0.html").read_text(), draft["revisions"][0]["html"])
+        self.assertFalse(marker.exists())
