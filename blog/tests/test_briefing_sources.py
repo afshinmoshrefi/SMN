@@ -58,6 +58,10 @@ class Sources(unittest.TestCase):
         for source,variant in zip(example['sources'],variants):
             self.assertEqual(set(variant['required']),set(source))
             validate_schema(source,variant)
+        self.assertEqual(variants[0]['properties']['capture']['properties']['text_sha256']['enum'],[example['sources'][0]['capture']['text_sha256']])
+        changed=dict(example['sources'][0],title='Changed title')
+        import jsonschema
+        with self.assertRaises(jsonschema.ValidationError):jsonschema.validate(changed,variants[0])
         self.assertNotIn('updated_at',variants[0]['properties'])
         self.assertNotIn('observation_sha256',variants[0]['properties']['capture']['properties'])
         def check(node):
