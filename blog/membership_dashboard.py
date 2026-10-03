@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, g, jsonify, request, send_file
 from article_content_store import ContentError
 
-PROMOTION_KINDS = ('derivative', 'article_video', 'daily_briefing', 'daily_avatar', 'social_export', 'substack_export')
+PROMOTION_KINDS = ('derivative', 'article_script', 'article_video', 'daily_briefing', 'daily_avatar', 'social_export', 'substack_export')
 
 
 class PanelError(ValueError):

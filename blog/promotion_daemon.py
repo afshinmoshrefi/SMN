@@ -20,6 +20,7 @@ def _run_claimed():
     with runtime.article_index.posts_lock():
         runtime.publication.recover()
         runtime.recover_operations()
+        runtime.reconcile_article_media()
     configuration = runtime._configuration()
     results = []
     for job in reversed(promotion_jobs.list_jobs(runtime.jobs_root())):
