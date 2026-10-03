@@ -87,6 +87,15 @@ def complete(session, args):
         identity = dashboard_auth.verify_ticket(authorization.json()["ticket"])
         if identity.get("workos_user_id") != subject or not identity.get("workos_session_id"):
             raise LoginError("The administrator identity did not match this sign-in.")
+        # Membership has a separate, server-held authority. Its availability must
+        # not take the existing publishing dashboard login down.
+        import membership_admin_client
+        try:
+            membership_sid = membership_admin_client.bootstrap(token, identity)
+            if membership_sid:
+                identity['membership_admin_sid'] = membership_sid
+        except (membership_admin_client.MembershipError, OSError):
+            pass
         return identity
     except (requests.RequestException, ValueError, KeyError, TypeError, dashboard_auth.TicketError):
         # Never expose provider responses, tokens, or private configuration.

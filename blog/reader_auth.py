@@ -81,7 +81,9 @@ class ReaderAuth:
         for parsed in (callback, authority):
             if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
                 raise ReaderError('not_configured', 'Reader sign-in configuration is invalid.')
-        if callback.path != '/member/callback' or authority.path not in ('', '/') or cfg['ENV'] not in ('dev', 'prod'):
+        shared_dev = cfg.get('SHARED_DEV_CALLBACK') == '1' and cfg['ENV'] == 'dev'
+        callback_path = '/smn-dashboard/auth/callback' if shared_dev else '/member/callback'
+        if callback.path != callback_path or authority.path not in ('', '/') or cfg['ENV'] not in ('dev', 'prod'):
             raise ReaderError('not_configured', 'Reader sign-in configuration is invalid.')
         return cfg
 
@@ -109,7 +111,7 @@ class ReaderAuth:
 
     def begin(self, target='/'):
         cfg = self.settings()
-        state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(48)
+        state, verifier = 'smnr_' + secrets.token_urlsafe(32), secrets.token_urlsafe(48)
         sid = self._save({'kind': 'pending', 'state': state, 'verifier': verifier,
                           'return_path': return_path(target), 'env': cfg['ENV']}, self.clock() + 600)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
@@ -216,5 +218,6 @@ class ReaderAuth:
         ident = local['identity']
         self._request('POST', '/smn-reader/logout', ident['reader_authority'])
         callback = urlsplit(self.settings()['CALLBACK_URL'])
+        path = '/smn-dashboard/signed-out' if self.config.get('SHARED_DEV_CALLBACK') == '1' and self.config['ENV'] == 'dev' else '/member/signed-out'
         return 'https://api.workos.com/user_management/sessions/logout?' + urlencode({
-            'session_id': ident['workos_session_id'], 'return_to': callback.scheme + '://' + callback.netloc + '/member/signed-out'})
+            'session_id': ident['workos_session_id'], 'return_to': callback.scheme + '://' + callback.netloc + path})

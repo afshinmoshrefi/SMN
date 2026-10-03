@@ -1,5 +1,6 @@
 """Separate SMN reader process. Administrator authentication is not imported."""
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
@@ -20,7 +21,10 @@ def asset_url(article, revision, name, public=False):
 def create_app(config=None, store=None, auth=None):
     app = Flask(__name__, static_folder=None)
     cfg = {key: os.environ.get('SMN_READER_' + key, '') for key in
-           ('CLIENT_ID', 'CALLBACK_URL', 'AUTHORITY_URL', 'SERVICE_KEY', 'ENV')}
+           ('CLIENT_ID', 'CALLBACK_URL', 'AUTHORITY_URL', 'SERVICE_KEY', 'ENV', 'SHARED_DEV_CALLBACK')}
+    key_file = os.environ.get('SMN_READER_SERVICE_KEY_FILE')
+    if key_file:
+        cfg['SERVICE_KEY'] = Path(key_file).read_text(encoding='utf-8').strip()
     cfg.update(config or {})
     private_root = cfg.get('PRIVATE_ROOT') or os.environ.get('SMN_READER_PRIVATE_ROOT', '/var/lib/smn/reader')
     public_roots = cfg.get('PUBLIC_ROOTS') or [os.environ.get('SMN_NEWS_ROOT', '/var/www/smn')]
@@ -149,6 +153,14 @@ def create_app(config=None, store=None, auth=None):
     @app.get('/<path:path>')
     def article(path):
         path = '/' + path
+        if re.fullmatch(r'/editions/\d{4}-\d{2}-\d{2}/(?:index.html)?', path) and store.enabled():
+            prefix = path.rsplit('/', 1)[0] + '/'
+            entries = []
+            for entry in store.inventory()['articles']:
+                if entry['revision'] and entry['path'].startswith(prefix):
+                    content = store.read_revision(entry['path'])
+                    entries.append({'path': entry['path'], 'title': content['headline']['text']})
+            return render_template('reader_index.html', entries=entries)
         manifest = store.resolve(path)
         if path != manifest['canonical_path']:
             return redirect(manifest['canonical_path'], 308)
