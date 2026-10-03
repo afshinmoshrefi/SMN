@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
 import briefing_sources as sources
-from daily_briefing import digest
+from daily_briefing import digest,HEADLINE_FEEDS,HEADLINE_NOTE,headline_record,headline_text
 from elevenlabs_client import _NoRedirect
 import subscription_writer as writer
 
@@ -76,7 +76,7 @@ def candidates(raw,endpoint,publisher,cutoff):
         identifier='source-'+digest(canonical)[:20]
         result.append({'id':identifier,'title':title,'url':canonical,'publisher':publisher,
                        'origin_id':identifier,'published_at':published})
-        if len(result)>=8:break
+        if len(result)>=50:break
     return result
 
 
@@ -128,7 +128,29 @@ def register(output,registry_root,identifier):
     return str(destination)
 
 
-def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Before the Open'):
+def headline_bundle(discovery,edition_date,cutoff,label):
+    entries=[];cutoff_dt=datetime.fromisoformat(cutoff.replace('Z','+00:00'))
+    observed=datetime.fromisoformat(discovery['retrieved_at'].replace('Z','+00:00'))
+    for candidate in discovery['sources']:
+        publisher=candidate['publisher'];feed=HEADLINE_FEEDS.get(publisher)
+        filename=publisher.lower().replace(' ','-')+'.discovery'
+        feed_hash=discovery['files'].get(filename)
+        if not feed or not feed_hash or not candidate['published_at'] or observed>cutoff_dt:continue
+        published=datetime.fromisoformat(candidate['published_at'].replace('Z','+00:00'))
+        if published>observed:continue
+        source=dict(candidate,retrieved_at=discovery['retrieved_at'],access='headline_only',
+            origin_id='feed-'+publisher.lower().replace(' ','-'),cutoff_basis='observed_capture',timestamp_status='verified',
+            capture={'scope':'headline_record','feed_url':feed,'feed_sha256':feed_hash})
+        text=headline_text(source);source['capture'].update(text=text,text_sha256=writer.sha256(text.encode()))
+        source['capture']['record_sha256']=digest(headline_record(source))
+        source['capture']['observation_sha256']=digest({'url':source['url'],'retrieved_at':source['retrieved_at'],
+                                                       'text_sha256':source['capture']['text_sha256']})
+        entries.append(source)
+    return {'edition_date':edition_date,'cutoff':cutoff,'label':label,'sources':entries,'scan':discovery['scan'],
+            'mode':'headline_roundup','coverage_note':HEADLINE_NOTE}
+
+
+def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Before the Open',mode='headline_roundup'):
     cutoff_dt=datetime.fromisoformat(cutoff.replace('Z','+00:00'))
     if cutoff_dt.utcoffset() is None or cutoff_dt.astimezone(ZoneInfo('America/New_York')).date().isoformat()!=edition_date:
         raise ValueError('Edition requires an offset-aware cutoff on its New York date')
@@ -136,11 +158,14 @@ def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Befor
     discovery=discover(output/'discovery',cutoff_dt,opener=opener)
     manifest={'edition_date':edition_date,'cutoff':cutoff,'sources':discovery['sources']}
     writer.save_json(output/'manifest.json',manifest)
-    bundle=sources.capture(manifest,output/'capture',opener=opener,auto_full_text=True)
-    bundle['label']=label;bundle['scan']=discovery['scan']+bundle['scan']
+    if mode=='headline_roundup':bundle=headline_bundle(discovery,edition_date,cutoff,label)
+    elif mode=='full_text':
+        bundle=sources.capture(manifest,output/'capture',opener=opener,auto_full_text=True)
+        bundle['label']=label;bundle['scan']=discovery['scan']+bundle['scan']
+    else:raise ValueError('Explicit headline_roundup or full_text mode required')
     holds=[];qualified=[]
     for source in bundle['sources']:
-        if source['access']!='full_text':continue
+        if source['access'] not in {'full_text','headline_only'}:continue
         observed=datetime.fromisoformat(source['retrieved_at'].replace('Z','+00:00'))
         published=source.get('published_at')
         if observed>cutoff_dt:
@@ -149,9 +174,10 @@ def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Befor
             holds.append(source['id']+': publication outside edition window');continue
         qualified.append(source)
     bundle['sources']=qualified
-    if len(qualified)<2:holds.append('Fewer than two actual accessible current full-text source records; coverage requires editorial attention')
+    basis='headline' if mode=='headline_roundup' else 'full-text'
+    if len(qualified)<2:holds.append('Fewer than two actual current '+basis+' source records; coverage requires editorial attention')
     missing=sorted({p for p,_ in PUBLISHERS}-{s['publisher'] for s in qualified})
-    if missing:holds.append('Full-text coverage unavailable: '+', '.join(missing))
+    if missing:holds.append(basis+' coverage unavailable: '+', '.join(missing))
     writer.save_json(output/'qualified-sources.json',bundle)
     status='source_review_required'
     if qualified:
@@ -159,8 +185,8 @@ def run(output,edition_date,cutoff,*,codex,model,effort,opener=None,label='Befor
             checks=sources.write_draft(bundle,output/'draft',codex=codex,model=model,effort=effort)
             holds.extend(checks['issues']);status='editorial_review_required'
         except Exception:holds.append('Actual subscription draft failed; inspect immutable writer receipt')
-    else:holds.append('No qualified full-text evidence; no model generation attempted')
-    result={'status':status,'edition_date':edition_date,'cutoff':cutoff,'label':label,
+    else:holds.append('No qualified '+basis+' evidence; no model generation attempted')
+    result={'status':status,'edition_date':edition_date,'cutoff':cutoff,'label':label,'mode':mode,
         'source_bundle_sha256':digest(bundle),'qualified_count':len(qualified),'holds':holds,
         'review_status':'pending','publish':False,'created_at':writer.utc_now()}
     writer.save_json(output/'run.receipt.json',result);return result
@@ -171,10 +197,11 @@ def main():
     p.add_argument('--cutoff');p.add_argument('--codex',required=True);p.add_argument('--model',required=True)
     p.add_argument('--effort',required=True);p.add_argument('--label',choices=['Before the Open','Intraday','Market Wrap'],default='Before the Open')
     p.add_argument('--registry-root');p.add_argument('--registry-id')
+    p.add_argument('--mode',choices=['headline_roundup','full_text'],default='headline_roundup')
     args=p.parse_args();now=datetime.now(ZoneInfo('America/New_York'));date=args.date or now.date().isoformat()
     cutoff=args.cutoff or datetime.fromisoformat(date+'T07:00:00').replace(tzinfo=ZoneInfo('America/New_York')).isoformat()
     output=Path(args.output_root)/(date+'-'+datetime.now(timezone.utc).strftime('%H%M%S%f'))
-    result=run(output,date,cutoff,codex=args.codex,model=args.model,effort=args.effort,label=args.label)
+    result=run(output,date,cutoff,codex=args.codex,model=args.model,effort=args.effort,label=args.label,mode=args.mode)
     registry=args.registry_root or (str(Path(os.environ['SMN_READER_PRIVATE_ROOT'])/'briefings') if os.environ.get('SMN_READER_PRIVATE_ROOT') else None)
     if registry:
         identifier=args.registry_id or date+'-'+args.label.lower().replace(' ','-')+'-'+output.name.rsplit('-',1)[-1]

@@ -56,7 +56,7 @@ class Daily(unittest.TestCase):
         with patch.object(daily,'PUBLISHERS',[('CNBC','https://www.cnbc.com/rss')]),\
                 patch('subscription_writer.utc_now',return_value='2026-10-03T10:00:00Z'),\
                 patch.object(sources,'write_draft',return_value={'issues':[]}) as draft:
-            result=daily.run(self.root/'run','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',opener=opener)
+            result=daily.run(self.root/'run','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',mode='full_text',opener=opener)
             bundle=draft.call_args.args[0]
             self.assertEqual(bundle['label'],'Before the Open');self.assertEqual(bundle['sources'][0]['access'],'full_text')
             self.assertEqual(draft.call_args.kwargs['model'],'gpt-5.6-sol')
@@ -67,7 +67,7 @@ class Daily(unittest.TestCase):
         with patch.object(daily,'PUBLISHERS',[('CNBC','https://www.cnbc.com/rss')]),\
                 patch('subscription_writer.utc_now',return_value='2026-10-03T12:00:00Z'),\
                 patch.object(sources,'write_draft') as draft:
-            result=daily.run(self.root/'late','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',opener=Opener(self.article()))
+            result=daily.run(self.root/'late','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',mode='full_text',opener=Opener(self.article()))
             draft.assert_not_called()
         self.assertEqual(result['qualified_count'],0);self.assertTrue(any('after cutoff' in h for h in result['holds']))
 
@@ -75,7 +75,7 @@ class Daily(unittest.TestCase):
         with patch.object(daily,'PUBLISHERS',[('CNBC','https://www.cnbc.com/rss')]),\
                 patch('subscription_writer.utc_now',return_value='2026-10-03T10:00:00Z'),\
                 patch.object(sources,'write_draft') as draft:
-            result=daily.run(self.root/'restricted','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',opener=Opener(self.article(False)))
+            result=daily.run(self.root/'restricted','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',mode='full_text',opener=Opener(self.article(False)))
             draft.assert_not_called()
         self.assertEqual(result['qualified_count'],0)
 
@@ -84,9 +84,29 @@ class Daily(unittest.TestCase):
         with patch.object(daily,'PUBLISHERS',[('CNBC','https://www.cnbc.com/rss')]),\
                 patch('subscription_writer.utc_now',return_value='2026-10-03T10:00:00Z'),\
                 patch.object(sources,'write_draft') as draft:
-            result=daily.run(self.root/'other','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',opener=Opener(other))
+            result=daily.run(self.root/'other','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',mode='full_text',opener=Opener(other))
             draft.assert_not_called()
         self.assertEqual(result['qualified_count'],0)
+
+    def test_headline_default_uses_official_feed_without_fetching_restricted_story(self):
+        endpoint=daily.HEADLINE_FEEDS['CNBC']
+        class FeedOnly(Opener):
+            def open(self,request,timeout):
+                self.calls.append(request.full_url)
+                if request.full_url!=endpoint:raise AssertionError('Article access attempted')
+                return Response(b'<rss><channel><item><title>A major economic event deserves full reporting</title>'
+                    b'<link>https://www.cnbc.com/2026/10/03/event.html</link>'
+                    b'<pubDate>Sat, 03 Oct 2026 09:00:00 GMT</pubDate></item></channel></rss>')
+        opener=FeedOnly(b'')
+        with patch.object(daily,'PUBLISHERS',[('CNBC',endpoint)]),\
+                patch('subscription_writer.utc_now',return_value='2026-10-03T10:00:00Z'),\
+                patch.object(sources,'write_draft',return_value={'issues':[]}) as draft:
+            result=daily.run(self.root/'headlines','2026-10-03',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium',opener=opener)
+            source=draft.call_args.args[0]['sources'][0]
+            self.assertEqual(source['access'],'headline_only')
+            self.assertEqual(source['capture']['scope'],'headline_record')
+        self.assertEqual(opener.calls,[endpoint]);self.assertEqual(result['qualified_count'],1)
+        self.assertFalse(result['publish'])
 
     def test_wrong_new_york_edition_rejected_before_access(self):
         with self.assertRaises(ValueError):daily.run(self.root/'bad','2026-10-04',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium')
