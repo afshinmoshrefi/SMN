@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 import briefing_daily as daily
 import briefing_sources as sources
+from daily_briefing import digest
+from subscription_writer import save_json,load_json
 
 
 class Response:
@@ -89,6 +91,19 @@ class Daily(unittest.TestCase):
     def test_wrong_new_york_edition_rejected_before_access(self):
         with self.assertRaises(ValueError):daily.run(self.root/'bad','2026-10-04',self.cutoff,codex='codex',model='gpt-5.6-sol',effort='medium')
         self.assertFalse((self.root/'bad').exists())
+
+    def test_failed_capture_registry_holds_remain_visible_and_immutable(self):
+        output=self.root/'run';output.mkdir();bundle={'edition_date':'2026-10-03','sources':[]}
+        receipt={'status':'source_review_required','source_bundle_sha256':digest(bundle),
+            'holds':['Restricted full text unavailable'],'publish':False,'review_status':'pending'}
+        save_json(output/'qualified-sources.json',bundle);save_json(output/'run.receipt.json',receipt)
+        path=Path(daily.register(output,self.root/'registry','2026-10-03-before-open'))
+        self.assertEqual(load_json(path/'capture-status.json')['holds'],receipt['holds'])
+        self.assertFalse((path/'briefing.json').exists());self.assertFalse((path/'review.json').exists())
+        bundle['sources']=[{'changed':'capture'}];save_json(output/'qualified-sources.json',bundle)
+        receipt['source_bundle_sha256']=digest(bundle);save_json(output/'run.receipt.json',receipt)
+        with self.assertRaises(ValueError):daily.register(output,self.root/'registry','2026-10-03-before-open')
+        self.assertEqual(load_json(path/'sources.json')['sources'],[])
 
 
 if __name__=='__main__':unittest.main()
