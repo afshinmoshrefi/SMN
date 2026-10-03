@@ -155,7 +155,7 @@ def register(app, handlers, client=None):
                     or not isinstance(statement['text'], str) or not statement['text'].strip()
                     or len(statement['text']) > 10000 or '<' in statement['text'] or '>' in statement['text']):
                 raise PanelError('Public preview fields require plain text and retained source references.')
-            if any(not isinstance(statement[key], list) or not statement[key]
+            if any(not isinstance(statement[key], list) or (key == 'article_refs' and not statement[key])
                    or any(not isinstance(ref, str) or not ref.strip() or len(ref) > 200 for ref in statement[key])
                    for key in ('source_ids', 'article_refs')):
                 raise PanelError('Retain valid source and article references.')

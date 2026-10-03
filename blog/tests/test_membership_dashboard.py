@@ -93,6 +93,11 @@ class MembershipPanelTests(unittest.TestCase):
         response = self.client.put('/api/membership/articles/test/preview', json=payload, headers=self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.calls[-1][1][2], '7')
+        statement['source_ids'] = []  # Server-bound exact-source excerpts have no external source ID.
+        self.assertEqual(self.client.put('/api/membership/articles/test/preview', json=payload, headers=self.headers).status_code, 200)
+        statement['article_refs'] = []
+        self.assertEqual(self.client.put('/api/membership/articles/test/preview', json=payload, headers=self.headers).status_code, 400)
+        statement['article_refs'] = ['source-opening']
         content['cta'] = 'Lifetime guaranteed returns'
         self.assertEqual(self.client.put('/api/membership/articles/test/preview', json=payload, headers=self.headers).status_code, 400)
 
