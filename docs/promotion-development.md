@@ -69,6 +69,23 @@ voice/reference, video hash, provider generation ID/model and received shared-bu
 reservation. Only real <=8-second intro/outro deliveries are admitted for pending review.
 No stock substitute, fabricated avatar success, external post or provider switch occurs.
 
+The separate documented Creatify Aurora API route is implemented as an asynchronous
+submit/reconcile worker, rather than assuming reusable Avatars have an API. Server
+configuration adds `flows_plan_verified` (Pro or above), existing credential/voice and
+likeness flags, plus `avatar_request`: image_path, audio_path, audio_receipt, script,
+part (intro/outro), resolution (480p/720p), and verified exact-request credit quote.
+The speech receipt must bind the selected beginning/end of the approved briefing to
+the verified voice and actual audio hash; the presenter image hash is checked again.
+`elevenlabs_client.avatar_identity(image_hash,audio_hash,resolution)` binds the quote.
+`avatar()` submits documented inline media to `/v1/flows/video`, retains its generation
+ID privately, and polls that same ID at most once per ten seconds on subsequent worker
+ticks. Shared credit reservations survive crashes; unknown submissions are never retried.
+Completed media is downloaded without credentials only from the documented Google
+storage host, hash-bound, then probed as a brief asset and held for actual media review.
+Account/key/reference/quote readiness remains an explicit gate, not simulated generation.
+Official contracts: https://elevenlabs.io/docs/api-reference/flows/video/create and
+https://elevenlabs.io/docs/eleven-api/guides/cookbooks/image-and-video.
+
 Publication aliasing uses optional keyword `publication_identity` on
 `public_derivative.prepare_derivative`: canonical_id, source_original_id,
 article_sha256, revision, binding_sha256 (digest of the first four fields).
