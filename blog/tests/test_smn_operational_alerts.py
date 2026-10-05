@@ -243,6 +243,31 @@ class OperationalAlertTests(unittest.TestCase):
             alerts.run(self.root, self.six, SETTINGS, sender=sender)
         self.assertEqual(attempts, SETTINGS['alert_recipients'])
 
+    def test_partial_coverage_is_pending_not_missing_declared_public_article(self):
+        posts = self.frozen()
+        receipt = {'status':'live_verified','production_written':True,
+                   'edition_date':'2026-10-02','publication_policy':'continuity-v1','coverage_status':'partial','complete':False,
+                   'expected_symbols':['ABC','XYZ'],'published_symbols':['ABC'],'pending_symbols':['XYZ']}
+        self.write(self.day/'chatgpt/production-publication-receipt.json', receipt)
+        def probe(origin, urls):
+            self.assertEqual(list(urls), ['ABC'])
+            return posts[:1], {url:'available' for url in urls.values()}
+        result = alerts.inspect(self.root, self.six, SETTINGS, public_probe=probe)
+        self.assertEqual(result[0]['kind'], 'coverage-pending')
+        result = alerts.inspect(self.root, self.six, SETTINGS,
+                                public_probe=lambda origin, urls: ([], {url:'missing' for url in urls.values()}))
+        self.assertEqual(result[0]['kind'], 'edition-incomplete')
+        receipt['complete'] = True
+        self.write(self.day/'chatgpt/production-publication-receipt.json', receipt)
+        self.assertEqual(alerts.inspect(self.root, self.six, SETTINGS)[0]['kind'], 'edition-incomplete')
+
+    def test_notice_with_unknown_selection_is_not_false_completion(self):
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified','production_written':True,'publication_policy':'continuity-v1',
+                    'edition_date':'2026-10-02','coverage_status':'notice','complete':False,'expected_symbols':[],
+                    'published_symbols':[],'pending_symbols':[]})
+        self.assertEqual(alerts.inspect(self.root, self.six, SETTINGS)[0]['kind'], 'coverage-pending')
+
     def test_installer_unit_is_separate_and_explicitly_targets_dev(self):
         units = installer.unit_texts(Path(__file__).resolve().parents[2], 'dev')
         service = units[installer.SERVICE]

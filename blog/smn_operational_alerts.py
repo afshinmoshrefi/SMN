@@ -127,10 +127,30 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
     receipt = _json(root/date/'chatgpt'/receipt_name)
     receipt_ok = bool(origin and isinstance(receipt, dict) and receipt.get('status') == 'live_verified'
                       and (target == 'dev' or receipt.get('production_written') is True))
+    continuity = receipt_ok and receipt.get('publication_policy') == 'continuity-v1'
+    published = expected
+    if continuity:
+        published = receipt.get('published_symbols')
+        pending = receipt.get('pending_symbols')
+        declared = receipt.get('expected_symbols')
+        coverage = receipt.get('coverage_status')
+        valid = (receipt.get('edition_date') == date and isinstance(published, list) and isinstance(pending, list) and
+                 isinstance(declared, list) and all(isinstance(s, str) for s in published + pending + declared) and
+                 len(set(published + pending)) == len(published + pending) and
+                 set(published + pending) == set(declared) and
+                 (declared == expected or (not expected and not declared and coverage == 'notice')) and
+                 coverage == ('complete' if declared and not pending else 'partial' if published else 'notice') and
+                 receipt.get('complete') is (coverage == 'complete'))
+        if not valid:
+            return [_incident(date, 'edition-incomplete', 'Invalid declared publication coverage',
+                              f'SMN publication coverage differs ({date})')]
+        if not published:
+            return [_incident(date, 'coverage-pending', 'Dated notice published; current article coverage remains pending',
+                              f'SMN current coverage pending ({date})')]
     reader_done = False
     public_problem = None
-    if receipt_ok and expected:
-        urls = {symbol:f'{origin}/editions/{date}/{symbol}/article.html' for symbol in expected}
+    if receipt_ok and published:
+        urls = {symbol:f'{origin}/editions/{date}/{symbol}/article.html' for symbol in published}
         try:
             public, statuses = public_probe(origin, urls)
             live = {(p.get('symbol'), p.get('url')) for p in public if isinstance(p, dict)
@@ -144,9 +164,13 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
             elif unknown:
                 public_problem = 'Public article URL availability could not be verified: ' + ', '.join(unknown)
             else:
-                reader_done = True
+                reader_done = not continuity or receipt.get('complete') is True
         except (OSError, ValueError, TypeError, HTTPError, URLError):
             public_problem = 'Public article catalog could not be verified'
+    if continuity and not reader_done:
+        detail = public_problem or 'Verified coverage published; pending subjects: ' + ', '.join(receipt['pending_symbols'])
+        kind = ('verification-unavailable' if 'could not be verified' in detail else 'edition-incomplete') if public_problem else 'coverage-pending'
+        return [_incident(date, kind, detail, f'SMN publication update ({date})')]
     if reader_done:
         return []
     if failed:
