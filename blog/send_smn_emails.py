@@ -626,8 +626,10 @@ def _apply_provider_status(record, data):
     record['phase'] = 'provider_sent' if data.get('status') == 'sent' and data.get('finished_at') else 'provider_' + str(data.get('status') or 'unknown')
 
 
-def reconcile_campaign(state, kind, day):
+@_serialized_newsletter
+def reconcile_campaign(kind, day):
     """Read the provider status of a journaled campaign; never creates or sends."""
+    state = _load_state()
     key = _campaign_key(kind, day)
     record = state.get('campaigns', {}).get(key)
     if not record or not record.get('campaign_id'):

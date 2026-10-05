@@ -131,6 +131,7 @@ class NewsletterStateTest(unittest.TestCase):
         module = self.module
         state = {'campaigns': {'daily:2026-10-05': {
             'name': 'SMN-Daily-2026-10-05', 'campaign_id': '123', 'phase': 'scheduled'}}}
+        module._save_state(state)
         response = types.SimpleNamespace(
             raise_for_status=lambda: None,
             json=lambda: {'data': {'id': '123', 'name': 'SMN-Daily-2026-10-05',
@@ -138,7 +139,7 @@ class NewsletterStateTest(unittest.TestCase):
                                    'stats': {'sent': 138, 'hard_bounces_count': 0,
                                              'soft_bounces_count': 0}}})
         with patch.object(module.requests, 'get', return_value=response) as get:
-            record = module.reconcile_campaign(state, 'daily', date(2026, 10, 5))
+            record = module.reconcile_campaign('daily', date(2026, 10, 5))
         self.assertEqual(record['phase'], 'provider_sent')
         self.assertEqual(record['provider_counts']['sent'], 138)
         self.assertIsNone(record['provider_counts']['delivered'])
