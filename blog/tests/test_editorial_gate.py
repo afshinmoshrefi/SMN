@@ -101,6 +101,40 @@ class EditorialGateTests(unittest.TestCase):
             for issue in gate.problems(draft,self.bundle,ctx,review)))
         self.assertIn('Choose quoted text carrying the item\'s source_id citation',gate.RULES)
 
+    def test_only_valid_passing_wrong_citation_review_requests_evidence_reinspection(self):
+        draft=copy.deepcopy(self.article)
+        draft['title']=self.text
+        draft['title_source_ids']=['filing']
+        draft['sections'][0]['paragraphs'][0]['text']='Management says delayed deals and execution problems matter.'
+        self.write(self.result/'article.json',draft)
+        ctx=gate.context(self.root,'SPY','2026-09-30')
+        self.write(self.job/'editorial-context.json',ctx)
+        (self.job/'prompt.txt').write_text(gate.MARKER+gate.digest(ctx)+'\n',encoding='utf-8')
+        manifest=json.loads((self.job/'job.json').read_text())
+        manifest['input_hashes']={name:gate.sha256((self.job/name).read_bytes())
+            for name in ('prompt.txt','schema.json','editorial-context.json')}
+        self.write(self.job/'job.json',manifest)
+        receipt=json.loads((self.job/'receipt.json').read_text())
+        receipt['input_hashes']=manifest['input_hashes']
+        self.write(self.job/'receipt.json',receipt)
+        review=copy.deepcopy(self.review)
+        review['editorial_audit']['coverage'][0]['article_quote']=self.text
+        self.write(self.job/'output.json',review)
+        with self.assertRaises(gate.ReviewEvidenceError):
+            gate.verify_review(self.result,self.job/'output.json')
+        review['editorial_audit']['coverage'][0]['status']='missing'
+        self.write(self.job/'output.json',review)
+        receipt['output_sha256']=gate.sha256((self.job/'output.json').read_bytes())
+        self.write(self.job/'receipt.json',receipt)
+        with self.assertRaises(ValueError) as caught:
+            gate.verify_review(self.result,self.job/'output.json')
+        self.assertNotIsInstance(caught.exception,gate.ReviewEvidenceError)
+        receipt['output_sha256']='altered-receipt'
+        self.write(self.job/'receipt.json',receipt)
+        with self.assertRaises(ValueError) as caught:
+            gate.verify_review(self.result,self.job/'output.json')
+        self.assertNotIsInstance(caught.exception,gate.ReviewEvidenceError)
+
     def test_style_only_failure_reuses_signed_review_with_versioned_policy(self):
         review=copy.deepcopy(self.review)
         review['passed']=False
