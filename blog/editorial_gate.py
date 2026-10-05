@@ -425,9 +425,13 @@ def verify_review(result, review_path):
     return proof
 
 
-def verify_complete(result):
+def verify_content(result, *, allow_held_binding=False):
+    """Verify immutable article/review/engine evidence without presentation approval."""
     result = Path(result); root = result.parent.parent
-    binding = load_json(result/'review-binding.json')
+    binding_path = result/'review-binding.json'
+    if allow_held_binding and not binding_path.exists():
+        binding_path = result/'review-binding.held.json'
+    binding = load_json(binding_path)
     stage = binding.get('review_stage','')
     if not re.fullmatch('[a-z-]+',stage): raise ValueError('Final review stage missing')
     edition = load_json(root/'smn-daily-state.json')['date'] if (root/'smn-daily-state.json').exists() else load_json(root/'daily-state.json')['date']
@@ -440,6 +444,12 @@ def verify_complete(result):
         raise ValueError('Mechanical approval missing or stale')
     from engine_seasonal import verify_assets
     verify_assets(load_json(result/'seasonal-manifest.json'),result)
+    return proof
+
+
+def verify_complete(result):
+    result = Path(result); root = result.parent.parent
+    proof = verify_content(result)
     hero=load_json(result/'hero-asset.json')
     if sha256((result/hero['url']).read_bytes())!=hero['sha256']:
         raise ValueError('Reviewed hero asset changed')

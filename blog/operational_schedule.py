@@ -34,6 +34,8 @@ def verified_reader_urls(root, day, web_root=WEB_ROOT):
         return None
     selected = json.loads(selected_path.read_text())
     receipt = json.loads(receipt_path.read_text())
+    if receipt.get('publication_policy') == 'continuity-v1' and receipt.get('complete') is not True:
+        return None
     symbols = selected.get('symbols')
     if (selected.get('date') != day or not isinstance(symbols, list) or
             not 1 <= len(symbols) <= 6 or len(set(symbols)) != len(symbols) or
@@ -154,6 +156,11 @@ def tick(target, now=None, newsletter_only=False):
         for phase, day in due(now, target, settings, newsletter_only):
             marker = MARKERS / f'{target}-{phase}-{day}.json'
             if phase == 'daily':
+                activation = Path('/etc/SMN/subscription-primary.json')
+                if target == 'production' and activation.is_file() and json.loads(activation.read_text()).get('publication_policy') == 'continuity-v1':
+                    from production_continuity import require_policy
+                    require_policy()
+                    continue  # Independent progress service owns the opt-in generation.
                 last = CONTROLLER_ROOT/'last-run.json'
                 if last.exists():
                     status = json.loads(last.read_text())

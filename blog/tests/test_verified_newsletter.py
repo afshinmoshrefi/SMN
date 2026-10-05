@@ -5,7 +5,6 @@ import sys
 import tempfile
 import types
 import unittest
-from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,7 +34,7 @@ class VerifiedNewsletterTest(unittest.TestCase):
                 spec.loader.exec_module(module)
             module.STATE_FILE = root/'state.json'
             module.POSTS_JSON = root/'posts.json'
-            day = date.today().isoformat()
+            day = module._today().isoformat()
             selected = 'https://seasonalmarketnews.com/editions/'+day+'/AAA/article.html'
             extra = 'https://seasonalmarketnews.com/articles/other.html'
             module.POSTS_JSON.write_text(json.dumps([
@@ -44,15 +43,18 @@ class VerifiedNewsletterTest(unittest.TestCase):
             with patch.object(module, 'get_email_groups', return_value={'SMN-DAILY': 'group'}), \
                     patch.object(module, '_generate_daily_narrative', return_value=('Subject', 'Narrative')), \
                     patch.object(module, '_build_email_html', return_value='<html/>'), \
-                    patch.object(module, '_create_and_schedule', return_value='campaign') as send:
+                    patch.object(module, 'create_campaign', return_value=('campaign', 'now')) as send, \
+                    patch.object(module, '_schedule_campaign_explicit', return_value={'data': {'id': 'campaign', 'status': 'ready'}}):
                 module.daily_send(verified_urls={selected})
                 self.assertEqual(send.call_count, 1)
-                self.assertEqual(json.loads(module.STATE_FILE.read_text())['daily_sent'], ['aaa'])
+                state = json.loads(module.STATE_FILE.read_text())
+                self.assertEqual(state['daily_sent'], [])
+                self.assertEqual(state['campaigns']['daily:'+day]['phase'], 'scheduled')
                 send.reset_mock()
                 module.daily_send(verified_urls={selected})
                 send.assert_not_called()
                 module.STATE_FILE.write_text(json.dumps({'daily_sent': ['aaa']}))
-                with self.assertRaisesRegex(ValueError, 'partly emailed'):
+                with self.assertRaisesRegex(ValueError, 'partly reserved'):
                     module.daily_send(verified_urls={selected, extra})
 
 

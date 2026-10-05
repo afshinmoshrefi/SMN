@@ -20,6 +20,14 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  assert(homeManifest.previous_article_urls.every(url=>catalogUrls.includes(url)),'All prior articles retained');
  assert(homeManifest.source_commit===manifest.source_commit,'Homepage source provenance');
  const activation=read(path.join(R,'primary-activation.json'));
+ if(manifest.continuity_policy===1){
+  const coverage=await page.evaluate(async ()=>(await fetch('/coverage-status.json',{cache:'no-store'})).json());
+  for(const key of ['revision_id','transaction_id','revision','selection_sha256','selection_status','coverage_status','complete','expected_symbols','published_symbols','pending_symbols'])
+   assert(JSON.stringify(coverage[key])===JSON.stringify(manifest[key]),'Coverage metadata '+key);
+  assert(await page.locator('#coverage-status').count()===1,'Dated coverage notice visible');
+  const notice=await page.locator('#coverage-status').innerText();
+  assert(notice.includes(date)&&(!manifest.pending_symbols.length||manifest.pending_symbols.every(s=>notice.includes(s))),'Coverage notice truth');
+ }
  const expectedPins=(activation.expected_pins||[]).filter(p=>!p.expires_at||Date.parse(p.expires_at)>Date.now());
  const ordered=await page.locator('.wire-lead h2 a,.wire-lead h1 a,.wire-headline-item h3 a,.wire-headline-item h2 a').evaluateAll(a=>a.map(x=>x.href));
  for(const pin of expectedPins){const entry=catalog.find(p=>p.slug===pin.slug);assert(entry,'Pinned catalog entry retained');if(pin.position===1)assert(await page.locator('.wire-lead a').evaluateAll((a,url)=>a.some(x=>x.href===url),entry.url),'Pinned lead retained');}
@@ -58,7 +66,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
   const oldPath=new URL(archived.url).pathname;
   await page.waitForFunction(p=>[...document.querySelectorAll('#resultsList a[href]')].some(a=>new URL(a.href).pathname===p),oldPath);
   await page.goto(base+oldPath,{waitUntil:'domcontentloaded'});
-  const titleText=t=>t.replace(/[—–]/g,'-').replace(/\s+/g,' ').trim();
+  const titleText=t=>t.replace(/[â€”â€“]/g,'-').replace(/\s+/g,' ').trim();
   assert(titleText(await page.locator('h1').innerText())===titleText(archived.title),'Older article content retained');
  }
  const pages=[];
@@ -110,7 +118,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
   for(const r of results)assert(r.passed,'Public asset hash: '+r.rel);checked.push(...results);
  }
  const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');
- const proof={passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,home_redirect:false,home_links:{desktop:desktopHomeLinks,mobile:mobileHomeLinks},archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true};
+ const proof={deterministic_landing:manifest.continuity_policy===1,passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,home_redirect:false,home_links:{desktop:desktopHomeLinks,mobile:mobileHomeLinks},archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true};
  fs.writeFileSync(path.join(R,'live-verification.json'),JSON.stringify(proof,null,2));console.log(JSON.stringify({passed:true,article_layouts:pages.length,public_files:checked.length,source_commit:manifest.source_commit}));
  await browser.close();
 })().catch(async e=>{console.error(e.message);if(browser)await browser.close();process.exitCode=1});

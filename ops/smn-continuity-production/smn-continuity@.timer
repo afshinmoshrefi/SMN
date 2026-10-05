@@ -1,0 +1,11 @@
+[Unit]
+Description=Independent SMN continuity %i tick
+
+[Timer]
+OnCalendar=*-*-* *:*:00 UTC
+AccuracySec=1s
+Persistent=false
+Unit=smn-continuity@%i.service
+
+[Install]
+WantedBy=timers.target

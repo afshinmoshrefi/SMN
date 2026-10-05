@@ -26,14 +26,19 @@ import re
 import sys
 import argparse
 import logging
+import os
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, date, timedelta, timezone
+from functools import wraps
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import requests
 
 sys.path.insert(0, '/home/flask')
 import config
-from email_tools import (get_email_groups, create_campaign, schedule_campaign,
-                         future_date_hour_min, create_mailerlite_group,
+from email_tools import (get_email_groups, create_campaign,
+                         create_mailerlite_group,
                          create_subscriber, assign_subscriber_to_a_group,
                          get_subscriber_by_email)
 from AI_tools import send_openai_prompt
@@ -52,6 +57,9 @@ FROM_EMAIL = config.smn_from_email
 # Cap articles per email to keep length reasonable
 MAX_DAILY_ARTICLES  = 8
 MAX_WEEKLY_ARTICLES = 16
+MAILERLITE_ACCOUNT_TIMEZONE = ZoneInfo('America/New_York')
+MAILERLITE_CAMPAIGN_URL = 'https://connect.mailerlite.com/api/campaigns/'
+MAILERLITE_TIMEZONES_URL = 'https://connect.mailerlite.com/api/timezones'
 
 logging.basicConfig(
     filename=LOG_FILE,
@@ -70,20 +78,87 @@ def _load_state():
         try:
             with open(STATE_FILE) as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except (OSError, ValueError) as exc:
+            raise RuntimeError('Newsletter state unreadable; refusing to create a campaign') from exc
     return {
         'daily_sent': [], 'weekly_sent': [],
         'last_weekly_date': None,
         'last_daily_narrative': None,
-        'last_weekly_narrative': None,
+        'last_weekly_narrative': None, 'campaigns': {},
     }
 
 
 def _save_state(state):
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f, indent=2)
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=STATE_FILE.parent,
+                                         prefix=STATE_FILE.name + '.', suffix='.tmp',
+                                         delete=False) as f:
+            temporary = Path(f.name)
+            json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, STATE_FILE)
+    except BaseException:
+        if 'temporary' in locals():
+            temporary.unlink(missing_ok=True)
+        raise
+
+
+@contextmanager
+def _newsletter_lock():
+    """Serialize entrypoints across processes; the OS releases locks on exit."""
+    lock_path = STATE_FILE.with_name(STATE_FILE.name + '.lock')
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, 'a+b') as lock_file:
+        if os.name == 'nt':
+            import msvcrt
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b'0')
+                lock_file.flush()
+            lock_file.seek(0)
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise RuntimeError('Newsletter sender already running') from exc
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError('Newsletter sender already running') from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _serialized_newsletter(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with _newsletter_lock():
+            return function(*args, **kwargs)
+    return wrapped
+
+
+def _reserved_slugs(state, kind):
+    # The old *_sent arrays remain historical deduplication inputs. New records
+    # say what the provider has actually acknowledged, without claiming delivery.
+    slugs = set(state.get(f'{kind}_sent', []))
+    for key, record in state.get('campaigns', {}).items():
+        if key.startswith(kind + ':'):
+            slugs.update(record.get('slugs', []))
+    return slugs
+
+
+def _today():
+    return datetime.now(timezone.utc).astimezone(MAILERLITE_ACCOUNT_TIMEZONE).date()
 
 
 # =============================================================================
@@ -137,8 +212,8 @@ def _hero_url(article):
 
 def _filter_daily(posts, state):
     """Articles published today not yet included in a daily email."""
-    today_str = date.today().isoformat()
-    sent      = set(state.get('daily_sent', []))
+    today_str = _today().isoformat()
+    sent      = _reserved_slugs(state, 'daily')
     results = [
         p for p in posts
         if p.get('published_date', '')[:10] == today_str
@@ -150,9 +225,9 @@ def _filter_daily(posts, state):
 
 def _filter_weekly(posts, state):
     """Articles from the past 7 days not yet included in a weekly email."""
-    today      = date.today()
+    today      = _today()
     week_start = today - timedelta(days=7)
-    sent       = set(state.get('weekly_sent', []))
+    sent       = _reserved_slugs(state, 'weekly')
     results    = []
     for p in posts:
         try:
@@ -459,21 +534,195 @@ def _build_email_html(email_type, narrative, articles, send_date):
 # Campaign creation & scheduling
 # =============================================================================
 
-def _create_and_schedule(group_id, subject, html, campaign_name):
-    # Match the working pattern from generate_emails.py exactly
-    campaign_id, campaign_time = create_campaign(campaign_name, subject, FROM_NAME, FROM_EMAIL, group_id, html)
-    d, h, m = future_date_hour_min(5)
-    schedule_campaign(campaign_id, d, h, m)
-    log.info('Campaign scheduled: id=%s name="%s" send_at=%s %s:%s', campaign_id, campaign_name, d, h, m)
-    return campaign_id
+def _schedule_fields(minutes, now=None):
+    """Express an absolute target instant in the named campaign timezone."""
+    instant = now or datetime.now(timezone.utc)
+    if instant.tzinfo is None:
+        raise ValueError('Scheduling instant must include a timezone')
+    local = (instant.astimezone(timezone.utc) + timedelta(minutes=minutes)).astimezone(MAILERLITE_ACCOUNT_TIMEZONE)
+    return local.strftime('%Y-%m-%d'), local.strftime('%H'), local.strftime('%M')
+
+
+def _mailerlite_headers():
+    return {'Authorization': 'Bearer ' + config.mailerlite_token}
+
+
+def _schedule_campaign_explicit(campaign_id, date_string, hour, minute):
+    zones = requests.get(MAILERLITE_TIMEZONES_URL, headers=_mailerlite_headers(), timeout=15)
+    zones.raise_for_status()
+    matches = [zone for zone in zones.json().get('data', [])
+               if zone.get('name') == MAILERLITE_ACCOUNT_TIMEZONE.key]
+    if len(matches) != 1 or not str(matches[0].get('id', '')).isdigit():
+        raise ValueError('MailerLite timezone ID unavailable; campaign remains unscheduled')
+    response = requests.post(
+        MAILERLITE_CAMPAIGN_URL + str(campaign_id) + '/schedule',
+        headers=_mailerlite_headers(),
+        json={'delivery': 'scheduled', 'schedule': {
+            'date': date_string, 'hours': hour, 'minutes': minute,
+            'timezone_id': int(matches[0]['id'])}}, timeout=15)
+    response.raise_for_status()
+    return response.json()
+
+
+def _campaign_key(kind, day):
+    return f'{kind}:{day.isoformat()}'
+
+
+def _campaign_name(kind, day):
+    if kind not in ('daily', 'weekly'):
+        raise ValueError('Campaign kind must be daily or weekly')
+    return f'SMN-{kind.title()}-{day.isoformat()}'
+
+
+def _create_and_schedule(group_id, subject, html, campaign_name, state, kind, day, articles):
+    """Journal intent before any POST; an uncertain result must be reconciled."""
+    key = _campaign_key(kind, day)
+    if key in state.setdefault('campaigns', {}):
+        raise ValueError(f'Campaign {key} already attempted; reconcile provider status before retry')
+    record = {'name': campaign_name, 'slugs': [a['slug'] for a in articles],
+              'phase': 'create_unknown', 'campaign_id': None, 'provider_status': None}
+    state['campaigns'][key] = record
+    _save_state(state)
+    campaign_id, _ = create_campaign(campaign_name, subject, FROM_NAME, FROM_EMAIL, group_id, html)
+    record['campaign_id'] = str(campaign_id)
+    record['phase'] = 'schedule_unknown'
+    _save_state(state)
+    d, h, m = _schedule_fields(5)
+    response = _schedule_campaign_explicit(campaign_id, d, h, m)
+    data = response.get('data') if isinstance(response, dict) else None
+    if (not isinstance(data, dict) or str(data.get('id')) != str(campaign_id)
+            or data.get('status') not in ('ready', 'sent')):
+        raise ValueError(f'MailerLite schedule acknowledgement missing for {key}; reconcile before retry')
+    record['phase'] = 'scheduled'
+    record['provider_status'] = data.get('status')
+    record['scheduled_for_account_time'] = f'{d} {h}:{m} {MAILERLITE_ACCOUNT_TIMEZONE.key}'
+    record['provider_finished_at'] = data.get('finished_at')
+    _save_state(state)
+    log.info('Campaign scheduled: id=%s name="%s" send_at=%s %s:%s account_zone=%s',
+             campaign_id, campaign_name, d, h, m, MAILERLITE_ACCOUNT_TIMEZONE.key)
+    return record
+
+
+def _get_provider_campaign(campaign_id):
+    response = requests.get(
+        MAILERLITE_CAMPAIGN_URL + str(campaign_id),
+        headers=_mailerlite_headers(), timeout=15)
+    response.raise_for_status()
+    return response.json().get('data', {})
+
+
+def _apply_provider_status(record, data):
+    if str(data.get('id')) != str(record['campaign_id']) or data.get('name') != record['name']:
+        raise ValueError('MailerLite campaign identity mismatch')
+    record['provider_status'] = data.get('status')
+    record['provider_finished_at'] = data.get('finished_at')
+    stats = data.get('stats') or {}
+    record['provider_counts'] = {
+        'sent': stats.get('sent'),
+        'hard_bounces': stats.get('hard_bounces_count'),
+        'soft_bounces': stats.get('soft_bounces_count'),
+        'delivered': stats.get('delivered_count'),
+    }
+    record['phase'] = 'provider_sent' if data.get('status') == 'sent' and data.get('finished_at') else 'provider_' + str(data.get('status') or 'unknown')
+
+
+@_serialized_newsletter
+def reconcile_campaign(kind, day):
+    """Read the provider status of a journaled campaign; never creates or sends."""
+    state = _load_state()
+    key = _campaign_key(kind, day)
+    record = state.get('campaigns', {}).get(key)
+    if not record or not record.get('campaign_id'):
+        raise ValueError(f'No known campaign id for {key}; inspect MailerLite manually')
+    _apply_provider_status(record, _get_provider_campaign(record['campaign_id']))
+    _save_state(state)
+    return record
+
+
+@_serialized_newsletter
+def poll_pending_campaigns(current=None, max_polls=48):
+    """Bounded GET-only status reconciliation; never reserves or sends a campaign."""
+    current = current or datetime.now(timezone.utc)
+    state = _load_state()
+    results = {}
+    for key, record in sorted(state.get('campaigns', {}).items()):
+        if (not record.get('campaign_id') or record.get('provider_status') in {'failed', 'canceled', 'cancelled'} or
+                (record.get('provider_status') == 'sent' and record.get('provider_finished_at'))):
+            continue
+        if record.get('poll_count', 0) >= max_polls:
+            results[key] = {'status': 'needs_attention', 'reason': 'Provider status polling limit reached'}
+            continue
+        retry = record.get('next_poll_utc')
+        if retry and current < datetime.fromisoformat(retry):
+            continue
+        record['poll_count'] = record.get('poll_count', 0) + 1
+        record['next_poll_utc'] = (current + timedelta(minutes=30)).isoformat()
+        _save_state(state)
+        try:
+            _apply_provider_status(record, _get_provider_campaign(record['campaign_id']))
+            record.pop('poll_error', None)
+        except Exception as exc:
+            record['poll_error'] = str(exc)[:300]
+        record['last_poll_utc'] = current.isoformat()
+        results[key] = {'provider_status': record.get('provider_status'),
+                        'provider_counts': record.get('provider_counts'),
+                        'poll_error': record.get('poll_error')}
+        _save_state(state)
+    return results
+
+
+def attach_existing_campaign(kind, day, campaign_id, slugs):
+    """Reconcile a legacy campaign from a supplied ID and legacy catalog evidence.
+
+    MailerLite's campaign GET does not return the sent HTML. The slug binding here
+    is explicitly inherited from the old local *_sent marker, not provider proof.
+    """
+    if not isinstance(day, date) or not str(campaign_id).isdigit():
+        raise ValueError('A date and numeric campaign ID are required')
+    name = _campaign_name(kind, day)
+    if not slugs or len(slugs) != len(set(slugs)):
+        raise ValueError('A nonempty unique slug lineup is required')
+    with _newsletter_lock():
+        state = _load_state()
+        key = _campaign_key(kind, day)
+        if key in state.get('campaigns', {}):
+            raise ValueError(f'Campaign {key} is already journaled')
+        legacy = set(state.get(f'{kind}_sent', []))
+        if not set(slugs) <= legacy:
+            raise ValueError('Lineup is not present in the legacy sent marker')
+        matches = {slug: [post for post in _load_posts() if post.get('slug') == slug]
+                   for slug in slugs}
+        if any(len(posts) != 1 or not posts[0].get('url')
+               for posts in matches.values()):
+            raise ValueError('Lineup is missing or ambiguous in the article catalog')
+        try:
+            published_days = [date.fromisoformat(matches[slug][0]['published_date'][:10])
+                              for slug in slugs]
+        except (KeyError, ValueError) as exc:
+            raise ValueError('Lineup publication dates are unavailable') from exc
+        if any(published != day if kind == 'daily' else
+               not day - timedelta(days=7) <= published <= day
+               for published in published_days):
+            raise ValueError('Lineup publication dates do not match campaign date')
+        data = _get_provider_campaign(campaign_id)
+        if str(data.get('id')) != str(campaign_id) or data.get('name') != name:
+            raise ValueError('MailerLite campaign identity mismatch')
+        record = {'name': name, 'slugs': list(slugs), 'campaign_id': str(campaign_id),
+                  'lineup_evidence': 'legacy_sent_marker_and_current_catalog',
+                  'provider_status': None}
+        _apply_provider_status(record, data)
+        state.setdefault('campaigns', {})[key] = record
+        _save_state(state)
+        return record
 
 
 # =============================================================================
 # Daily send  (Mon–Fri)
 # =============================================================================
 
+@_serialized_newsletter
 def daily_send(force=False, verified_urls=None, edition_date=None):
-    today = edition_date or date.today()
+    today = edition_date or _today()
 
     state = _load_state()
     posts = _load_posts()
@@ -482,17 +731,17 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
         selected = [p for p in posts if p.get('url') in verified_urls]
         if len(selected) != len(verified_urls) or {p.get('url') for p in selected} != verified_urls:
             raise ValueError('Verified reader lineup is missing from the email catalog')
-        sent = set(state.get('daily_sent', []))
+        sent = _reserved_slugs(state, 'daily')
         remaining = [p for p in selected if p.get('slug') not in sent]
         if not remaining:
-            print('Verified reader edition already included in a daily email. Nothing sent.')
+            print('Verified reader edition already reserved by a daily campaign. No new campaign created.')
             return
         if len(remaining) != len(selected):
-            raise ValueError('Verified reader edition was partly emailed; inspect before retry')
+            raise ValueError('Verified reader edition was partly reserved; inspect before retry')
         articles = sorted(remaining, key=lambda x: x.get('published_date', ''), reverse=True)
     elif force:
         # Dev/test: grab most recent unsent articles regardless of date
-        sent     = set(state.get('daily_sent', []))
+        sent     = _reserved_slugs(state, 'daily')
         articles = [p for p in posts if p.get('slug') not in sent]
         articles.sort(key=lambda x: x.get('published_date', ''), reverse=True)
         articles = articles[:MAX_DAILY_ARTICLES]
@@ -522,33 +771,33 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
     html = _build_email_html('daily', narrative, articles, today)
     name = f"SMN-Daily-{today.isoformat()}"
 
-    _create_and_schedule(group_id, subject, html, name)
-
-    state['daily_sent'].extend(a['slug'] for a in articles if a.get('slug'))
+    record = _create_and_schedule(group_id, subject, html, name, state, 'daily', today, articles)
     state['last_daily_narrative'] = narrative
     _save_state(state)
 
-    print(f'Daily email sent: {len(articles)} article(s) | "{subject}"')
-    log.info('daily_send: done.')
+    print(f'Daily campaign queued: {len(articles)} article(s) | "{subject}" | id={record["campaign_id"]}')
+    log.info('daily_send: provider schedule acknowledged; delivery pending.')
 
 
 # =============================================================================
 # Weekly send  (Sunday)
 # =============================================================================
 
+@_serialized_newsletter
 def weekly_send(force=False):
-    today = date.today()
+    today = _today()
     state = _load_state()
 
-    if not force and state.get('last_weekly_date') == today.isoformat():
+    if not force and (state.get('last_weekly_date') == today.isoformat() or
+                      _campaign_key('weekly', today) in state.get('campaigns', {})):
         log.info('weekly_send: already sent this week (%s)', today)
-        print('Weekly recap already sent this week. Nothing sent.')
+        print('Weekly recap already reserved this week. No new campaign created.')
         return
 
     posts = _load_posts()
 
     if force:
-        sent     = set(state.get('weekly_sent', []))
+        sent     = _reserved_slugs(state, 'weekly')
         articles = [p for p in posts if p.get('slug') not in sent]
         articles.sort(key=lambda x: x.get('published_date', ''), reverse=True)
         articles = articles[:MAX_WEEKLY_ARTICLES]
@@ -579,15 +828,12 @@ def weekly_send(force=False):
     html = _build_email_html('weekly', narrative, articles, today)
     name = f"SMN-Weekly-{today.isoformat()}"
 
-    _create_and_schedule(group_id, subject, html, name)
-
-    state['weekly_sent'].extend(a['slug'] for a in articles if a.get('slug'))
-    state['last_weekly_date'] = today.isoformat()
+    record = _create_and_schedule(group_id, subject, html, name, state, 'weekly', today, articles)
     state['last_weekly_narrative'] = narrative
     _save_state(state)
 
-    print(f'Weekly email sent: {len(articles)} article(s) | "{subject}"')
-    log.info('weekly_send: done.')
+    print(f'Weekly campaign queued: {len(articles)} article(s) | "{subject}" | id={record["campaign_id"]}')
+    log.info('weekly_send: provider schedule acknowledged; delivery pending.')
 
 
 # =============================================================================
@@ -620,7 +866,7 @@ def _ensure_subscriber_in_test_group(email, group_id):
 
 
 def test_send(email):
-    today = date.today()
+    today = _today()
     posts = _load_posts()
 
     # Use most recent articles regardless of date (same as --force)
@@ -646,11 +892,11 @@ def test_send(email):
     name  = f'TEST-SMN-Daily-{today.isoformat()}'
 
     campaign_id, _ = create_campaign(name, subject, FROM_NAME, FROM_EMAIL, group_id, html)
-    d, h, m = future_date_hour_min(1)
-    schedule_campaign(campaign_id, d, h, m)
+    d, h, m = _schedule_fields(1)
+    _schedule_campaign_explicit(campaign_id, d, h, m)
 
     print(f'Test campaign created: "{name}" | subject: "{subject}"')
-    print(f'Sending to: {email}  |  Scheduled in ~5 min')
+    print(f'Sending to: {email}  |  Scheduled in ~1 min')
     print('Remember to delete this campaign from MailerLite after reviewing.')
     log.info('test_send: campaign="%s" to=%s', name, email)
 
@@ -669,7 +915,7 @@ if __name__ == '__main__':
                         help='Require the complete verified production reader edition')
     args = parser.parse_args()
 
-    today = date.today()
+    today = _today()
     print(f'SEND SMN EMAILS  —  Started {datetime.now():%Y-%m-%d %H:%M:%S}  —  {today.strftime("%A %B %d, %Y")}')
 
     if args.verified_reader_date:

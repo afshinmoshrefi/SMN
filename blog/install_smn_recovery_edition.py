@@ -103,10 +103,30 @@ def validate_package(package, origin=ORIGIN, production=False):
         raise ValueError('Exact date and source commit required')
     prefix='editions/'+date+'/'
     entries=read(package/'entries.json')
-    if not 1<=len(entries)<=6 or len({e['symbol'] for e in entries})!=len(entries):
+    continuity = m.get('continuity_policy') == 1
+    if continuity and production:
+        from production_continuity import require_policy
+        require_policy(commit)
+    if continuity and m.get('publication_policy') != 'continuity-v1':
+        raise ValueError('Continuity policy marker missing')
+    if not (0 if continuity else 1)<=len(entries)<=6 or len({e['symbol'] for e in entries})!=len(entries):
         raise ValueError('One to six distinct reviewed articles required')
     expected=m.get('expected_symbols')
-    if production or expected is not None:
+    if continuity:
+        actual=[e['symbol'] for e in entries]
+        if (not isinstance(expected,list) or not 0<=len(expected)<=6 or len(set(expected))!=len(expected)
+                or not set(actual)<=set(expected) or m.get('published_symbols') != [s for s in expected if s in actual]
+                or m.get('pending_symbols') != [s for s in expected if s not in actual]
+                or m.get('complete') is not (bool(expected) and len(actual)==len(expected))
+                or m.get('coverage_status') != ('complete' if expected and len(actual)==len(expected) else 'partial' if actual else 'notice')
+                or not isinstance(m.get('revision'),int) or m['revision'] < 1
+                or not re.fullmatch('[a-f0-9]{64}',m.get('revision_id',''))
+                or not re.fullmatch('[a-f0-9]{64}',m.get('transaction_id',''))
+                or m.get('selection_status') != ('frozen' if expected else 'pending')
+                or (expected and not re.fullmatch('[a-f0-9]{64}',m.get('selection_sha256','')))
+                or (not expected and m.get('selection_sha256') is not None)):
+            raise ValueError('Invalid continuity coverage contract')
+    elif production or expected is not None:
         if (not isinstance(expected,list) or len(expected)!=len(entries) or
             len(set(expected))!=len(expected) or set(expected)!={e['symbol'] for e in entries}):
             raise ValueError('Package must contain the complete selected lineup')

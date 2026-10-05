@@ -1,0 +1,22 @@
+[Unit]
+Description=SMN production continuity %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/tradewave/secrets.env
+Environment=HOME=/root
+Environment=SMN_CAPTURE_LOCAL=1
+Environment=SMN_PLAYWRIGHT=/opt/smn-playwright/node_modules/playwright
+Environment=SMN_BROWSER_CHANNEL=bundled
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PATH=/opt/smn-shadow/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/opt/smn-subscription/current/blog
+ExecStart=/home/flask/venv/bin/python /opt/smn-subscription/current/blog/production_continuity_schedule.py %i --enable-production-continuity
+Nice=15
+CPUWeight=10
+MemoryHigh=450M
+MemoryMax=600M
+MemorySwapMax=300M
+OOMScoreAdjust=800
+TimeoutStartSec=6h

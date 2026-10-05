@@ -236,7 +236,9 @@ class Day:
         folder = self.root/'research'
         if target.exists() and all((folder/(sym + '.json')).exists() or
                 self.state['articles'].get(sym, {}).get('held') for sym in self.symbols):
-            return
+            if not getattr(self, 'continuity', False) or all(
+                    sym in load_json(target) for sym in self.symbols if (folder/(sym + '.json')).exists()):
+                return
         example = load_json(BLOG/'examples/subscription-sources-20260923.json')
         folder.mkdir(exist_ok=True)
         for sym in self.symbols:
@@ -263,7 +265,9 @@ class Day:
         ready = [s for s in self.symbols if (folder/(s + '.json')).exists()]
         if not ready:
             raise Hold('research failed for every article')
-        save_json(target, {sym: load_json(folder/(sym + '.json')) for sym in ready})
+        sources = load_json(target) if getattr(self, 'continuity', False) and target.exists() else {}
+        sources.update({sym: load_json(folder/(sym + '.json')) for sym in ready})
+        save_json(target, sources)
 
     def _research_job(self, sym, example, stage, issues=None):
         job = self.root/'jobs'/(sym + '-' + self.date.replace('-', '') + '-' + stage)
