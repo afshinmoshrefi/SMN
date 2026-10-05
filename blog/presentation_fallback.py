@@ -3,7 +3,8 @@ from pathlib import Path
 import hashlib
 import json
 
-from bs4 import BeautifulSoup
+from html import escape
+from html.parser import HTMLParser
 
 VERSION = 1
 CSS = '''*{box-sizing:border-box}html{color:#183140;background:#fff;font:18px/1.65 system-ui,sans-serif}
@@ -34,27 +35,87 @@ def _chart_assets(result):
                 raise ValueError('Reviewed chart asset changed')
 
 
+class _ReadableHTML(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.parts = []
+        self.hero_depth = 0
+        self.hero_images = 0
+        self.in_style = False
+        self.articles = 0
+        self.head = self.body = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {'script', 'iframe'}:
+            raise ValueError('Unexpected active content in article')
+        values = dict(attrs)
+        if self.hero_depth:
+            if tag not in {'img', 'figcaption'}:
+                raise ValueError('Hero contains unexpected content')
+            if tag == 'img':
+                self.hero_images += 1
+            else:
+                self.hero_depth += 1
+            return
+        if tag == 'figure' and 'hero' in values.get('class', '').split():
+            self.hero_depth = 1
+            self.hero_images = 0
+            return
+        if tag == 'style':
+            self.in_style = True
+            return
+        if tag == 'article':
+            self.articles += 1
+        self.head |= tag == 'head'
+        self.body |= tag == 'body'
+        attributes = ''.join(' '+name + ('' if value is None else '="'+escape(value, quote=True)+'"')
+                             for name, value in attrs if name.lower() != 'style')
+        self.parts.append('<'+tag+attributes+'>')
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in {'img', 'meta', 'link', 'br', 'hr', 'input', 'source', 'wbr'}:
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag):
+        if self.hero_depth:
+            self.hero_depth -= 1
+            if self.hero_depth == 0 and (tag != 'figure' or self.hero_images != 1):
+                raise ValueError('Hero contains unexpected content')
+            return
+        if tag == 'style':
+            self.in_style = False
+            return
+        if tag == 'head':
+            self.parts.append('<style>'+CSS+'</style><meta name="smn-presentation" content="deterministic-readable-v1">')
+        self.parts.append('</'+tag+'>')
+
+    def handle_data(self, data):
+        if not self.hero_depth and not self.in_style:
+            self.parts.append(data)
+
+    def handle_entityref(self, name):
+        self.handle_data('&'+name+';')
+
+    def handle_charref(self, name):
+        self.handle_data('&#'+name+';')
+
+    def handle_decl(self, decl):
+        self.parts.append('<!'+decl+'>')
+
+    def handle_comment(self, data):
+        if not self.hero_depth and not self.in_style:
+            self.parts.append('<!--'+data+'-->')
+
+
 def derive(original):
     """Change styling and omit only the renderer's decorative hero figure."""
-    soup = BeautifulSoup(original, 'html.parser')
-    if soup.head is None or soup.body is None or len(soup.find_all('article')) != 1:
+    parser = _ReadableHTML()
+    parser.feed(original)
+    parser.close()
+    if not parser.head or not parser.body or parser.articles != 1 or parser.hero_depth or parser.in_style:
         raise ValueError('Unrecognized article presentation')
-    if soup.find('script') or soup.find('iframe'):
-        raise ValueError('Unexpected active content in article')
-    for node in soup.select('figure.hero'):
-        if node.find(['p', 'table', 'section']) or len(node.find_all('img')) != 1:
-            raise ValueError('Hero contains unexpected content')
-        node.decompose()
-    for node in soup.find_all('style'):
-        node.decompose()
-    for node in soup.find_all(True):
-        node.attrs.pop('style', None)
-    style = soup.new_tag('style')
-    style.string = CSS
-    soup.head.append(style)
-    meta = soup.new_tag('meta', attrs={'name':'smn-presentation', 'content':'deterministic-readable-v1'})
-    soup.head.append(meta)
-    return str(soup)
+    return ''.join(parser.parts)
 
 
 def prepare_fallback(result):
