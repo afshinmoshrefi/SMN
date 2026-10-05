@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, time, timedelta, timezone
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,9 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_FROM = 'TradeWave <help@tradewave.ai>'
 PUBLIC_CHECK_TTL_SECONDS = 300
+MAX_PUBLIC_BYTES = 2 * 1024 * 1024
+# Exact observed edge addition; no arbitrary script stripping is permitted.
+CF_BEACON = b'''<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"6c5153e7bcd94cb993504acb03b8923e","r":1,"spa":2}' crossorigin="anonymous"></script>'''
 ORIGINS = {'production':'https://seasonalmarketnews.com', 'dev':'https://smn-dev.trxstat.com'}
 LEDGER_DIR = Path('/var/lib/smn-dashboard/schedule-runs')
 TRANSIENT = re.compile(r'OAuth token|rate.?limit|overloaded|\b(?:429|500|502|503|529)\b|'
@@ -56,18 +60,74 @@ def _expected(root, date):
     return symbols
 
 
-def _public_probe(origin, expected):
-    """Read public catalog and check the actual expected article URLs once."""
+class _Preview(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.values = {'headline': [], 'preview': [], 'qualification': [], 'full_article_value': []}
+        self.capture = None
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        parent = self.stack[-1] if self.stack else None
+        kind = None
+        if parent == 'main' and tag == 'h1': kind = 'headline'
+        if parent == 'main' and tag == 'p' and attrs.get('role') != 'status':
+            kind = 'qualification' if 'qualification' in attrs.get('class', '').split() else 'preview'
+        if self.stack[-2:] == ['main', 'aside'] and tag == 'p' and 'small' not in attrs.get('class', '').split():
+            kind = 'full_article_value'
+        if kind:
+            self.capture = (kind, len(self.stack))
+            self.parts = []
+        if tag not in {'meta', 'link', 'img', 'br', 'input', 'hr', 'source', 'wbr'}:
+            self.stack.append(tag)
+
+    def handle_data(self, data):
+        if self.capture: self.parts.append(data)
+
+    def handle_endtag(self, tag):
+        if self.stack and self.stack[-1] == tag:
+            self.stack.pop()
+            if self.capture and self.capture[1] == len(self.stack):
+                self.values[self.capture[0]].append(''.join(self.parts))
+                self.capture = None
+
+
+def _matches_content(body, symbol, url, receipt):
+    private = (receipt or {}).get('membership_publication') or {}
+    row = next((r for r in private.get('new', []) if r.get('url') == url), None)
+    if row:
+        copy = row.get('preview_content')
+        if not copy: return 'unknown'
+        parser = _Preview()
+        parser.feed(body.decode('utf-8'))
+        expected = {key: [p['text'] for p in copy[key]] if key == 'preview' else [copy[key]['text']]
+                    for key in parser.values}
+        return 'available' if parser.values == expected else 'changed'
+    digest = (receipt or {}).get('files', {}).get(url.split('/', 3)[-1])
+    if not digest: return 'unknown'
+    if hashlib.sha256(body).hexdigest() == digest: return 'available'
+    if body.count(CF_BEACON) == 1 and hashlib.sha256(body.replace(CF_BEACON, b'', 1)).hexdigest() == digest:
+        return 'available'
+    return 'changed'
+
+
+def _public_probe(origin, expected, receipt=None):
+    """Bounded public GETs verify receipt-bound content, not just HTTP success."""
     with urlopen(Request(origin+'/posts.json', headers={'User-Agent':'SMNOperationalAlert/1.0'}), timeout=8) as response:
         posts = json.load(response)
     statuses = {}
-    for url in expected.values():
+    if len(expected) > 6: raise ValueError('Unexpected observer article count')
+    for symbol, url in expected.items():
         try:
-            with urlopen(Request(url, method='HEAD', headers={'User-Agent':'SMNOperationalAlert/1.0'}), timeout=8) as response:
-                statuses[url] = 'available' if response.status == 200 else 'unknown'
+            with urlopen(Request(url, headers={'User-Agent':'SMNOperationalAlert/1.0', 'Cache-Control':'no-cache'}), timeout=8) as response:
+                body = response.read(MAX_PUBLIC_BYTES + 1)
+                statuses[url] = (_matches_content(body, symbol, url, receipt)
+                                 if response.status == 200 and len(body) <= MAX_PUBLIC_BYTES else 'unknown')
         except HTTPError as exc:
             statuses[url] = 'missing' if exc.code == 404 else 'unknown'
-        except (OSError, URLError):
+        except (OSError, URLError, ValueError, KeyError, TypeError):
             statuses[url] = 'unknown'
     return posts, statuses
 
@@ -108,6 +168,13 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
             ledgers.append(record)
     failed = [r for r in ledgers if r.get('status') == 'failed']
     incidents = []
+    continuity_incidents = []
+    for name in ('continuity-progress.json', 'continuity-delivery-state.json'):
+        record = _json(root/date/name) or {}
+        if record.get('date') == date and record.get('status') in {'needs_attention', 'held'}:
+            continuity_incidents.append(_incident(date, 'continuity-needs-attention',
+                name + ': ' + str(record.get('reason') or record['status']),
+                f'SMN automatic recovery needs attention ({date})'))
     state = _json(root/date/'chatgpt/smn-daily-state.json') or {}
     for symbol, row in (state.get('articles') or {}).items():
         if not isinstance(row, dict) or not isinstance(row.get('held'), dict):
@@ -145,14 +212,15 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
             return [_incident(date, 'edition-incomplete', 'Invalid declared publication coverage',
                               f'SMN publication coverage differs ({date})')]
         if not published:
-            return [_incident(date, 'coverage-pending', 'Dated notice published; current article coverage remains pending',
+            return continuity_incidents + [_incident(date, 'coverage-pending', 'Dated notice published; current article coverage remains pending',
                               f'SMN current coverage pending ({date})')]
     reader_done = False
     public_problem = None
     if receipt_ok and published:
         urls = {symbol:f'{origin}/editions/{date}/{symbol}/article.html' for symbol in published}
         try:
-            public, statuses = public_probe(origin, urls)
+            public, statuses = (public_probe(origin, urls, receipt) if public_probe is _public_probe
+                                else public_probe(origin, urls))
             live = {(p.get('symbol'), p.get('url')) for p in public if isinstance(p, dict)
                     and str(p.get('published_date', ''))[:10] == date
                     and p.get('edition_id') == 'subscription-' + date}
@@ -161,6 +229,9 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
             unknown = sorted(symbol for symbol, url in urls.items() if statuses.get(url) != 'available')
             if missing:
                 public_problem = 'Expected public articles missing: ' + ', '.join(missing)
+            elif any(statuses.get(url) == 'changed' for url in urls.values()):
+                public_problem = 'Public article content differs from approved publication: ' + ', '.join(
+                    symbol for symbol, url in urls.items() if statuses.get(url) == 'changed')
             elif unknown:
                 public_problem = 'Public article URL availability could not be verified: ' + ', '.join(unknown)
             else:
@@ -170,9 +241,14 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
     if continuity and not reader_done:
         detail = public_problem or 'Verified coverage published; pending subjects: ' + ', '.join(receipt['pending_symbols'])
         kind = ('verification-unavailable' if 'could not be verified' in detail else 'edition-incomplete') if public_problem else 'coverage-pending'
-        return [_incident(date, kind, detail, f'SMN publication update ({date})')]
+        return continuity_incidents + [_incident(date, kind, detail, f'SMN publication update ({date})')]
     if reader_done:
         return []
+    if receipt_ok and public_problem:
+        kind = 'verification-unavailable' if 'could not be verified' in public_problem else 'edition-incomplete'
+        return [_incident(date, kind, public_problem, f'SMN published content requires attention ({date})')]
+    if continuity_incidents:
+        return continuity_incidents
     if failed:
         detail = 'Scheduled child failed: ' + ', '.join(f"{r.get('phase')} exit {r.get('exit_code')}" for r in failed)
         return [_incident(date, 'scheduler-failed', detail, f'SMN scheduled run failed ({date})')]
@@ -208,8 +284,18 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
             return [_incident(date, 'no-start', 'No fresh reader generation after configured start grace',
                               f'SMN morning run did not start ({date})')]
     stall = schedule.get('stall_minutes')
-    if current and current.get('status') == 'running' and isinstance(stall, int) and stall > 0:
-        progress = _last_progress(root, date, current)
+    if (active_child or (current and current.get('status') == 'running')) and isinstance(stall, int) and stall > 0:
+        progress = _last_progress(root, date, current or {})
+        starts = []
+        for record in ledgers:
+            if record.get('status') != 'running': continue
+            try:
+                starts.append(datetime.fromisoformat(record['started_at'].replace('Z', '+00:00')).timestamp())
+            except (KeyError, TypeError, ValueError):
+                pass
+        if starts: progress = max(starts + ([progress] if progress is not None else []))
+        if progress is None:
+            progress = datetime.combine(local.date(), time.fromisoformat(schedule['start_time']), zone).timestamp()
         if progress is not None and now.timestamp() - progress >= stall * 60:
             return [_incident(date, 'no-progress',
                               f'No recorded reader generation progress for at least {stall} minutes',
@@ -238,8 +324,12 @@ def send_resend(recipient, incident, sender=DEFAULT_FROM):
                           'Idempotency-Key':'smn-alert-'+token})
     try:
         with urlopen(request, timeout=10) as response:
-            return 200 <= response.status < 300
-    except (OSError, HTTPError, URLError):
+            result = json.load(response)
+            identifier = result.get('id') if isinstance(result, dict) else None
+            if 200 <= response.status < 300 and isinstance(identifier, str) and identifier.strip():
+                return {'provider_id': identifier, 'status': 'accepted'}
+            return False
+    except (OSError, HTTPError, URLError, ValueError):
         return False
 
 
@@ -258,7 +348,7 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
     receipt_name = 'dev-publication-receipt.json' if target == 'dev' else 'production-publication-receipt.json'
     receipt_path = root/local_date/'chatgpt'/receipt_name
     receipt_hash = hashlib.sha256(receipt_path.read_bytes()).hexdigest() if receipt_path.exists() else ''
-    version = _key(str(last.get('date','')), target, str(last.get('utc','')) + ':' +
+    version = _key(str(last.get('date','')), target, 'content-v2:' + str(last.get('utc','')) + ':' +
                    str(last.get('status','')) + ':' + receipt_hash)
     def cached_probe(origin, expected):
         cached = state.get('public_checks', {}).get(version)
@@ -269,8 +359,9 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
                 age = PUBLIC_CHECK_TTL_SECONDS
             if 0 <= age < PUBLIC_CHECK_TTL_SECONDS:
                 return cached['posts'], cached['statuses']
-        posts, statuses = public_probe(origin, expected)
-        if all(value in {'available','missing'} for value in statuses.values()):
+        posts, statuses = (public_probe(origin, expected, _json(receipt_path)) if public_probe is _public_probe
+                           else public_probe(origin, expected))
+        if all(value in {'available','missing','changed'} for value in statuses.values()):
             selected = [p for p in posts if isinstance(p, dict) and p.get('url') in set(expected.values())]
             state['public_checks'] = {version: {'posts':selected, 'statuses':statuses,
                                               'checked_utc':now.isoformat()}}
@@ -289,7 +380,7 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
               'preferences_enabled':enabled, 'credential_available':credential,
               'send_ready':bool(enabled and credential and recipients),
               'sender':os.environ.get('SMN_ALERT_FROM') or DEFAULT_FROM,
-              'last_delivery_error':None, 'sent':0,
+              'last_delivery_error':None, 'sent':0, 'accepted':0, 'delivered':0,
               'observed_incidents':len(incidents),
               'unacknowledged_incidents':sum(item['key'] not in acknowledged for item in incidents),
               'delivery_state':('disabled' if not enabled else 'missing_credential' if not credential
@@ -304,24 +395,27 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
         elif enabled and not recipients:
             status['last_delivery_error'] = 'Alert recipients unavailable'
         _save(status_path, status)
-        return {'observed': len(incidents), 'sent': 0, 'baseline': baseline}
-    sent = 0
+        return {'observed': len(incidents), 'sent': 0, 'accepted':0, 'delivered':0, 'baseline': baseline}
+    accepted = 0
+    state.setdefault('accepted', {})
     for item in incidents:
         if item['key'] in acknowledged:
             continue
         for recipient in recipients:
             receipt = item['key'] + ':' + recipient
-            if state['delivered'].get(receipt):
+            # Preserve old dedupe records without reclassifying them as actual delivery.
+            if state.get('delivered', {}).get(receipt) or state['accepted'].get(receipt):
                 continue
-            if sender(recipient, item, os.environ.get('SMN_ALERT_FROM') or DEFAULT_FROM):
-                state['delivered'][receipt] = now.isoformat()
+            result = sender(recipient, item, os.environ.get('SMN_ALERT_FROM') or DEFAULT_FROM)
+            if isinstance(result, dict) and result.get('status') == 'accepted' and result.get('provider_id'):
+                state['accepted'][receipt] = {**result, 'accepted_utc':now.isoformat()}
                 _save(path, state)
-                sent += 1
+                accepted += 1
             else:
-                status['last_delivery_error'] = 'Resend delivery not confirmed'
-    status['sent'] = sent
+                status['last_delivery_error'] = 'Resend acceptance not confirmed'
+    status['accepted'] = accepted
     _save(status_path, status)
-    return {'observed': len(incidents), 'sent': sent, 'baseline': False}
+    return {'observed': len(incidents), 'sent': 0, 'accepted': accepted, 'delivered':0, 'baseline': False}
 
 
 def main():
