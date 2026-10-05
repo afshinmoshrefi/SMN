@@ -21,10 +21,9 @@ DEFAULT_ROOT = Path('/var/lib/tradewave/smn-daily/subscription-primary')
 MAX_JOBS = 40
 MAX_UNCHANGED_ATTEMPTS = 6
 ZONE = ZoneInfo('America/New_York')
-DEV_HOST_IP = '209.182.216.112'
 
 
-def require_dev_host():
+def require_production_host():
     from production_continuity import require_policy
     require_policy()
 
@@ -205,7 +204,7 @@ def main():
     current = datetime.now(timezone.utc)
     day = args.date or current.astimezone(ZONE).date().isoformat()
     try:
-        require_dev_host()
+        require_production_host()
         if args.phase == 'reconcile':
             from send_smn_emails import poll_pending_campaigns
             result = poll_pending_campaigns(current)

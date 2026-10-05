@@ -34,13 +34,28 @@ def verified_reader_urls(root, day, web_root=WEB_ROOT):
         return None
     selected = json.loads(selected_path.read_text())
     receipt = json.loads(receipt_path.read_text())
-    if receipt.get('publication_policy') == 'continuity-v1' and receipt.get('complete') is not True:
-        return None
+    if receipt.get('publication_policy') == 'continuity-v1':
+        if receipt.get('complete') is not True:
+            return None
+        expected_symbols = receipt.get('expected_symbols')
+        published_symbols = receipt.get('published_symbols')
+        pending_symbols = receipt.get('pending_symbols')
+        if (receipt.get('coverage_status') != 'complete' or
+                not isinstance(expected_symbols, list) or
+                not isinstance(published_symbols, list) or
+                not isinstance(pending_symbols, list) or
+                len(set(expected_symbols)) != len(expected_symbols) or
+                len(set(published_symbols)) != len(published_symbols) or
+                pending_symbols or set(expected_symbols) != set(published_symbols) or
+                set(expected_symbols) != set(selected.get('symbols', []))):
+            raise ValueError('Complete reader coverage partition differs from selection')
     symbols = selected.get('symbols')
     if (selected.get('date') != day or not isinstance(symbols, list) or
             not 1 <= len(symbols) <= 6 or len(set(symbols)) != len(symbols) or
             any(not re.fullmatch(r'[A-Z0-9]{1,12}', s) for s in symbols)):
         raise ValueError('Reader selection is incomplete')
+    if receipt.get('publication_policy') == 'continuity-v1' and len(symbols) != 6:
+        raise ValueError('Continuity newsletter requires six frozen subjects')
     if (receipt.get('status') != 'live_verified' or receipt.get('production_written') is not True or
             receipt.get('edition_date') != day or not receipt.get('source_commit')):
         raise ValueError('Reader publication is not fully verified')
