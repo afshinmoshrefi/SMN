@@ -51,7 +51,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  const desktopHomeLinks=await editionHomeLinks();
  assert(desktopHomeLinks.every(e=>e.visible),'Latest edition visible across desktop homepage sections');
  assert((await page.locator('.logo').innerText()).replace(/\s+/g,'')==='SeasonalMarketNews','SMN site brand');
- assert(await page.locator('header nav a').innerText()==='TradeWave','SMN site navigation');
+ assert(await page.locator('header nav a').filter({hasText:/^TradeWave$/}).innerText()==='TradeWave','SMN site navigation');
  assert((await page.locator('footer').innerText()).includes('Tara Data Research LLC'),'SMN site footer');
  const landingText=await page.locator('body').innerText();
  assert(!/\bDev\b|Development edition|Updated SMN Edition|recreated with the updated editorial workflow/i.test(landingText),'Production presentation copy');
