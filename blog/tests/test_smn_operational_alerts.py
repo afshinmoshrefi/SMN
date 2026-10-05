@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -209,6 +209,39 @@ class OperationalAlertTests(unittest.TestCase):
                    {'status':'live_verified','production_written':True})
         self.assertEqual(alerts.inspect(self.root, self.seven, configured,
                          public_probe=lambda origin, urls: (posts, {url:'available' for url in urls.values()})), [])
+
+    def test_unchanged_receipt_rechecks_public_after_five_minutes(self):
+        posts = self.frozen()
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'completed'})
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified','production_written':True})
+        calls = []
+        def probe(origin, urls):
+            calls.append(1)
+            return posts, {url: 'available' if len(calls) == 1 else 'missing' for url in urls.values()}
+        with patch.dict(os.environ, {'RESEND_API_KEY':''}):
+            first = alerts.run(self.root, self.six, SETTINGS, public_probe=probe)
+            cached = alerts.run(self.root, self.six + timedelta(seconds=299), SETTINGS, public_probe=probe)
+            expired = alerts.run(self.root, self.six + timedelta(seconds=300), SETTINGS, public_probe=probe)
+        self.assertEqual(first['observed'], 0)
+        self.assertEqual(cached['observed'], 0)
+        self.assertEqual(expired['observed'], 1)
+        self.assertEqual(len(calls), 2)
+
+    def test_missing_transport_does_not_acknowledge_incident_or_prevent_later_delivery(self):
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'held', 'reason':'source hold'})
+        attempts = []
+        sender = lambda recipient, incident, from_addr: attempts.append(recipient) or True
+        with patch.dict(os.environ, {'RESEND_API_KEY':''}):
+            alerts.run(self.root, self.six, SETTINGS, sender=sender)
+        status = json.loads((self.root/'dashboard/operational-alerts-status.json').read_text())
+        self.assertEqual(status['delivery_state'], 'missing_credential')
+        self.assertEqual(status['unacknowledged_incidents'], 1)
+        self.assertFalse(attempts)
+        with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
+            alerts.run(self.root, self.six, SETTINGS, sender=sender)
+            alerts.run(self.root, self.six, SETTINGS, sender=sender)
+        self.assertEqual(attempts, SETTINGS['alert_recipients'])
 
     def test_installer_unit_is_separate_and_explicitly_targets_dev(self):
         units = installer.unit_texts(Path(__file__).resolve().parents[2], 'dev')

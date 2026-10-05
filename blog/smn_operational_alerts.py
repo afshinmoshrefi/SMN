@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 DEFAULT_FROM = 'TradeWave <help@tradewave.ai>'
+PUBLIC_CHECK_TTL_SECONDS = 300
 ORIGINS = {'production':'https://seasonalmarketnews.com', 'dev':'https://smn-dev.trxstat.com'}
 LEDGER_DIR = Path('/var/lib/smn-dashboard/schedule-runs')
 TRANSIENT = re.compile(r'OAuth token|rate.?limit|overloaded|\b(?:429|500|502|503|529)\b|'
@@ -238,11 +239,17 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
     def cached_probe(origin, expected):
         cached = state.get('public_checks', {}).get(version)
         if cached:
-            return cached['posts'], cached['statuses']
+            try:
+                age = now.timestamp() - datetime.fromisoformat(cached['checked_utc']).timestamp()
+            except (KeyError, TypeError, ValueError):
+                age = PUBLIC_CHECK_TTL_SECONDS
+            if 0 <= age < PUBLIC_CHECK_TTL_SECONDS:
+                return cached['posts'], cached['statuses']
         posts, statuses = public_probe(origin, expected)
         if all(value in {'available','missing'} for value in statuses.values()):
             selected = [p for p in posts if isinstance(p, dict) and p.get('url') in set(expected.values())]
-            state.setdefault('public_checks', {})[version] = {'posts':selected, 'statuses':statuses}
+            state['public_checks'] = {version: {'posts':selected, 'statuses':statuses,
+                                              'checked_utc':now.isoformat()}}
             _save(path, state)
         return posts, statuses
     incidents = inspect(root, now, settings, cached_probe, target, ledger_dir)
@@ -259,6 +266,10 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
               'send_ready':bool(enabled and credential and recipients),
               'sender':os.environ.get('SMN_ALERT_FROM') or DEFAULT_FROM,
               'last_delivery_error':None, 'sent':0,
+              'observed_incidents':len(incidents),
+              'unacknowledged_incidents':sum(item['key'] not in acknowledged for item in incidents),
+              'delivery_state':('disabled' if not enabled else 'missing_credential' if not credential
+                                else 'missing_recipients' if not recipients else 'ready'),
               'watchdog':'no-start configured' if settings['daily_generation'].get('no_start_grace_minutes')
               else 'unconfigured',
               'stall_watchdog':'recorded-progress configured' if
@@ -266,6 +277,8 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
     if baseline or not enabled or not status['send_ready']:
         if enabled and not credential:
             status['last_delivery_error'] = 'Resend key unavailable'
+        elif enabled and not recipients:
+            status['last_delivery_error'] = 'Alert recipients unavailable'
         _save(status_path, status)
         return {'observed': len(incidents), 'sent': 0, 'baseline': baseline}
     sent = 0
