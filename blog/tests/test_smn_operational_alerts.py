@@ -144,6 +144,50 @@ class OperationalAlertTests(unittest.TestCase):
         configured['daily_generation']['no_start_grace_minutes'] = 30
         self.assertEqual(alerts.inspect(self.root, saturday, configured), [])
 
+    def test_verified_reader_does_not_hide_failed_weekday_newsletter(self):
+        posts = self.frozen()
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified', 'production_written':True})
+        ledger = self.root/'schedule-runs'
+        self.write(ledger/'production-weekday_newsletter-2026-10-02.json',
+                   {'target':'production', 'phase':'weekday_newsletter', 'date':'2026-10-02',
+                    'status':'failed', 'exit_code':2})
+        result = alerts.inspect(self.root, self.seven, SETTINGS,
+            public_probe=lambda origin, urls: (posts, {url:'available' for url in urls.values()}),
+            ledger_dir=ledger)
+        self.assertEqual([item['kind'] for item in result], ['newsletter-delivery-failed'])
+        self.assertIn('exit 2', result[0]['detail'])
+
+    def test_partial_coverage_does_not_create_missing_newsletter_alert(self):
+        self.frozen()
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified', 'production_written':True,
+                    'publication_policy':'continuity-v1', 'edition_date':'2026-10-02',
+                    'expected_symbols':['ABC','XYZ'], 'published_symbols':['ABC'],
+                    'pending_symbols':['XYZ'], 'coverage_status':'partial', 'complete':False})
+        result = alerts.inspect(self.root, self.seven, SETTINGS,
+                                public_probe=lambda origin, urls: ([], {}),
+                                ledger_dir=self.root/'schedule-runs')
+        self.assertFalse(any(item['kind'].startswith('newsletter-') for item in result))
+
+    def test_stuck_weekday_and_failed_sunday_delivery_are_independent(self):
+        ledger = self.root/'schedule-runs'
+        self.write(ledger/'production-weekday_newsletter-2026-10-02.json',
+                   {'target':'production', 'phase':'weekday_newsletter', 'date':'2026-10-02',
+                    'status':'running', 'started_at':'2026-10-02T10:00:00+00:00'})
+        before = self.six + timedelta(minutes=29)
+        after = self.six + timedelta(minutes=31)
+        self.assertFalse(any(item['kind'].startswith('newsletter-') for item in
+                             alerts.inspect(self.root, before, SETTINGS, ledger_dir=ledger)))
+        self.assertIn('newsletter-delivery-stuck', [item['kind'] for item in
+                      alerts.inspect(self.root, after, SETTINGS, ledger_dir=ledger)])
+        sunday = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)
+        self.write(ledger/'production-sunday_summary-2026-10-04.json',
+                   {'target':'production', 'phase':'sunday_summary', 'date':'2026-10-04',
+                    'status':'failed', 'exit_code':2})
+        self.assertEqual([item['kind'] for item in alerts.inspect(self.root, sunday, SETTINGS,
+                          ledger_dir=ledger)], ['newsletter-delivery-failed'])
+
     def test_running_orphan_ledger_uses_saved_progress_without_controller(self):
         configured = json.loads(json.dumps(SETTINGS))
         configured['daily_generation'].update(no_start_grace_minutes=15, stall_minutes=30)

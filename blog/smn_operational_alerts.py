@@ -153,8 +153,48 @@ def _last_progress(root, date, current):
     return max(observed) if observed else None
 
 
+def _delivery_incidents(now, settings, target, ledger_dir):
+    if target != 'production':
+        return []
+    incidents = []
+    for phase, setting in (('weekday_newsletter', settings.get('weekday_newsletter',
+                                                              settings['daily_generation'])),
+                           ('sunday_summary', settings.get('sunday_summary',
+                                                           settings['daily_generation']))):
+        local = now.astimezone(ZoneInfo(setting['timezone']))
+        if phase == 'weekday_newsletter' and local.weekday() >= 5:
+            continue
+        if phase == 'sunday_summary' and local.weekday() != 6:
+            continue
+        date = local.date().isoformat()
+        record = _json(Path(ledger_dir)/f'production-{phase}-{date}.json')
+        if not isinstance(record, dict) or record.get('target') != 'production' or record.get('phase') != phase or record.get('date') != date:
+            continue
+        if record.get('status') == 'failed':
+            detail = f'{phase} failed with exit {record.get("exit_code")}'
+        elif record.get('status') == 'running':
+            try:
+                started = datetime.fromisoformat(record['started_at'].replace('Z', '+00:00'))
+                age = (now - started).total_seconds() if started.tzinfo else 0
+            except (KeyError, AttributeError, TypeError, ValueError):
+                age = 0
+            if age < 30 * 60:
+                continue
+            detail = f'{phase} has remained running for at least 30 minutes'
+        else:
+            continue
+        incidents.append(_incident(date, 'newsletter-delivery-failed' if record['status'] == 'failed' else 'newsletter-delivery-stuck',
+                                   detail, f'SMN {phase.replace("_", " ")} needs attention ({date})'))
+    return incidents
+
+
 def inspect(root, now, settings, public_probe=_public_probe, target='production', ledger_dir=LEDGER_DIR):
-    """Return confirmed incidents; never start generation or mutate source receipts."""
+    """Return independent reader and mail incidents without mutating source receipts."""
+    reader = _inspect_reader(root, now, settings, public_probe, target, ledger_dir)
+    return reader + _delivery_incidents(now, settings, target, ledger_dir)
+
+
+def _inspect_reader(root, now, settings, public_probe, target, ledger_dir):
     root = Path(root)
     zone = ZoneInfo(settings['daily_generation']['timezone'])
     local = now.astimezone(zone)
@@ -167,7 +207,8 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
     ledgers = []
     for path in sorted(Path(ledger_dir).glob(f'{target}-*-{date}*.json')):
         record = _json(path)
-        if isinstance(record, dict) and record.get('target') == target and record.get('date') == date:
+        if (isinstance(record, dict) and record.get('target') == target and record.get('date') == date and
+                record.get('phase') not in {'weekday_newsletter', 'sunday_summary'}):
             ledgers.append(record)
     failed = [r for r in ledgers if r.get('status') == 'failed']
     incidents = []
