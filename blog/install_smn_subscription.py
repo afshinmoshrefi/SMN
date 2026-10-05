@@ -80,6 +80,8 @@ def activate(args):
         raise ValueError('Human confirmation of current-day production web and app snapshots required')
     if not args.codex.is_file() or not args.claude.is_file():
         raise ValueError('Qualified subscription CLIs must be installed first')
+    from smn_runtime_assets import preflight
+    preflight()
     from subscription_writer import account_snapshot as codex_auth
     from claude_subscription_writer import account_snapshot as claude_auth
     codex_auth(args.codex, repo)

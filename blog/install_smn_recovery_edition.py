@@ -105,6 +105,11 @@ def validate_package(package, origin=ORIGIN, production=False):
     entries=read(package/'entries.json')
     if not 1<=len(entries)<=6 or len({e['symbol'] for e in entries})!=len(entries):
         raise ValueError('One to six distinct reviewed articles required')
+    expected=m.get('expected_symbols')
+    if production or expected is not None:
+        if (not isinstance(expected,list) or len(expected)!=len(entries) or
+            len(set(expected))!=len(expected) or set(expected)!={e['symbol'] for e in entries}):
+            raise ValueError('Package must contain the complete selected lineup')
     for e in entries:
         if e['url']!=origin+'/'+prefix+e['symbol']+'/article.html' or e['source_commit']!=commit:
             raise ValueError('Article destination/provenance mismatch')

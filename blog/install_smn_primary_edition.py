@@ -141,6 +141,11 @@ def prepare(package):
     guard()
     package = Path(package).resolve()
     manifest, entries = validate_package(package, ORIGIN, PRODUCTION)
+    if PRODUCTION:
+        from smn_runtime_assets import preflight
+        preflight()
+        # Resolve native feed imports before creating a publication transaction.
+        import publish_article
     ident = ('smn-production-' if PRODUCTION else 'smn-primary-')+manifest['edition_date']+'-'+manifest['source_commit'][:10]
     record = STATE/ident
     record.mkdir(parents=True, mode=0o700)

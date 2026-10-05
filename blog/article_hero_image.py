@@ -31,11 +31,8 @@ generation_routing = "premium"
 HERO_WIDTH_ATTR = 1536   # real rendered px (1536x640) hero (Flux) -- for CLS
 HERO_HEIGHT_ATTR = 640
 
-_motif_override = os.environ.get('SMN_TICKER_MOTIFS_FILE')
-_motif_file = Path(_motif_override) if _motif_override else Path(__file__).resolve().with_name('ticker_motif_custom.json')
-if not _motif_override and not _motif_file.is_file():
-    _motif_file = Path('/home/flask/blog/ticker_motif_custom.json')
-CUSTOM_MOTIFS = json.loads(_motif_file.read_text(encoding='utf-8'))
+from smn_runtime_assets import load_ticker_motifs
+CUSTOM_MOTIFS = load_ticker_motifs()
 PREMIUM_IMAGE_TRIGGERS = {
     # "keywords": ["aerospace","airline"],
     "keywords": [],

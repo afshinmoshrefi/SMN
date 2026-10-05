@@ -53,7 +53,7 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(load_json(self.job/'state.json')['status'], 'ready')
 
 
-    def test_publish_only_uses_the_edition_roles_and_skips_writing(self):
+    def test_publish_only_rejects_incomplete_edition_and_skips_writing(self):
         save_json(Path(self.tmp.name)/'smn-daily-state.json', {'date': '2026-09-29', 'roles': {'write': {'x': 1}},
                   'articles': {'O': {'finalized': True}, 'APH': {'held': {'reason': 'x'}}}})
         # This fixture tests publish-only routing, not the full editorial contract.
@@ -61,8 +61,8 @@ class RetryTests(unittest.TestCase):
              patch.object(smn_daily.Day, 'publish', return_value={'status': 'live_verified'}) as pub, \
              patch.object(smn_daily.Day, 'research') as research, \
              patch('sys.argv', ['smn_daily', '--root', self.tmp.name, '--date', '2026-09-29', '--publish-only']):
-            self.assertEqual(smn_daily.main(), 0)
-        pub.assert_called_once()
+            self.assertEqual(smn_daily.main(), 2)
+        pub.assert_not_called()
         research.assert_not_called()
 
 if __name__ == '__main__':

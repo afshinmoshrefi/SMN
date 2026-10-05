@@ -78,7 +78,11 @@ class EditorialEvidenceGuards(unittest.TestCase):
                 (result/'assets').mkdir();(result/'evidence').mkdir()
                 origin='https://seasonalmarketnews.com';url=origin+'/editions/2026-09-30/AMD/article.html'
                 article={'title':'Reviewed article','dek':'Current context and unchanged historical evidence.'}
-                write(root/'smn-daily-state.json',{'profile':'chatgpt','publication_origin':origin})
+                write(root/'smn-daily-state.json',{'date':'2026-09-30','profile':'chatgpt','publication_origin':origin,
+                    'articles':{'AMD':{'finalized':True}}})
+                write(root/'production/posts.json',[{'symbol':'AMD'}])
+                write(root/'input-selection.json',{'date':'2026-09-30','symbols':['AMD'],
+                    'files':{'production/posts.json':digest_bytes((root/'production/posts.json').read_bytes())}})
                 write(result/'commission.json',{'history_status':'verified_selected_engine','production_article':{
                     'symbol':'AMD','market_family':'US','lookback_years':'pe2-10',
                     'published_date':'2026-09-30T00:00:00Z','source_mode':'selected_inputs'}})
