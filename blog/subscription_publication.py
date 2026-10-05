@@ -203,9 +203,11 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,co
     production = target_origin == 'https://seasonalmarketnews.com'
     if target_origin not in {DEV, 'https://seasonalmarketnews.com'}:raise ValueError('Unknown publication origin')
     if production:
-        state=read(root/'smn-daily-state.json')
-        if state.get('profile')!='chatgpt' or state.get('publication_origin')!=target_origin:
-            raise ValueError('Only the explicit ChatGPT reader edition can publish to production')
+        state_path=root/'smn-daily-state.json'
+        if state_path.is_file() or continuity is None or review_stages:
+            state=read(state_path)
+            if state.get('profile')!='chatgpt' or state.get('publication_origin')!=target_origin:
+                raise ValueError('Only the explicit ChatGPT reader edition can publish to production')
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch(r'[0-9a-f]{40}',source_commit):raise ValueError('Dated, committed edition required')
     if continuity is not None:
         if production:

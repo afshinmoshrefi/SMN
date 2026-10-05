@@ -26,7 +26,6 @@ class ProductionContinuityTests(unittest.TestCase):
     def test_production_notice_preserves_unknown_selection_and_requires_optin(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
-            publication.write(root/'smn-daily-state.json',{'date':DATE,'profile':'chatgpt','publication_origin':'https://seasonalmarketnews.com'})
             with patch.object(rolling,'require_policy') as policy:
                 m=publication.package(root,DATE,COMMIT,{},target_origin='https://seasonalmarketnews.com',continuity={'revision':1,'revision_id':'b'*64})
                 validate_package(root/'publication-package',origin='https://seasonalmarketnews.com',production=True)
