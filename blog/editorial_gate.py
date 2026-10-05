@@ -36,6 +36,10 @@ FUTURE_ACTUAL_PRICE = re.compile(
     r'\b(?:actual|recorded)\s+(?:stock\s+)?prices?(?:\s+(?:path|chart|movement))?'
     r'\s+(?:for|over|across|during)\s+(?:the\s+)?next\s+\d+\s+weekdays?\b', re.I)
 
+def future_actual_price_claim(text):
+    return any(not re.search(r'\bscaled\s+to\s+the\s+last\s*$',text[:match.start()],re.I)
+               for match in FUTURE_ACTUAL_PRICE.finditer(text))
+
 
 def spaced(value):
     return re.sub(r'\s+', ' ', value).strip()
@@ -278,7 +282,7 @@ def problems(article, bundle, ctx, review, result=None):
     for unit in units(article):
         try: check_temporal_instrument_copy([unit['text']], bundle)
         except ValueError as exc: issues.append(unit['id']+': '+str(exc))
-        if FUTURE_ACTUAL_PRICE.search(unit['text']):
+        if future_actual_price_claim(unit['text']):
             issues.append(unit['id']+': future illustration described as recorded price; date the price history and label the seasonal overlay')
     for item in review.get('issues', []):
         if blocking_issue(item):

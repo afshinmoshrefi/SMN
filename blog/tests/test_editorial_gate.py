@@ -221,6 +221,18 @@ class EditorialGateTests(unittest.TestCase):
         self.assertTrue(any('future illustration described as recorded price' in issue for issue in issues))
         good = article(self.text + ' Recorded prices end October 1; the seasonal overlay illustrates the next 60 weekdays.')
         self.assertEqual(gate.problems(good, self.bundle, self.ctx, self.review), [])
+        anchored = article(self.text + ' The chart superimposes a section of TradeWave’s seasonal trend scaled to the last recorded price for the next 60 weekdays; it is not a forecast.')
+        self.assertEqual(gate.problems(anchored, self.bundle, self.ctx, self.review), [])
+        actual = article('The chart shows actual prices for the next 60 weekdays.')
+        self.assertTrue(any('future illustration described as recorded price' in issue
+            for issue in gate.problems(actual, self.bundle, self.ctx, self.review)))
+        later_claim = article('The overlay is scaled to the last recorded price for the next 60 weekdays. The chart also shows actual prices for the next 60 weekdays.')
+        self.assertTrue(any('future illustration described as recorded price' in issue
+            for issue in gate.problems(later_claim, self.bundle, self.ctx, self.review)))
+        review=copy.deepcopy(self.review)
+        review['issues']=[{'category':'factual','severity':'major','problem':'Unsupported averaging method'}]
+        self.assertTrue(any('Unresolved factual correction' in issue
+            for issue in gate.problems(anchored, self.bundle, self.ctx, review)))
 
     def test_mutations_fail_closed(self):
         paths=[self.result/'article.json',self.result/'source.json',self.root/'primary/SPY.txt',
