@@ -121,6 +121,7 @@ def progress(root, day, current=None):
             return prior
         # Write before running so an interrupted process waits before restarting.
         save_json(path, {'date': day, 'status': 'running',
+                         'updated_utc': current.isoformat(),
                          'next_attempt_utc': (current + timedelta(minutes=15)).isoformat(),
                          'attempts': prior.get('attempts', 0) + 1,
                          'unchanged_attempts': prior.get('unchanged_attempts', 0),

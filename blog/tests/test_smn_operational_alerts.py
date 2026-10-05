@@ -165,6 +165,14 @@ class OperationalAlertTests(unittest.TestCase):
         self.assertEqual(result[0]['kind'], 'continuity-needs-attention')
         self.assertIn('budget exhausted', result[0]['detail'])
 
+    def test_interrupted_continuity_worker_cannot_suppress_stall_alert(self):
+        configured = json.loads(json.dumps(SETTINGS))
+        configured['daily_generation'].update(no_start_grace_minutes=15, stall_minutes=30)
+        self.write(self.day/'continuity-progress.json', {'date':'2026-10-02',
+            'status':'running', 'updated_utc':'2026-10-02T09:30:00+00:00'})
+        result = alerts.inspect(self.root, self.seven, configured)
+        self.assertEqual(result[0]['kind'], 'no-progress')
+
     def test_public_get_rejects_wrong_html_200_and_only_known_edge_addition(self):
         posts = self.frozen()
         urls = {p['symbol']:p['url'] for p in posts}

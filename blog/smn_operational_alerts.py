@@ -173,6 +173,8 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
     continuity_incidents = []
     for name in ('continuity-progress.json', 'continuity-delivery-state.json'):
         record = _json(root/date/name) or {}
+        if record.get('date') == date and record.get('status') == 'running':
+            ledgers.append({'status':'running', 'started_at':record.get('updated_utc')})
         if record.get('date') == date and record.get('status') in {'needs_attention', 'held'}:
             continuity_incidents.append(_incident(date, 'continuity-needs-attention',
                 name + ': ' + str(record.get('reason') or record['status']),
