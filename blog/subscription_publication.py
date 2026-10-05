@@ -62,15 +62,18 @@ def complete_lineup(root,date,actual,required=False):
     if held:raise ValueError('Selected edition has unfinished subjects: '+str(held))
     return expected
 
-def reviewed(result,review_path):
-    from editorial_gate import verify_complete
-    verify_complete(result)
+def reviewed(result,review_path,*,require_visual=True):
+    from editorial_gate import verify_complete, verify_content
+    if require_visual: verify_complete(result)
+    else: verify_content(result,allow_held_binding=True)
     a=read(result/'article.json');m=read(result/'mechanical-checks.json');r=read(review_path)
     if not m.get('passed') or not sha256_equal(digest(a),m.get('article_sha256')):raise ValueError('Changed or mechanically held article')
     from editorial_gate import hard_review_passed
     if not hard_review_passed(r):
         raise ValueError('Independent review has not passed hard checks')
-    binding=read(result/'review-binding.json')
+    binding_path=result/'review-binding.json'
+    if not require_visual and not binding_path.exists():binding_path=result/'review-binding.held.json'
+    binding=read(binding_path)
     if (not sha256_equal(digest(a),binding.get('article_sha256')) or
         not sha256_equal(digest_bytes(Path(review_path).read_bytes()),binding.get('review_sha256'))):
         raise ValueError('Independent review is not bound to this exact article')
@@ -99,15 +102,16 @@ def reviewed(result,review_path):
                          ('assets/tradewave-price-path.csv',native['price_path_csv_sha256'])):
             if not sha256_equal(digest_bytes((result/file).read_bytes()),sha):
                 raise ValueError('Price-path asset differs from reviewed evidence')
-    qa=read(result/'visual-checks.json')
-    if not qa.get('passed') or not sha256_equal(qa.get('article_html_sha256'),digest_bytes((result/'article.html').read_bytes())):
-        raise ValueError('Rendered-page review missing or stale')
-    screenshots=qa.get('inspected_images')
-    if screenshots is not None and (not isinstance(screenshots,dict) or any(
-        not isinstance(name,str) or Path(name).name!=name or not (result/name).is_file() or
-        not sha256_equal(digest_bytes((result/name).read_bytes()),expected)
-        for name,expected in screenshots.items())):
-        raise ValueError('Rendered-page screenshots missing or stale')
+    if require_visual:
+        qa=read(result/'visual-checks.json')
+        if not qa.get('passed') or not sha256_equal(qa.get('article_html_sha256'),digest_bytes((result/'article.html').read_bytes())):
+            raise ValueError('Rendered-page review missing or stale')
+        screenshots=qa.get('inspected_images')
+        if screenshots is not None and (not isinstance(screenshots,dict) or any(
+            not isinstance(name,str) or Path(name).name!=name or not (result/name).is_file() or
+            not sha256_equal(digest_bytes((result/name).read_bytes()),expected)
+            for name,expected in screenshots.items())):
+            raise ValueError('Rendered-page screenshots missing or stale')
     return a
 
 
@@ -116,7 +120,23 @@ def validate_staged_reviews(root):
     root=Path(root)
     manifest=read(root/'publication-package/manifest.json')
     entries=read(root/'publication-package/entries.json')
-    expected=complete_lineup(root,manifest['edition_date'],[e['symbol'] for e in entries],manifest.get('production_allowed') is True)
+    if manifest.get('continuity_policy') == 1:
+        if manifest.get('production_allowed') is not False:
+            raise ValueError('Continuity publication is Dev-only')
+        if manifest.get('publication_policy') != 'continuity-v1':
+            raise ValueError('Continuity policy marker missing')
+        expected=selected_lineup(root,manifest['edition_date'],required=False)
+        if expected is None:
+            if manifest.get('selection_status') != 'pending' or manifest.get('expected_symbols') != [] or entries:
+                raise ValueError('Missing lineup may only publish a pending notice')
+            expected=[]
+        actual=[e['symbol'] for e in entries]
+        if len(set(actual)) != len(actual) or not set(actual)<=set(expected):
+            raise ValueError('Continuity package has unexpected subjects')
+        if manifest.get('published_symbols') != [s for s in expected if s in actual] or manifest.get('pending_symbols') != [s for s in expected if s not in actual]:
+            raise ValueError('Continuity coverage differs from frozen selection')
+    else:
+        expected=complete_lineup(root,manifest['edition_date'],[e['symbol'] for e in entries],manifest.get('production_allowed') is True)
     if expected is not None and manifest.get('expected_symbols')!=expected:
         raise ValueError('Staged package lacks the bound selected lineup; preserve it and prepare a recovery package')
     for entry in entries:
@@ -124,15 +144,35 @@ def validate_staged_reviews(root):
         if not re.fullmatch('[A-Z0-9]{1,12}',sym):raise ValueError('Unsafe staged subject')
         result=root/'results'/sym
         from editorial_gate import verify_complete
-        verify_complete(result)
         relative=urlparse(entry['url']).path.lstrip('/')
         staged=root/'publication-package'/relative
-        if staged.read_bytes()!=(result/'article.html').read_bytes():
-            raise ValueError('Staged article differs from current final review')
+        proof=manifest.get('presentation_fallbacks',{}).get(sym)
+        if proof:
+            if manifest.get('continuity_policy') != 1:
+                raise ValueError('Presentation fallback requires continuity policy')
+            from presentation_fallback import verify_fallback
+            verify_fallback(result,staged.read_text(encoding='utf-8'),proof)
+        else:
+            verify_complete(result)
+            if staged.read_bytes()!=(result/'article.html').read_bytes():
+                raise ValueError('Staged article differs from current final review')
+
+def qualified_html(result, review, *, continuity=False):
+    try:
+        article=reviewed(result,review)
+        return (result/'article.html').read_text(encoding='utf-8'), None, article
+    except (OSError,ValueError):
+        if not continuity:
+            raise
+        article=reviewed(result,review,require_visual=False)
+        from presentation_fallback import prepare_fallback
+        rendered,proof=prepare_fallback(result)
+        return rendered,proof,article
 
 CSS='''
 :root{--ink:#183140;--muted:#627781;--accent:#0066cc;--border:#dfe6e7;--soft:#f6f8fa}*{box-sizing:border-box}body{margin:0;font:16px/1.6 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff}header{border-bottom:1px solid var(--border);background:#fff}.header-content{max-width:1200px;margin:0 auto;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;gap:24px}.logo{display:flex;align-items:baseline;gap:2px;text-decoration:none}.logo-seasonal,.logo-market{font-size:22px;font-weight:700;letter-spacing:-.5px}.logo-seasonal{color:var(--accent)}.logo-market{color:var(--ink)}.logo-news{font-size:22px;font-weight:400;letter-spacing:-.5px;color:var(--muted)}nav{display:flex;gap:28px}nav a{color:#526873;text-decoration:none;font-size:14px;font-weight:500}nav a:hover,.edition-card h3 a:hover{text-decoration:underline}.smn-edition{max-width:1200px;margin:0 auto;padding:42px 24px 54px}.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--ink)}.section-title{font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase}.edition-intro{color:#526873;margin:0 0 24px}.edition-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.edition-card{display:block;border:1px solid var(--border);background:#fff;color:inherit;text-decoration:none;transition:box-shadow .2s ease,transform .2s ease}.edition-card:hover{box-shadow:0 8px 24px #15334418;transform:translateY(-2px)}.edition-card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--soft)}.edition-copy{padding:18px}.edition-meta{font:12px/1.4 "IBM Plex Mono",monospace;color:var(--muted);text-transform:uppercase}.edition-card h3{font-size:20px;line-height:1.3;letter-spacing:-.3px;margin:8px 0}.edition-card h3 a{color:var(--ink);text-decoration:none}.edition-copy p{font-size:14px;line-height:1.55;color:#526873;margin:0 0 14px}.read-more{color:var(--accent);font-size:14px;font-weight:600}.edition-proof{margin-top:14px;font-size:12px;color:var(--muted)}.edition-proof summary{cursor:pointer}.edition-proof a{color:var(--muted)}footer{border-top:1px solid var(--border);padding:28px 24px;background:var(--soft)}.footer-content{max-width:1200px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.footer-left,.footer-links a{font-size:13px;color:var(--muted);text-decoration:none}.footer-links{display:flex;gap:24px}@media(max-width:750px){.header-content{padding:16px 20px}.edition-grid{grid-template-columns:1fr}.smn-edition{padding:30px 20px 42px}.footer-content{flex-direction:column;text-align:center}.logo-seasonal,.logo-market,.logo-news{font-size:20px}}
 '''
+CONTINUITY_HERO='<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675"><rect width="1200" height="675" fill="#f3f7fa"/><text x="600" y="338" text-anchor="middle" fill="#183140" font-family="sans-serif" font-size="60">Seasonal Market News</text></svg>'
 
 def edition_section(entries,date,target_origin=DEV):
     esc=html.escape;cards=[]
@@ -149,7 +189,7 @@ def edition_section(entries,date,target_origin=DEV):
         cards.append('<article class="edition-card"><a href="'+esc(p['url'],quote=True)+'"><img src="'+esc(p['hero_image'],quote=True)+'" alt="'+esc(p['hero_alt'],quote=True)+'"></a><div class="edition-copy"><span class="edition-meta">'+esc(p['symbol'])+' · '+esc(p['market_family'])+'</span><h3><a href="'+esc(p['url'],quote=True)+'">'+esc(p['title'])+'</a></h3><p>'+esc(p['dek'])+'</p><a class="read-more" href="'+esc(p['url'],quote=True)+'">Read Analysis →</a>'+proof+'</div></article>')
     return '<main class="smn-edition" id="smn-subscription-edition"><div class="section-header"><span class="section-title">Market Analysis</span></div><h1>'+esc(label)+' market analysis</h1><p class="edition-intro">Data-backed coverage of seasonal market patterns and the current context around them.</p><div class="edition-grid">'+''.join(cards)+'</div></main>'
 
-def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
+def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,continuity=None):
     root=Path(edition_root).resolve()
     production = target_origin == 'https://seasonalmarketnews.com'
     if target_origin not in {DEV, 'https://seasonalmarketnews.com'}:raise ValueError('Unknown publication origin')
@@ -158,21 +198,36 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
         if state.get('profile')!='chatgpt' or state.get('publication_origin')!=target_origin:
             raise ValueError('Only the explicit ChatGPT reader edition can publish to production')
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch(r'[0-9a-f]{40}',source_commit):raise ValueError('Dated, committed edition required')
-    expected=complete_lineup(root,date,list(review_stages),production)
+    if continuity is not None:
+        if production or target_origin != DEV:
+            raise ValueError('Continuity publication is Dev-only')
+        expected=selected_lineup(root,date,required=False)
+        if expected is None:
+            if review_stages:
+                raise ValueError('Cannot publish articles before selected lineup is frozen')
+            expected=[]
+        if len(set(review_stages)) != len(review_stages) or not set(review_stages)<=set(expected):
+            raise ValueError('Continuity subjects differ from frozen selection')
+        if not isinstance(continuity.get('revision'),int) or continuity['revision']<1 or not re.fullmatch('[0-9a-f]{64}',continuity.get('revision_id','')):
+            raise ValueError('Continuity revision identity required')
+    else:
+        expected=complete_lineup(root,date,list(review_stages),production)
     target=root/'publication-package'
-    if any((root/name).exists() for name in ('dev-stage.json','dev-activation.json','dev-publication-receipt.json')):
+    if continuity is None and any((root/name).exists() for name in ('dev-stage.json','dev-activation.json','dev-publication-receipt.json')):
         raise ValueError('Preserve prior publication package; use a new reviewed package')
     if (target.exists() or target.is_symlink()) and (not target.is_dir() or target.is_symlink() or any(target.iterdir())):
         raise ValueError('Preserve prior publication package; use a new reviewed package')
-    entries=[];prepared=[];asof=datetime.now(timezone.utc).isoformat()
+    entries=[];prepared=[];fallbacks={};asof=datetime.now(timezone.utc).isoformat()
     for sym,stage in review_stages.items():
         if not re.fullmatch('[A-Z0-9]{1,12}',sym):raise ValueError('Invalid symbol')
         result=root/'results'/sym
         review=root/'jobs'/(sym+'-'+date.replace('-','')+'-'+stage)/'output.json'
-        a=reviewed(result,review);commission=read(result/'commission.json');original=commission['production_article']
+        htmltext,fallback,a=qualified_html(result,review,continuity=continuity is not None)
+        if fallback:fallbacks[sym]=fallback
+        commission=read(result/'commission.json');original=commission['production_article']
         rel=Path('editions')/date/sym
-        b=read(result/'bundle.json');hero=read(result/'hero-asset.json')
-        htmltext=(result/'article.html').read_text(encoding='utf-8')
+        b=read(result/'bundle.json');hero=read(result/'hero-asset.json') if (result/'hero-asset.json').is_file() else {}
+        if not fallback and not hero:raise ValueError('Reviewed hero missing')
         if 'Private draft · Editorial review has not passed.' in htmltext:raise ValueError('Unfinalized page')
         if 'Development preview · Not published' in htmltext:raise ValueError('Unfinalized footer')
         robots='index,follow' if production else 'noindex,nofollow'
@@ -188,7 +243,8 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
         entry.update(title=a['title'],dek=a['dek'],slug=sym.lower()+'-subscription-'+date,
             url=url,path='/var/www/smn/'+rel.as_posix()+'/article.html',lookback_years=original['lookback_years'],
             published_date=original['published_date'],updated_date=asof,tags=['subscription-edition'],
-            hero_image=target_origin+'/'+rel.as_posix()+'/'+hero['url'],hero_alt=hero['alt'],
+            hero_image=target_origin+'/'+rel.as_posix()+'/'+('assets/continuity-placeholder.svg' if fallback else hero['url']),
+            hero_alt='Seasonal Market News article' if fallback else hero['alt'],
             seo_title=a['title'],meta_description=a['dek'][:155],publish_status='true',
             production_original='' if original.get('source_mode')=='selected_inputs' else original.get('url',''),edition_id='subscription-'+date,source_commit=source_commit,
             production_release_allowed=production,history_validation=commission['history_status'])
@@ -205,17 +261,22 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
                     raise ValueError('Production reader edition requires ChatGPT subscription provenance')
             entry['generation']=generation['summary']
         entries.append(entry)
-        prepared.append((rel,htmltext,assets))
-    if not 1<=len(entries)<=6:raise ValueError('An edition publishes one to six reviewed subjects')
+        prepared.append((rel,htmltext,assets,bool(fallback)))
+    if not (0 if continuity is not None else 1)<=len(entries)<=6:raise ValueError('Invalid reviewed subject count')
     if not target.exists(): target.mkdir()
-    for rel,htmltext,assets in prepared:
+    for rel,htmltext,assets,fallback in prepared:
         dest=target/rel;dest.mkdir(parents=True)
         (dest/'article.html').write_text(htmltext,encoding='utf-8')
         for source,relative in assets:
             d=dest/relative;d.parent.mkdir(exist_ok=True);shutil.copy2(source,d)
+        if fallback:
+            placeholder=dest/'assets/continuity-placeholder.svg'
+            placeholder.parent.mkdir(exist_ok=True)
+            placeholder.write_text(CONTINUITY_HERO,encoding='utf-8')
     entries.sort(key=lambda p:p['published_date'],reverse=True)
     section=edition_section(entries,date,target_origin)
     landing='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Seasonal Market News</title><style>'+CSS+'</style></head><body><header><div class="header-content"><a href="/" class="logo"><span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span></a><nav><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></nav></div></header>'+section+'<footer><div class="footer-content"><div class="footer-left">© '+str(datetime.now().year)+' <a href="https://taradataresearch.com" target="_blank" rel="noopener">Tara Data Research LLC</a>. All rights reserved.</div><div class="footer-links"><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></div></div></footer></body></html>'
+    (target/'editions'/date).mkdir(parents=True,exist_ok=True)
     (target/'editions'/date/'index.html').write_text(landing,encoding='utf-8')
     write(target/'entries.json',entries)
     if (root/'archive-seed.json').exists():
@@ -229,4 +290,13 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
       'expected_symbols':expected,
       'membership_sources':membership_sources, 'private_files':private_files,
       'files':{p.relative_to(target).as_posix():digest_bytes(p.read_bytes()) for p in target.rglob('*') if p.is_file() and not p.relative_to(target).as_posix().startswith('.membership-sources/')}}
+    if continuity is not None:
+        actual=[s for s in expected if s in review_stages]
+        manifest.update(continuity_policy=1,publication_policy='continuity-v1',revision=continuity['revision'],revision_id=continuity['revision_id'],
+            transaction_id=continuity.get('transaction_id',continuity['revision_id']),
+            selection_status='frozen' if expected else 'pending',
+            selection_sha256=digest_bytes((root/'input-selection.json').read_bytes()) if expected else None,
+            published_symbols=actual,pending_symbols=[s for s in expected if s not in actual],
+            complete=bool(expected) and len(actual)==len(expected),coverage_status=('complete' if expected and len(actual)==len(expected) else 'partial' if actual else 'notice'),
+            presentation_fallbacks=fallbacks)
     write(target/'manifest.json',manifest);return manifest

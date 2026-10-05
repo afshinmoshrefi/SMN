@@ -87,7 +87,7 @@ def retain_capsule(package, record, package_manifest, entries):
     root = publication.store().root / 'qualified-inputs' / publication.sha(str(Path(record).absolute()).encode())
     declared = package_manifest.get('private_files', {})
     expected = package_manifest.get('membership_sources', {})
-    if not declared or set(expected) != {e['symbol'] for e in entries}:
+    if (not declared and entries) or set(expected) != {e['symbol'] for e in entries}:
         raise ContentError('Every gated article requires retained source and independent reviewer evidence')
     for relative, expected_hash in declared.items():
         if not relative.startswith('.membership-sources/'):
@@ -109,9 +109,16 @@ def retain_capsule(package, record, package_manifest, entries):
                 or '..' in Path(source['review']).parts):
             raise ContentError('Reviewer capsule belongs to another article')
         article, review = root / source['article'], root / source['review']
-        approved = reviewed(article, review / 'output.json')
+        fallback = package_manifest.get('presentation_fallbacks', {}).get(entry['symbol'])
+        if fallback:
+            from presentation_fallback import verify_fallback
+            raw = safe_file(package, urlsplit(entry['url']).path.lstrip('/')).read_text('utf-8')
+            verify_fallback(article, raw, fallback)
+            approved = read(article/'article.json')
+        else:
+            approved = reviewed(article, review / 'output.json')
         raw = safe_file(package, urlsplit(entry['url']).path.lstrip('/')).read_bytes()
-        if raw != safe_file(article, 'article.html').read_bytes() or approved['title'] != entry['title']:
+        if (not fallback and raw != safe_file(article, 'article.html').read_bytes()) or approved['title'] != entry['title']:
             raise ContentError('Incoming publication differs from retained approved article')
         result[entry['slug']] = {'article': str(article), 'review': str(review)}
     return result
@@ -141,13 +148,15 @@ def describe(post, manifest=None):
 def prepare_batch(entries, package, record, package_manifest):
     import article_index
     sources = retain_capsule(package, record, package_manifest, entries)
+    previous = {publication.path_for(p):p for p in read(article_index.POSTS_JSON)}
     updated, revisions = [], []
     for entry in entries:
         raw = safe_file(package, urlsplit(entry['url']).path.lstrip('/')).read_text('utf-8')
-        new, manifest = publication.prepare(entry, raw, source_root=package)
+        old = previous.get(publication.path_for(entry)) if package_manifest.get('continuity_policy') == 1 else None
+        new, manifest = publication.prepare(entry, raw, previous=old, source_root=package)
         private_owner(publication.store().revisions / manifest['storage'])
         updated.append(new)
-        revisions.append(dict(describe(new, manifest), expected_revision=None,
+        revisions.append(dict(describe(new, manifest), expected_revision=old.get('membership_revision') if old else None,
                               source=sources[new['slug']],
                               raw_asset_urls=[urlsplit(new['url']).scheme + '://' + urlsplit(new['url']).netloc + '/' + rel
                                   for rel in package_manifest['files']
@@ -161,7 +170,7 @@ def prepare_batch(entries, package, record, package_manifest):
     write(journal, intent)
     capsule = publication.store().root / 'qualified-inputs' / publication.sha(str(Path(record).absolute()).encode())
     return {'journal': str(journal), 'capsule_files':{str(capsule/relative):expected for relative,expected in package_manifest.get('private_files', {}).items()}, 'new': revisions,
-            'retained': [describe(p) for p in read(article_index.POSTS_JSON)]}
+            'retained': [describe(p) for p in previous.values() if publication.path_for(p) not in {r['canonical'] for r in revisions}]}
 
 
 def _current(store, canonical):

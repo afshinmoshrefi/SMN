@@ -23,7 +23,8 @@ def stage(root, repo):
     extra = ('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs','blog/claude_subscription_writer.py',
              'blog/membership_pipeline.py','blog/membership_publication.py','blog/article_content_store.py',
              'blog/article_index.py','blog/pin_store.py','blog/reader_app.py','blog/reader_auth.py',
-             'blog/public_derivative.py','blog/promotion_jobs.py','blog/daily_briefing.py')
+             'blog/public_derivative.py','blog/promotion_jobs.py','blog/daily_briefing.py',
+             'blog/presentation_fallback.py','blog/publication_continuity.py')
     shared.SOURCE_FILES += tuple(f for f in extra if f not in shared.SOURCE_FILES)
     receipt = shared.stage(root, repo)
     receipt['target_host'] = HOST
@@ -32,6 +33,33 @@ def stage(root, repo):
     receipt['record'] = '/var/lib/tradewave/release-state/smn-primary-'+shared.edition_date(root)+'-'+receipt['source_commit'][:10]
     receipt['remote'] = '/var/tmp/smn-primary-'+shared.edition_date(root)+'-'+receipt['source_commit'][:10]
     shared.write(root/'primary-stage.json', receipt)
+    return receipt
+
+
+def stage_continuity(root, repo, date, stages, revision):
+    """Stage an immutable Dev coverage revision without entering the legacy full-edition path."""
+    from subscription_publication import package
+    root=Path(root).resolve()
+    extra=('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs',
+           'blog/membership_pipeline.py','blog/membership_publication.py','blog/article_content_store.py',
+           'blog/article_index.py','blog/pin_store.py','blog/reader_app.py','blog/reader_auth.py',
+           'blog/public_derivative.py','blog/promotion_jobs.py','blog/daily_briefing.py',
+           'blog/presentation_fallback.py','blog/publication_continuity.py')
+    shared.SOURCE_FILES += tuple(f for f in extra if f not in shared.SOURCE_FILES)
+    repo,commit=shared.clean_main(repo)
+    manifest=package(root,date,commit,stages,continuity=revision)
+    source=shared.source_tree(root,repo,commit)
+    for name,folder in (('committed-source.tar',source),('publication-package.tar',root/'publication-package')):
+        shared.archive(folder,root/name,'source' if name=='committed-source.tar' else 'publication-package')
+    ident=manifest['transaction_id'][:16]
+    receipt={'status':'staged','source_commit':commit,'writer_source_commit':shared.read(root/'daily-state.json').get('source_commit') if (root/'daily-state.json').exists() else commit,
+             'record':'/var/lib/tradewave/release-state/smn-primary-'+date+'-'+ident,
+             'remote':'/var/tmp/smn-primary-'+date+'-'+ident,
+             'target_host':HOST,'review_stages':stages,'manifest':manifest,
+             'publication_policy':'continuity-v1','revision_id':manifest['revision_id'],'transaction_id':manifest['transaction_id'],
+             'source_tar_sha256':shared.sha(root/'committed-source.tar'),
+             'package_tar_sha256':shared.sha(root/'publication-package.tar')}
+    shared.write(root/'primary-stage.json',receipt)
     return receipt
 
 
@@ -45,9 +73,15 @@ def activate(root, repo, node, playwright):
     for name,key in [('committed-source.tar','source_tar_sha256'),('publication-package.tar','package_tar_sha256')]:
         if shared.sha(root/name) != receipt[key]:
             raise ValueError('Staged archive changed')
-    remote('mkdir -m 700 '+receipt['remote'])
+    remote('mkdir -p -m 700 '+receipt['remote'])
     for name in ('committed-source.tar','publication-package.tar'):
-        shared.run(['scp',str(root/name),HOST+':'+receipt['remote']+'/'+name])
+        path=receipt['remote']+'/'+name
+        code="from pathlib import Path;import hashlib;p=Path(%r);print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'missing')" % path
+        existing=remote(PYTHON+' -',input=code).strip()
+        digest=shared.sha(root/name)
+        if existing not in ('missing',digest):
+            raise ValueError('Interrupted remote upload differs from immutable stage')
+        if existing=='missing': shared.run(['scp',str(root/name),HOST+':'+path])
     code = "import tarfile;from pathlib import Path;p=Path(%r);[tarfile.open(p/n).extractall(p,filter='data') for n in ('committed-source.tar','publication-package.tar')]" % receipt['remote']
     remote(PYTHON+' -',input=code)
     prepared = remote(PUBLICATION_PYTHON+' '+receipt['remote']+'/source/blog/install_smn_primary_edition.py prepare '+receipt['remote']+'/publication-package')
@@ -81,11 +115,19 @@ def finish(root, repo):
         call(receipt,'rollback')
         raise ValueError('main moved; primary publication rolled back')
     proof = shared.read(root/'live-verification.json')
-    pixels = shared.read(root/'live-landing-visual-checks.json')
     from subscription_publication import sha256_equal
-    if not proof.get('passed') or not pixels.get('passed') or not pixels.get('inspected_images'):
-        raise ValueError('Live browser and actual landing inspection required')
-    for name,digest in pixels['inspected_images'].items():
+    if receipt.get('publication_policy') == 'continuity-v1':
+        if (not proof.get('passed') or proof.get('deterministic_landing') is not True or
+                proof.get('revision_id') != receipt.get('revision_id') or
+                set(proof.get('landing_screenshots') or {}) != {'live-edition-desktop.png','live-edition-mobile.png'}):
+            raise ValueError('Bound deterministic landing/browser proof required')
+        screenshots=proof['landing_screenshots']
+    else:
+        pixels = shared.read(root/'live-landing-visual-checks.json')
+        if not proof.get('passed') or not pixels.get('passed') or not pixels.get('inspected_images'):
+            raise ValueError('Live browser and actual landing inspection required')
+        screenshots=pixels['inspected_images']
+    for name,digest in screenshots.items():
         if not sha256_equal(shared.sha(root/name),digest):
             raise ValueError('Landing screenshot changed')
     shared.run(['scp',str(root/'live-verification.json'),HOST+':'+receipt['record']+'/live-verification.json'])

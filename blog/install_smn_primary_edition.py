@@ -6,6 +6,7 @@ code over Claude's live dashboard or changes pins, services, or production.
 from pathlib import Path
 import argparse
 import contextlib
+import html
 import fcntl
 import json
 import os
@@ -88,13 +89,16 @@ def local_path(url):
     return path
 
 
-def merge_posts(previous, incoming):
+def merge_posts(previous, incoming, *, continuity=False):
     merged = {p['url']: p for p in previous}
     if len(merged) != len(previous):
         raise ValueError('Duplicate existing catalog URLs')
     for entry in incoming:
-        if entry['url'] in merged:
+        if entry['url'] in merged and not continuity:
             raise ValueError('Edition already present; inspect receipt instead of republishing')
+        if entry['url'] in merged and (merged[entry['url']].get('symbol') != entry.get('symbol') or
+                                      merged[entry['url']].get('edition_id') != entry.get('edition_id')):
+            raise ValueError('Continuity revision conflicts with retained article')
         item = dict(entry)
         item.setdefault('slug', item['symbol'].lower()+'-subscription-'+str(item['edition_id']))
         merged[item['url']] = item
@@ -146,10 +150,20 @@ def prepare(package):
         preflight()
         # Resolve native feed imports before creating a publication transaction.
         import publish_article
-    ident = ('smn-production-' if PRODUCTION else 'smn-primary-')+manifest['edition_date']+'-'+manifest['source_commit'][:10]
+    continuity = manifest.get('continuity_policy') == 1
+    ident = ('smn-production-' if PRODUCTION else 'smn-primary-')+manifest['edition_date']+'-'+(manifest['transaction_id'][:16] if continuity else manifest['source_commit'][:10])
     record = STATE/ident
+    if (record/'receipt.json').exists():
+        prior = read(record/'receipt.json')
+        if prior.get('transaction_id') != manifest.get('transaction_id') or prior.get('source_commit') != manifest['source_commit']:
+            raise ValueError('Existing publication transaction differs')
+        return {'record':str(record), **prior}
     record.mkdir(parents=True, mode=0o700)
     candidate = record/'candidate'
+    if candidate.exists():
+        archive=record/('candidate.incomplete.'+str(os.getpid()))
+        if archive.exists(): raise ValueError('Interrupted candidate archive already exists')
+        candidate.rename(archive)
     candidate.mkdir()
     with catalog_lock():
         previous = read(WEB/'posts.json')
@@ -181,7 +195,7 @@ def prepare(package):
             if url and url.startswith(ORIGIN+'/') and not (gated and '/member/public-assets/' in url):
                 path = local_path(url)
                 heroes[str(path.relative_to(WEB))] = sha(path)
-        posts = merge_posts(previous, entries)
+        posts = merge_posts(previous, entries, continuity=continuity)
         write(candidate/'posts.json', posts)
     for rel in manifest['files']:
         if rel.startswith('editions/') and not gated:
@@ -194,6 +208,23 @@ def prepare(package):
         write(candidate/'editions'/date/'provenance.json', {'source_commit':manifest['source_commit'],
               'publication_target':TARGET_NAME, 'engine_authority':'TradeWave'})
     render(candidate)
+    if continuity:
+        status = {k:manifest[k] for k in ('edition_date','revision','revision_id','transaction_id','selection_sha256','selection_status',
+            'expected_symbols','published_symbols','pending_symbols','coverage_status','complete','source_commit')}
+        write(candidate/'coverage-status.json',status)
+        published = len(status['published_symbols'])
+        total = len(status['expected_symbols'])
+        message = (f'{date} morning coverage: {published} of {total} articles available.' if published else
+                   f'{date} coverage is being prepared. Previous articles retain their original dates.' if not total else
+                   f'{date} morning coverage is pending. Earlier articles retain their original dates.')
+        if status['pending_symbols']:
+            message += ' Pending: '+', '.join(status['pending_symbols'])+'.'
+        notice = '<section id="coverage-status" role="status" style="padding:14px 24px;background:#f3f7fa;color:#183140"><strong>'+html.escape(message)+'</strong></section>'
+        index = (candidate/'index.html').read_text(encoding='utf-8')
+        if '<body' not in index.lower():
+            raise ValueError('Native homepage has no body for coverage notice')
+        index = re.sub(r'(<body[^>]*>)',lambda match:match.group(1)+notice,index,count=1,flags=re.I)
+        (candidate/'index.html').write_text(index,encoding='utf-8')
     for name in ('index.html', 'search.html'):
         source = candidate/name if name == 'index.html' else WEB/name
         text = source.read_text(encoding='utf-8')
@@ -222,6 +253,8 @@ def prepare(package):
     home = {'source_commit':manifest['source_commit'], 'edition_date':date,
             'article_count':len(posts), 'previous_article_urls':[p['url'] for p in previous],
             'articles':articles, 'files':{n:sha(candidate/n) for n in GENERATED if n != 'home-manifest.json'}}
+    if continuity:
+        home['coverage'] = read(candidate/'coverage-status.json')
     write(candidate/'home-manifest.json', home)
     files = {str(p.relative_to(candidate)):sha(p) for p in candidate.rglob('*') if p.is_file()}
     receipt = {'id':ident, 'status':'prepared', 'source_commit':manifest['source_commit'],
@@ -231,6 +264,11 @@ def prepare(package):
                'expected_pins':read(DASH/'pins.json').get('pins',[]) if pin_hash else [], 'files':files,
                'retained_articles':{k:v for k,v in articles.items() if not k.startswith('editions/'+date+'/')},
                'retained_heroes':heroes, 'production_written':False, 'target_host':HOST_IP, 'urls':[p['url'] for p in entries]}
+    if continuity:
+        receipt.update({k:manifest[k] for k in ('revision','revision_id','transaction_id','selection_sha256','selection_status','published_symbols',
+            'pending_symbols','coverage_status','complete','publication_policy')})
+        receipt['continuity_policy'] = 1
+        receipt['overwritten'] = {rel:sha(WEB/rel) for rel in files if rel not in GENERATED and (WEB/rel).is_file()}
     if gated:
         receipt['membership_publication'] = private
         home['membership_articles'] = [{k:v for k,v in row.items() if k not in {'source', 'expected_revision', 'raw_asset_urls'}} for row in private['new'] + private['retained']]
@@ -269,7 +307,12 @@ def activate(record):
         raise ValueError('Prepared publication predates required editorial completion gate')
     if r['status'] != 'prepared':
         raise ValueError('Edition not prepared')
-    if PRODUCTION or r.get('expected_symbols') is not None:
+    if r.get('continuity_policy') == 1:
+        if PRODUCTION or r.get('complete') is not (bool(r['expected_symbols']) and set(r['published_symbols']) == set(r['expected_symbols'])):
+            raise ValueError('Invalid Dev continuity activation')
+        if set(r['urls']) != {ORIGIN+'/editions/'+r['edition_date']+'/'+s+'/article.html' for s in r['published_symbols']}:
+            raise ValueError('Continuity URLs differ from declared subset')
+    elif PRODUCTION or r.get('expected_symbols') is not None:
         symbols=r.get('expected_symbols')
         if (not isinstance(symbols,list) or not 1<=len(symbols)<=6 or len(set(symbols))!=len(symbols) or
             r.get('urls') is None or len(r['urls'])!=len(symbols) or set(r['urls'])!={
@@ -284,12 +327,16 @@ def activate(record):
             for rel, digest in r['files'].items():
                 if sha(record/'candidate'/rel) != digest:
                     raise ValueError('Candidate changed')
-                if rel not in GENERATED and (WEB/rel).exists():
+                if rel not in GENERATED and (WEB/rel).exists() and rel not in r.get('overwritten',{}):
                     raise ValueError('Edition path already exists: '+rel)
             backup = record/'backup'
             backup.mkdir()
             for n in GENERATED:
                 if (WEB/n).exists(): shutil.copy2(WEB/n, backup/n)
+            for rel, digest in r.get('overwritten',{}).items():
+                if sha(WEB/rel) != digest:
+                    raise ValueError('Earlier public revision changed: '+rel)
+                dest=backup/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(WEB/rel,dest)
             r['status'] = 'activating'
             write(record/'receipt.json', r)
             if r.get('membership_publication'):
