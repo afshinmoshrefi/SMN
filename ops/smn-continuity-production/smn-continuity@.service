@@ -4,9 +4,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=root
 EnvironmentFile=/etc/tradewave/secrets.env
 Environment=HOME=/root
 Environment=SMN_CAPTURE_LOCAL=1
+Environment=SMN_CODEX=/opt/smn-codex-0.155.0-alpha.16/node_modules/.bin/codex
 Environment=SMN_PLAYWRIGHT=/opt/smn-playwright/node_modules/playwright
 Environment=SMN_BROWSER_CHANNEL=bundled
 Environment=PYTHONDONTWRITEBYTECODE=1
