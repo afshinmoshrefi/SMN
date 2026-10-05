@@ -161,8 +161,8 @@ class EditorialGateTests(unittest.TestCase):
 
     def test_exact_multi_unit_and_chart_spans_are_grounded(self):
         rows=[{'text':'The September report covers fiscal 2026.','source_ids':['letter']},
-              {'text':'Seasonal history appears here.','source_ids':['history']},
-              {'text':'Fourth-quarter revenue increased from 596.9 to 634.7.','source_ids':['letter']}]
+               {'text':'Seasonal history appears here.','source_ids':['history']},
+               {'text':'Fourth-quarter revenue increased from 596.9 to 634.7.','source_ids':['letter']}]
         self.assertTrue(gate.quote_in_verified_units(
             'The September report covers fiscal 2026. Fourth-quarter revenue increased from 596.9 to 634.7.',rows))
         self.assertTrue(gate.quote_in_verified_units(
@@ -170,6 +170,50 @@ class EditorialGateTests(unittest.TestCase):
         self.assertFalse(gate.quote_in_verified_units(
             'The September report covers fiscal 2026. ... Fourth-quarter revenue increased from 596.9 to 9999.',rows))
         self.assertFalse(gate.quote_in_verified_units('The September report covers fiscal 2026. ... invented fact',rows))
+
+    def test_rendered_reference_markers_keep_exact_source_bound_spans(self):
+        rows=[{'text':'Revenue rose 18% in the reported quarter.','source_ids':['letter']},
+              {'text':'July volume -3.8; transfer value -15.6.','source_ids':['letter']}]
+        quote='Revenue rose 18% in the reported quarter. [1] … July volume -3.8; transfer value -15.6.'
+        self.assertTrue(gate.quote_in_verified_units(quote,rows,['letter','filing']))
+        self.assertFalse(gate.quote_in_verified_units(quote,[dict(rows[0],source_ids=['filing']),
+            dict(rows[1],source_ids=['filing'])],['letter','filing']))
+        self.assertFalse(gate.quote_in_verified_units(quote.replace('18%','19%'),rows,['letter','filing']))
+        self.assertFalse(gate.quote_in_verified_units(quote.replace('[1]','[2]'),rows,['letter','filing']))
+        self.assertFalse(gate.quote_in_verified_units(quote.replace('[1]','[3]'),rows,['letter','filing']))
+
+    def test_reversed_exact_spans_request_reinspection_without_passing(self):
+        first='The report says revenue rose in the quarter.'
+        second='Management says delayed deals and execution problems matter.'
+        draft=article(first)
+        draft['sections'][0]['paragraphs'].append({'text':second,'kind':'fact','source_ids':['letter']})
+        review=copy.deepcopy(self.review)
+        review['editorial_audit']['coverage'][0]['article_quote']=second+' [1] … '+first+' [1]'
+        self.assertTrue(any('Missing material context' in issue for issue in
+            gate.problems(draft,self.bundle,self.ctx,review)))
+        self.assertTrue(gate.review_quote_binding_errors(draft,self.bundle,self.ctx,review))
+        self.write(self.result/'article.json',draft)
+        ctx=gate.context(self.root,'SPY','2026-09-30')
+        self.write(self.job/'editorial-context.json',ctx)
+        (self.job/'prompt.txt').write_text(gate.MARKER+gate.digest(ctx)+'\n',encoding='utf-8')
+        manifest=json.loads((self.job/'job.json').read_text())
+        manifest['input_hashes']={name:gate.sha256((self.job/name).read_bytes())
+            for name in ('prompt.txt','schema.json','editorial-context.json')}
+        self.write(self.job/'job.json',manifest)
+        receipt=json.loads((self.job/'receipt.json').read_text())
+        receipt['input_hashes']=manifest['input_hashes']
+        self.write(self.job/'output.json',review)
+        receipt['output_sha256']=gate.sha256((self.job/'output.json').read_bytes())
+        self.write(self.job/'receipt.json',receipt)
+        with self.assertRaises(gate.ReviewEvidenceError):
+            gate.verify_review(self.result,self.job/'output.json')
+        review['issues']=[{'category':'factual','severity':'major','problem':'Unsupported averaging method'}]
+        self.write(self.job/'output.json',review)
+        receipt['output_sha256']=gate.sha256((self.job/'output.json').read_bytes())
+        self.write(self.job/'receipt.json',receipt)
+        with self.assertRaises(ValueError) as caught:
+            gate.verify_review(self.result,self.job/'output.json')
+        self.assertNotIsInstance(caught.exception,gate.ReviewEvidenceError)
 
     def test_future_price_overlay_cannot_be_called_recorded_price(self):
         bad = article(self.text + ' The chart lays the seasonal path over IWM actual price for the next 60 weekdays.')

@@ -18,7 +18,7 @@ MARKER = 'EDITORIAL_CONTEXT_SHA256: '
 
 
 class ReviewEvidenceError(ValueError):
-    """A valid passing review quoted article text under the wrong source citation."""
+    """A passing review used exact text with the wrong source or reading order."""
 
 CAUSAL = re.compile(r'\b(blam\w*|attribut\w*|due to|driven by|caused by|resulted from)\b', re.I)
 INFERENCE_LIMIT = re.compile(r'\b(?:no\s+(?:basis|evidence|grounds|support|justification)\s+(?:for|to)|without)\s*$', re.I)
@@ -107,8 +107,14 @@ def evidence_units(result, bundle):
     return rows
 
 
-def quote_in_verified_units(quote, rows):
+def quote_in_verified_units(quote, rows, source_order=(), *, ordered=True):
     quote = spaced(quote)
+    if source_order:
+        allowed = {source_order.index(sid)+1 for row in rows for sid in row['source_ids'] if sid in source_order}
+        markers = re.findall(r'(?<!\S)\[(\d+)\](?=\s|$)', quote)
+        if any(int(marker) not in allowed for marker in markers): return False
+        quote = re.sub(r'(?<!\S)\[\d+\](?=\s|$)', '', quote)
+        quote = spaced(quote)
     if len(quote) < 12: return False
     texts = [spaced(row['text']) for row in rows]
     if any(quote in value for value in texts): return True
@@ -119,6 +125,8 @@ def quote_in_verified_units(quote, rows):
     else:
         parts = [spaced(p) for p in re.split(r'(?<=[.!?])\s+',quote) if spaced(p)]
     if len(parts) < 2 or any(len(p) < 12 for p in parts): return False
+    if not ordered:
+        return all(any(part in text for text in texts) for part in parts)
     position = (-1,-1)
     for part in parts:
         matches = [(i,match.start()) for i,text in enumerate(texts)
@@ -286,7 +294,7 @@ def problems(article, bundle, ctx, review, result=None):
         quote = spaced(row.get('article_quote',''))
         cited = [u for u in displayed if item['source_id'] in u['source_ids']]
         if item['required'] and (row.get('status') != 'covered' or
-                                 not quote_in_verified_units(quote,cited)):
+                                 not quote_in_verified_units(quote,cited,[s['id'] for s in bundle['sources']])):
             issues.append('Missing material context '+item['id']+': '+item['summary'])
     claims = audit.get('claims', [])
     if len({r.get('unit_id') for r in claims}) != len(claims) or {r.get('unit_id') for r in claims} != {r['id'] for r in ctx['requirements']}:
@@ -331,7 +339,7 @@ def problems(article, bundle, ctx, review, result=None):
 
 
 def review_quote_binding_errors(article, bundle, ctx, review, result=None):
-    """Identify only wrong-citation quotations, without inferring semantic coverage."""
+    """Identify exact quote binding or order errors, without inferring coverage."""
     coverage = (review.get('editorial_audit') or {}).get('coverage', [])
     items = ctx['material_context']
     if (len(coverage) != len(items) or
@@ -339,6 +347,7 @@ def review_quote_binding_errors(article, bundle, ctx, review, result=None):
             any(row.get('status') != 'covered' for row in coverage)):
         return []
     displayed = units(article) + (evidence_units(result,bundle) if result is not None else [])
+    source_order = [source['id'] for source in bundle['sources']]
     by_id = {row['item_id']: row for row in coverage}
     errors = []
     for item in items:
@@ -346,8 +355,9 @@ def review_quote_binding_errors(article, bundle, ctx, review, result=None):
             continue
         quote = spaced(by_id[item['id']].get('article_quote', ''))
         cited = [unit for unit in displayed if item['source_id'] in unit['source_ids']]
-        if not quote_in_verified_units(quote, cited):
-            if not quote_in_verified_units(quote, displayed):
+        if not quote_in_verified_units(quote, cited, source_order):
+            if not (quote_in_verified_units(quote, cited, source_order, ordered=False) or
+                    quote_in_verified_units(quote, displayed, source_order)):
                 return []
             errors.append('Missing material context '+item['id']+': '+item['summary'])
     return errors
