@@ -28,6 +28,40 @@ def digest(value):
     from visual_evidence import digest as d
     return d(value)
 
+def selected_lineup(root,date,required=False):
+    """Read the immutable selection, not the subset that happened to finish."""
+    root=Path(root);path=root/'input-selection.json'
+    if not path.exists() and not required:return None
+    selection=read(path)
+    symbols=selection.get('symbols',[])
+    if (selection.get('date')!=date or not isinstance(symbols,list) or
+        not 1<=len(symbols)<=6 or any(not isinstance(s,str) or not re.fullmatch('[A-Z0-9]{1,12}',s) for s in symbols) or
+        len(set(symbols))!=len(symbols)):
+        raise ValueError('Invalid dated selected lineup')
+    posts_path=root/'production/posts.json'
+    if not sha256_equal(digest_bytes(posts_path.read_bytes()),selection.get('files',{}).get('production/posts.json')):
+        raise ValueError('Selected article inputs changed')
+    posts=read(posts_path)
+    if len(posts)!=len(symbols) or {p['symbol'] for p in posts}!=set(symbols):
+        raise ValueError('Selected lineup differs from frozen posts')
+    shared=root/'shared-inputs.json'
+    if shared.exists() and not sha256_equal(digest_bytes(path.read_bytes()),read(shared).get('input-selection.json')):
+        raise ValueError('Frozen selection receipt changed')
+    return symbols
+
+def complete_lineup(root,date,actual,required=False):
+    expected=selected_lineup(root,date,required)
+    if expected is None:return None
+    if len(actual)!=len(expected) or set(actual)!=set(expected):
+        raise ValueError('Incomplete selected edition: missing '+str(sorted(set(expected)-set(actual)))+
+                         '; unexpected '+str(sorted(set(actual)-set(expected))))
+    state=read(Path(root)/'smn-daily-state.json')
+    if state.get('date')!=date:raise ValueError('Selected edition state date mismatch')
+    held=[s for s in expected if not state.get('articles',{}).get(s,{}).get('finalized') or
+          state['articles'][s].get('held')]
+    if held:raise ValueError('Selected edition has unfinished subjects: '+str(held))
+    return expected
+
 def reviewed(result,review_path):
     from editorial_gate import verify_complete
     verify_complete(result)
@@ -80,7 +114,12 @@ def reviewed(result,review_path):
 def validate_staged_reviews(root):
     """Resume/manual activation must not bypass newer or stale completion checks."""
     root=Path(root)
-    for entry in read(root/'publication-package/entries.json'):
+    manifest=read(root/'publication-package/manifest.json')
+    entries=read(root/'publication-package/entries.json')
+    expected=complete_lineup(root,manifest['edition_date'],[e['symbol'] for e in entries],manifest.get('production_allowed') is True)
+    if expected is not None and manifest.get('expected_symbols')!=expected:
+        raise ValueError('Staged package lacks the bound selected lineup; preserve it and prepare a recovery package')
+    for entry in entries:
         sym=entry['symbol']
         if not re.fullmatch('[A-Z0-9]{1,12}',sym):raise ValueError('Unsafe staged subject')
         result=root/'results'/sym
@@ -119,6 +158,7 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
         if state.get('profile')!='chatgpt' or state.get('publication_origin')!=target_origin:
             raise ValueError('Only the explicit ChatGPT reader edition can publish to production')
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',date) or not re.fullmatch(r'[0-9a-f]{40}',source_commit):raise ValueError('Dated, committed edition required')
+    expected=complete_lineup(root,date,list(review_stages),production)
     target=root/'publication-package'
     if any((root/name).exists() for name in ('dev-stage.json','dev-activation.json','dev-publication-receipt.json')):
         raise ValueError('Preserve prior publication package; use a new reviewed package')
@@ -184,5 +224,6 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV):
     manifest={'schema_version':1,'target_origin':target_origin,'target_root':'/var/www/smn','edition_date':date,
       'editorial_gate_version':1,
       'edition_id':'subscription-'+date,'source_commit':source_commit,'production_allowed':production,
+      'expected_symbols':expected,
       'files':{p.relative_to(target).as_posix():digest_bytes(p.read_bytes()) for p in target.rglob('*') if p.is_file()}}
     write(target/'manifest.json',manifest);return manifest

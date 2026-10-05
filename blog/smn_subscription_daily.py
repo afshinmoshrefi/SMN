@@ -216,7 +216,7 @@ def run(root, date, publish=False, target='production', scheduled=False):
                     raise ValueError(auth_errors[profile])
                 outcomes[profile] = (run_profile(edition, date, profile, canonical) if target == 'production' else
                     run_profile(edition, date, profile, canonical, publication_origin=None))
-                if profile == 'chatgpt' and publish:
+                if profile == 'chatgpt' and publish and outcomes[profile].get('passed') is True:
                     if scheduled:
                         scheduled_window(root, date)
                     if target == 'production':
@@ -226,7 +226,7 @@ def run(root, date, publish=False, target='production', scheduled=False):
                         day = Day(edition,date,profile='chatgpt')
                         outcomes[profile]['publication'] = day.publish(Path(__file__).resolve().parent.parent)
             except Exception as exc:
-                outcomes[profile] = {'passed': False, 'status': 'held', 'reason': str(exc)[:500]}
+                outcomes[profile] = {**outcomes.get(profile,{}), 'passed': False, 'status': 'held', 'reason': str(exc)[:500]}
                 save_json(edition/'HOLD.json', {'utc': now(), **outcomes[profile],
                           'resume': 'Fix authentication/quota or the named cause; rerun this date. Saved work is retained.'})
         record = {'utc': now(), 'date': date, 'reader_provider': 'chatgpt',

@@ -296,7 +296,7 @@ class Day:
             try:
                 self._article(ed, sym)
             except Exception as exc:
-                # Hold only this article; the ones that pass are still published.
+                # Preserve successful work, but publish only a complete edition.
                 s['finalized'] = False
                 s['held'] = {'utc': now(), 'reason': str(exc)[:500]}
                 self.save()
@@ -374,7 +374,7 @@ class Day:
         review = load_json(ed.job(sym, stage)/'output.json')
         problems = editorial_review_problems(ed,sym,stage)
         if problems:
-            if stage in {'rereview','third-review'}:
+            if stage in {'rereview','third-review','reinspect-review'}:
                 raise Hold('%s failed %s: %s' % (sym,'editorial recovery review' if stage=='third-review' else 'review twice',problems))
             issues = self._issues(sym + '-review.txt', problems)
             if not ed.job(sym, 'repair-two').exists():
@@ -586,7 +586,8 @@ def main():
             day = Day(a.root, a.date, max_jobs=a.max_jobs, roles=state['roles'])
             day.verify_editorial_recovery()
             day.symbols=list(state['articles'])
-            day.check()
+            if not day.check()['passed']:
+                raise Hold('Selected edition is incomplete; preserve finished articles and recover held subjects')
             ready = [s for s, v in day.state['articles'].items() if v.get('finalized') and not v.get('held')]
             if not ready:
                 raise Hold('no finished article to publish')
@@ -612,6 +613,8 @@ def main():
         if not a.publish:
             log(status='ready_to_publish', jobs=day.jobs_used(), passed=check['passed'])
             return 0 if check['passed'] else 3
+        if not check['passed']:
+            raise Hold('Selected edition is incomplete; publication was not attempted')
         receipt = day.publish(a.repo)
         log(status=receipt.get('status'), jobs=day.jobs_used(), passed=check['passed'])
         return 0 if check['passed'] else 3

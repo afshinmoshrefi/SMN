@@ -30,7 +30,8 @@ generation_routing = "premium"
 HERO_WIDTH_ATTR = 1536   # real rendered px (1536x640) hero (Flux) -- for CLS
 HERO_HEIGHT_ATTR = 640
 
-CUSTOM_MOTIFS = json.load(open("ticker_motif_custom.json"))
+from smn_runtime_assets import load_ticker_motifs
+CUSTOM_MOTIFS = load_ticker_motifs()
 PREMIUM_IMAGE_TRIGGERS = {
     # "keywords": ["aerospace","airline"],
     "keywords": [],

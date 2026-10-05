@@ -7,13 +7,13 @@ from pathlib import Path
 import subprocess
 import sys
 
-from subscription_publication import package, read, write
+from subscription_publication import package, read, write, complete_lineup
 import install_smn_primary_edition as installer
 
 ORIGIN = 'https://seasonalmarketnews.com'
 
 
-def publish_edition(root, date):
+def publish_edition(root, date, max_jobs=40):
     root = Path(root).resolve()
     installer.configure_production()
     installer.guard()
@@ -26,6 +26,7 @@ def publish_edition(root, date):
     state = read(root/'smn-daily-state.json')
     stages = {symbol: row['review_stage'] for symbol, row in state['articles'].items()
               if row.get('finalized') and not row.get('held')}
+    complete_lineup(root,date,list(stages),required=True)
     repo = Path(__file__).resolve().parent.parent
     commit = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
     if subprocess.check_output(['git', '-C', str(repo), 'status', '--porcelain', '--untracked-files=no'], text=True).strip():
@@ -58,7 +59,7 @@ def publish_edition(root, date):
         subprocess.run(['node', str(repo/'blog/subscription_primary_live.cjs'), str(root)], check=True)
         from smn_daily import Day, CLIS
         from smn_visual import landing
-        day = Day(root, date, profile='chatgpt', roles=state['roles'], publication_origin=ORIGIN)
+        day = Day(root, date, profile='chatgpt', roles=state['roles'], publication_origin=ORIGIN,max_jobs=max_jobs)
         check = landing(root, date, state['roles'], CLIS, day.run_job)
         if not check.get('passed'):
             raise ValueError('Live landing visual review failed')
