@@ -82,6 +82,25 @@ class EditorialGateTests(unittest.TestCase):
     def test_valid_complete_custody_reaches_assets_and_visual(self):
         self.assertTrue(self.complete()['passed'])
 
+    def test_material_quote_must_use_matching_citation_even_when_adjacent_facts_are_correct(self):
+        first='The filing reports the quarter ended July 26, 2026.'
+        second='For the quarter ended July 26, 2026, revenue rose 18% sequentially and 106% annually.'
+        draft=article(first)
+        draft['sections'][0]['paragraphs'][0]['source_ids']=['filing']
+        draft['sections'][0]['paragraphs'].append({'text':second,'kind':'fact','source_ids':['release']})
+        ctx=copy.deepcopy(self.ctx)
+        ctx['material_context'][0].update({'id':'q2-revenue','source_id':'release',
+            'summary':'The July 26 quarter rose sequentially and annually.'})
+        review=copy.deepcopy(self.review)
+        row=review['editorial_audit']['coverage'][0]
+        row.update({'item_id':'q2-revenue','article_quote':first})
+        self.assertTrue(any('Missing material context q2-revenue' in issue
+            for issue in gate.problems(draft,self.bundle,ctx,review)))
+        row['article_quote']=second
+        self.assertFalse(any('Missing material context q2-revenue' in issue
+            for issue in gate.problems(draft,self.bundle,ctx,review)))
+        self.assertIn('Choose quoted text carrying the item\'s source_id citation',gate.RULES)
+
     def test_style_only_failure_reuses_signed_review_with_versioned_policy(self):
         review=copy.deepcopy(self.review)
         review['passed']=False
