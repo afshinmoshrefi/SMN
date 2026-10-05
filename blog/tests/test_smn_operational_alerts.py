@@ -221,6 +221,13 @@ class OperationalAlertTests(unittest.TestCase):
             second = alerts.run(self.root, self.six+timedelta(seconds=60), SETTINGS, public_probe=probe)
         self.assertEqual((first['observed'], second['observed']), (0,0))
         self.assertEqual(len(calls), 1)
+        for changed in ('origin', 'date'):
+            invalid = json.loads(json.dumps(public))
+            if changed == 'origin': invalid[0]['url'] = 'https://example.com' + invalid[0]['url']
+            else: invalid[0]['published_date'] = '2026-10-01'
+            result = alerts.inspect(self.root, self.six, SETTINGS,
+                public_probe=lambda origin, urls: (invalid, {url:'available' for url in urls.values()}))
+            self.assertEqual(result[0]['kind'], 'edition-incomplete')
 
     def test_empty_provider_ack_is_not_delivery_and_acceptance_dedupes(self):
         self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'held','reason':'source hold'})
