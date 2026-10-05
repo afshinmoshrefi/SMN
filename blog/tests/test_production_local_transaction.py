@@ -115,4 +115,49 @@ class LocalProductionTransactionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'Three publication attempts'):rolling.publish_available(edition,DATE,'production',repo=self.root)
         self.assertEqual(len(list(self.state.glob('smn-production-*'))),3)
 
+    def test_conflicting_preloaded_renderer_fails_before_transaction(self):
+        foreign=types.SimpleNamespace(__file__=str(self.root/'foreign/rebuild_news_home.py'))
+        with patch.dict(sys.modules,{'rebuild_news_home':foreign}):
+            with self.assertRaisesRegex(ValueError,'Conflicting production native renderer'):
+                installer.prepare(self.package([]))
+        self.assertEqual(list(self.state.iterdir()),[])
+
+    def test_conflicting_preloaded_renderer_helper_fails_before_transaction(self):
+        for name in ('pin_store','article_index','seo_helpers'):
+            foreign=types.SimpleNamespace(__file__=str(self.root/'foreign'/(name+'.py')))
+            with patch.dict(sys.modules,{name:foreign}):
+                with self.assertRaisesRegex(ValueError,'Conflicting production native renderer'):
+                    installer.prepare(self.package([],revision=len(list(self.root.glob('package-*')))+1))
+        self.assertEqual(list(self.state.iterdir()),[])
+
+    def test_immutable_renderer_hash_drift_blocks_activation(self):
+        for name in ('pin_store.py','article_index.py','seo_helpers.py'):(self.blog/name).write_text('Fixture helper')
+        with patch.object(installer,'__file__',str(self.blog/'install_smn_primary_edition.py')):
+            prepared=installer.prepare(self.package([]))
+            self.assertEqual(prepared['runtime_blog'],str(self.blog))
+            (self.blog/'rebuild_news_home.py').write_text('Peer changed renderer')
+            with self.assertRaisesRegex(ValueError,'renderer changed'):
+                installer.activate(Path(prepared['record']))
+
+    def test_cold_render_uses_explicit_runtime_file_without_publisher_preload(self):
+        renderer=self.blog/'rebuild_news_home.py'
+        renderer.write_text('''def build_home():
+ INDEX_HTML.write_text('<html><head></head><body>Bound fixture renderer</body></html>')
+ SUGGEST_JSON.write_text('[]')
+''')
+        candidate=self.root/'cold';candidate.mkdir();write(candidate/'posts.json',[])
+        write(self.web/'search_index.json',[])
+        # Call the actual render implementation, with no cached home or publisher dependency.
+        source=Path(installer.__file__).read_text()
+        import ast
+        tree=ast.parse(source);node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='render')
+        scope=dict(installer.__dict__);scope['RUNTIME_BLOG']=self.blog
+        exec(compile(ast.Module(body=[node],type_ignores=[]),installer.__file__,'exec'),scope)
+        with patch.dict(sys.modules):
+            sys.modules.pop('rebuild_news_home',None)
+            sys.modules.pop('publish_article',None)
+            scope['render'](candidate)
+        self.assertIn('Bound fixture renderer',(candidate/'index.html').read_text())
+        self.assertEqual(read(candidate/'suggest.json'),[])
+
 if __name__=='__main__':unittest.main()

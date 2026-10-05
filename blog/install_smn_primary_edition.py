@@ -7,6 +7,7 @@ from pathlib import Path
 import argparse
 import contextlib
 import html
+import importlib.util
 import fcntl
 import json
 import os
@@ -22,6 +23,7 @@ WEB = Path('/var/www/smn')
 STATE = Path('/var/lib/tradewave/release-state')
 DASH = Path('/var/lib/smn-dashboard')
 BLOG = Path('/home/flask/blog')
+RUNTIME_BLOG = None
 ORIGIN = 'https://smn-dev.trxstat.com'
 GENERATED = ('posts.json', 'index.html', 'suggest.json', 'home-manifest.json', 'search_index.json', 'search.html')
 PRODUCTION = False
@@ -106,8 +108,21 @@ def render(candidate):
     # Use the installed dashboard template, with output paths scoped to candidate.
     # The two legacy security-page price updaters are outside this publication.
     sys.path.insert(0, '/home/flask')
-    sys.path.insert(0, str(BLOG))
-    import rebuild_news_home as home
+    runtime = RUNTIME_BLOG or BLOG
+    sys.path.insert(0, str(runtime))
+    if RUNTIME_BLOG is not None:
+        path=runtime/'rebuild_news_home.py'
+        existing=sys.modules.get('rebuild_news_home')
+        if existing is not None and Path(existing.__file__).resolve()!=path.resolve():
+            raise ValueError('Conflicting production native renderer module')
+        if existing is None:
+            spec=importlib.util.spec_from_file_location('rebuild_news_home',path)
+            home=importlib.util.module_from_spec(spec)
+            sys.modules['rebuild_news_home']=home
+            spec.loader.exec_module(home)
+        else:home=existing
+    else:
+        import rebuild_news_home as home
     home.NEWS_ROOT = candidate
     home.POSTS_JSON = candidate/'posts.json'
     home.INDEX_HTML = candidate/'index.html'
@@ -130,15 +145,23 @@ def render(candidate):
 
 
 def prepare(package):
+    global RUNTIME_BLOG
     guard()
     package = Path(package).resolve()
     manifest, entries = validate_package(package, ORIGIN, PRODUCTION)
+    continuity = manifest.get('continuity_policy') == 1
+    RUNTIME_BLOG = Path(__file__).resolve().parent if PRODUCTION and continuity else None
+    if RUNTIME_BLOG is not None:
+        existing=sys.modules.get('rebuild_news_home')
+        for name in ('rebuild_news_home','pin_store','article_index','seo_helpers'):
+            existing=sys.modules.get(name)
+            if existing is not None and Path(getattr(existing,'__file__','')).resolve()!=(RUNTIME_BLOG/(name+'.py')).resolve():
+                raise ValueError('Conflicting production native renderer module: '+name)
     if PRODUCTION:
         from smn_runtime_assets import preflight
         preflight()
         # Resolve native feed imports before creating a publication transaction.
         import publish_article
-    continuity = manifest.get('continuity_policy') == 1
     if continuity and PRODUCTION:
         from production_continuity import require_policy
         require_policy(manifest['source_commit'])
@@ -171,8 +194,9 @@ def prepare(package):
     with catalog_lock():
         previous = read(WEB/'posts.json')
         before = {n: sha(WEB/n) if (WEB/n).exists() else None for n in GENERATED}
-        helpers = {n:(sha(BLOG/n) if (BLOG/n).exists() else None)
-                   for n in ('rebuild_news_home.py','pin_store.py','article_index.py')}
+        runtime=RUNTIME_BLOG or BLOG
+        helpers = {n:(sha(runtime/n) if (runtime/n).exists() else None)
+                   for n in ('rebuild_news_home.py','pin_store.py','article_index.py') + (('seo_helpers.py',) if PRODUCTION and continuity else ())}
         if helpers['rebuild_news_home.py'] is None or (not PRODUCTION and None in helpers.values()):
             raise ValueError('Required native renderer missing')
         pin_hash = sha(DASH/'pins.json') if (DASH/'pins.json').exists() else None
@@ -253,6 +277,7 @@ def prepare(package):
     if continuity:
         receipt.update({k:manifest[k] for k in ('revision','revision_id','transaction_id','selection_sha256','selection_status','published_symbols',
             'pending_symbols','coverage_status','complete','publication_policy')})
+        receipt['runtime_blog']=str(runtime)
         receipt['continuity_policy'] = 1
         receipt['overwritten'] = {rel:sha(WEB/rel) for rel in files if rel not in GENERATED and (WEB/rel).is_file()}
     write(record/'receipt.json', receipt)
@@ -260,8 +285,11 @@ def prepare(package):
 
 
 def unchanged(receipt):
+    runtime=Path(receipt.get('runtime_blog',str(BLOG)))
+    if receipt.get('continuity_policy')==1 and PRODUCTION and runtime.resolve()!=Path(__file__).resolve().parent:
+        raise ValueError('Production renderer is not bound to this immutable release')
     for name, digest in receipt['runtime_helpers'].items():
-        if (sha(BLOG/name) if (BLOG/name).exists() else None) != digest:
+        if (sha(runtime/name) if (runtime/name).exists() else None) != digest:
             raise ValueError('Dashboard renderer changed during preparation')
     for n, digest in receipt['before'].items():
         if (sha(WEB/n) if (WEB/n).exists() else None) != digest:
