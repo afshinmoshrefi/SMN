@@ -222,10 +222,37 @@ def rollback_batch(membership):
     intent['state'] = 'rolled_back'; write(journal, intent)
 
 
+def _qualified_identity(prepared, charts):
+    """Compare relocated evidence by role and bytes, not capsule directory names."""
+    fingerprints = {Path(name): value for name, value in prepared['input_hashes'].items()}
+    article_roots = {path.parent for path in fingerprints if path.name == 'article.json' and
+                     all(path.parent/name in fingerprints for name in ('bundle.json', 'source.json', 'review-binding.json'))}
+    review_roots = {path.parent for path in fingerprints if path.name == 'receipt.json' and
+                    all(path.parent/name in fingerprints for name in ('output.json', 'job.json'))}
+    if len(article_roots) != 1 or len(review_roots) != 1:
+        raise ContentError('Qualified source record changed during publication')
+    article, review = next(iter(article_roots)), next(iter(review_roots))
+    normalized = {}
+    for path, value in fingerprints.items():
+        for role, root in (('article', article), ('review', review)):
+            if root in path.parents:
+                normalized[role + '/' + path.relative_to(root).as_posix()] = value
+                break
+        else:
+            raise ContentError('Qualified source record changed during publication')
+    normalized_charts = {}
+    for variant, item in charts.items():
+        path = Path(item['path'])
+        if article not in path.parents or path.is_symlink() or not path.is_file() or publication.sha(path.read_bytes()) != item['sha256']:
+            raise ContentError('Qualified native chart changed during publication')
+        normalized_charts[variant] = {'path':path.relative_to(article).as_posix(), 'sha256':item['sha256']}
+    return {k:v for k,v in prepared.items() if k != 'input_hashes'}, normalized, normalized_charts
+
+
 def register_sources(membership):
     """Register only byte-bound qualified evidence; jobs remain private drafts."""
     verify_capsule(membership)
-    from public_derivative import prepare_derivative
+    from public_derivative import prepare_derivative, validate_prepared
     import promotion_jobs
     store = publication.store()
     jobs, holds = [], []
@@ -251,17 +278,30 @@ def register_sources(membership):
                   'publication_identity': mapping, 'native_charts': charts, 'title': prepared['article']['title'],
                   'retained_input_hashes': membership.get('capsule_files', {})}
         path = store.root / 'qualified-sources' / (publication.sha(row['slug'].encode()) + '.json')
+        reused = False
         if path.exists():
             prior = read(path)
             if prior.get('active_revision') == row['revision']:
-                if prior.get('prepared') != prepared or prior.get('native_charts') != charts:
+                try:
+                    validate_prepared(prior['prepared'])
+                    validate_prepared(prepared)
+                    same = (prior.get('canonical') == row['canonical'] and
+                            prior.get('publication_identity') == mapping and
+                            _qualified_identity(prior['prepared'], prior['native_charts']) ==
+                            _qualified_identity(prepared, charts))
+                except (KeyError, TypeError, ValueError, OSError, ContentError):
+                    same = False
+                if not same:
                     raise ContentError('Qualified source record changed during publication')
                 record = prior
-        write(path, record)
-        private_owner(path)
+                reused = True
+        if not reused:
+            write(path, record)
+            private_owner(path)
+        active_prepared = record['prepared']
         job = promotion_jobs.create(store.root/'promotion', 'derivative',
             {'article_id': row['url'], 'source_revision': row['revision'],
-             'source_hash': prepared['provenance']['article_sha256'], 'payload_sha256':digest(prepared)}, 'qualified-edition-publisher')
+             'source_hash': active_prepared['provenance']['article_sha256'], 'payload_sha256':digest(active_prepared)}, 'qualified-edition-publisher')
         jobs.append(job)
         private_owner(promotion_jobs._path(store.root/'promotion', job['id']))
     return {'jobs':jobs, 'holds':holds}

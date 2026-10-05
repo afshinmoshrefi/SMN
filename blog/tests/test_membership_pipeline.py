@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -124,6 +125,35 @@ class PrivatePipelineTests(unittest.TestCase):
         stored=load_json(promotion_jobs._path(self.private/'promotion',first['jobs'][0]['id']))
         self.assertEqual(stored['inputs']['payload_sha256'],digest(source['prepared']))
         self.assertEqual(pipeline.read(fixture.article_dir/'source.json')['card']['production_original'],fixture.url)
+
+    def test_qualified_registration_reuses_relocated_identical_evidence_only(self):
+        fixture=derivative_fixture();self.addCleanup(fixture.doCleanups)
+        pipeline.write(fixture.article_dir/'seasonal-manifest.json',
+                       {'images':[{'variant':'bars_mae_mfe','url':'chart.png','sha256':publication.sha(b'CHART')}]})
+        (fixture.article_dir/'chart.png').write_bytes(b'CHART')
+        batch=self.batch();batch['new'][0]['source']={'article':str(fixture.article_dir),'review':str(fixture.job)}
+        pipeline.activate_batch(batch)
+        with patch('engine_seasonal.verify_assets',return_value=True):
+            first=pipeline.register_sources(batch)
+        source_path=self.private/'qualified-sources'/(publication.sha(self.post['slug'].encode())+'.json')
+        saved=pipeline.read(source_path)
+        relocated=self.root/'another-capsule';article=relocated/'article';review=relocated/'review'
+        shutil.copytree(fixture.article_dir,article);shutil.copytree(fixture.job,review)
+        batch['new'][0]['source']={'article':str(article),'review':str(review)}
+        with patch('engine_seasonal.verify_assets',return_value=True):
+            second=pipeline.register_sources(batch)
+        self.assertEqual(first['jobs'][0]['id'],second['jobs'][0]['id'])
+        self.assertEqual(pipeline.read(source_path),saved)
+        (review/'output.json').write_text('{}')
+        with patch('engine_seasonal.verify_assets',return_value=True):
+            held=pipeline.register_sources(batch)
+        self.assertEqual(held['jobs'],[])
+        self.assertTrue(held['holds'])
+        shutil.copy2(fixture.job/'output.json',review/'output.json')
+        (article/'chart.png').write_bytes(b'ALTERED')
+        with self.assertRaises(ContentError),patch('engine_seasonal.verify_assets',return_value=True):
+            pipeline.register_sources(batch)
+        self.assertEqual(pipeline.read(source_path),saved)
 
     def test_postprocessing_dataset_is_private_with_same_url(self):
         from types import SimpleNamespace
