@@ -1,10 +1,12 @@
 import json
+import hashlib
+import io
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -20,6 +22,14 @@ SETTINGS = {'alerts_enabled': True,
 
 
 class OperationalAlertTests(unittest.TestCase):
+    def test_campaign_failures_unknown_and_poll_exhaustion_remain_independent(self):
+        path=self.root/'campaign-state.json'
+        self.write(path,{'campaigns':{'daily:2026-10-02':{'provider_status':'failed'},
+            'unknown':{'phase':'create_unknown'},'pending':{'provider_status':'queued','poll_count':48},
+            'done':{'provider_status':'sent','provider_finished_at':'2026-10-02T12:00Z','poll_count':48}}})
+        with patch.object(alerts,'CAMPAIGN_STATE',path):
+            self.assertEqual(len(alerts._campaign_incidents(self.seven,'production')),3)
+            self.assertEqual(alerts._campaign_incidents(self.seven,'dev'),[])
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -47,7 +57,7 @@ class OperationalAlertTests(unittest.TestCase):
 
     def test_target_is_not_deadline_and_no_start_requires_configured_grace(self):
         sent = []
-        sender = lambda recipient, incident, from_addr: sent.append((recipient, incident['kind'])) or True
+        sender = lambda recipient, incident, from_addr: sent.append((recipient, incident['kind'])) or {'status':'accepted','provider_id':'test-id'}
         with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
             alerts.run(self.root, self.seven, SETTINGS, sender=sender)
             self.assertFalse(sent)
@@ -83,7 +93,7 @@ class OperationalAlertTests(unittest.TestCase):
     def test_run_hold_alerts_immediately_and_initial_baseline_is_quiet(self):
         self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'held', 'reason':'source check failed'})
         sent = []
-        sender = lambda recipient, incident, from_addr: sent.append(recipient) or True
+        sender = lambda recipient, incident, from_addr: sent.append(recipient) or {'status':'accepted','provider_id':'test-id'}
         with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
             alerts.run(self.root, self.six, SETTINGS, sender=sender, baseline=True)
             self.assertFalse(sent)
@@ -112,6 +122,7 @@ class OperationalAlertTests(unittest.TestCase):
         calls = []
         class Response:
             status = 200
+            def read(self, *args): return b'{"id":"test-id"}'
             def __enter__(self): return self
             def __exit__(self, *args): pass
         def open_request(request, timeout):
@@ -129,7 +140,7 @@ class OperationalAlertTests(unittest.TestCase):
         attempts = []
         def sender(recipient, incident, from_addr):
             attempts.append(recipient)
-            return recipient != 'two@example.com' or attempts.count(recipient) > 1
+            return {'status':'accepted','provider_id':'test-id'} if recipient != 'two@example.com' or attempts.count(recipient) > 1 else False
         with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
             alerts.run(self.root, self.six, SETTINGS, sender=sender)
             alerts.run(self.root, self.six, SETTINGS, sender=sender)
@@ -140,6 +151,157 @@ class OperationalAlertTests(unittest.TestCase):
         configured = json.loads(json.dumps(SETTINGS))
         configured['daily_generation']['no_start_grace_minutes'] = 30
         self.assertEqual(alerts.inspect(self.root, saturday, configured), [])
+
+    def test_verified_reader_does_not_hide_failed_weekday_newsletter(self):
+        posts = self.frozen()
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified', 'production_written':True})
+        ledger = self.root/'schedule-runs'
+        self.write(ledger/'production-weekday_newsletter-2026-10-02.json',
+                   {'target':'production', 'phase':'weekday_newsletter', 'date':'2026-10-02',
+                    'status':'failed', 'exit_code':2})
+        result = alerts.inspect(self.root, self.seven, SETTINGS,
+            public_probe=lambda origin, urls: (posts, {url:'available' for url in urls.values()}),
+            ledger_dir=ledger)
+        self.assertEqual([item['kind'] for item in result], ['newsletter-delivery-failed'])
+        self.assertIn('exit 2', result[0]['detail'])
+
+    def test_partial_coverage_does_not_create_missing_newsletter_alert(self):
+        self.frozen()
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified', 'production_written':True,
+                    'publication_policy':'continuity-v1', 'edition_date':'2026-10-02',
+                    'expected_symbols':['ABC','XYZ'], 'published_symbols':['ABC'],
+                    'pending_symbols':['XYZ'], 'coverage_status':'partial', 'complete':False})
+        result = alerts.inspect(self.root, self.seven, SETTINGS,
+                                public_probe=lambda origin, urls: ([], {}),
+                                ledger_dir=self.root/'schedule-runs')
+        self.assertFalse(any(item['kind'].startswith('newsletter-') for item in result))
+
+    def test_stuck_weekday_and_failed_sunday_delivery_are_independent(self):
+        ledger = self.root/'schedule-runs'
+        self.write(ledger/'production-weekday_newsletter-2026-10-02.json',
+                   {'target':'production', 'phase':'weekday_newsletter', 'date':'2026-10-02',
+                    'status':'running', 'started_at':'2026-10-02T10:00:00+00:00'})
+        before = self.six + timedelta(minutes=29)
+        after = self.six + timedelta(minutes=31)
+        self.assertFalse(any(item['kind'].startswith('newsletter-') for item in
+                             alerts.inspect(self.root, before, SETTINGS, ledger_dir=ledger)))
+        self.assertIn('newsletter-delivery-stuck', [item['kind'] for item in
+                      alerts.inspect(self.root, after, SETTINGS, ledger_dir=ledger)])
+        sunday = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)
+        self.write(ledger/'production-sunday_summary-2026-10-04.json',
+                   {'target':'production', 'phase':'sunday_summary', 'date':'2026-10-04',
+                    'status':'failed', 'exit_code':2})
+        self.assertEqual([item['kind'] for item in alerts.inspect(self.root, sunday, SETTINGS,
+                          ledger_dir=ledger)], ['newsletter-delivery-failed'])
+
+    def test_running_orphan_ledger_uses_saved_progress_without_controller(self):
+        configured = json.loads(json.dumps(SETTINGS))
+        configured['daily_generation'].update(no_start_grace_minutes=15, stall_minutes=30)
+        ledger = self.root/'schedule-runs'
+        self.write(ledger/'production-reader-2026-10-02.json',
+                   {'target':'production','phase':'reader','date':'2026-10-02',
+                    'status':'running','started_at':'2026-10-02T09:30:00+00:00'})
+        result = alerts.inspect(self.root, self.seven, configured, ledger_dir=ledger)
+        self.assertEqual([i['kind'] for i in result], ['no-progress'])
+        event = self.day/'chatgpt/jobs/ABC-write/events.jsonl'
+        self.write(event, {})
+        os.utime(event, (self.seven.timestamp()-60, self.seven.timestamp()-60))
+        self.assertEqual(alerts.inspect(self.root, self.seven, configured, ledger_dir=ledger), [])
+
+    def test_exhausted_continuity_retries_are_actionable(self):
+        self.write(self.day/'continuity-progress.json', {'date':'2026-10-02',
+            'status':'needs_attention', 'reason':'Cumulative model-job budget exhausted'})
+        result = alerts.inspect(self.root, self.seven, SETTINGS)
+        self.assertEqual(result[0]['kind'], 'continuity-needs-attention')
+        self.assertIn('budget exhausted', result[0]['detail'])
+
+    def test_interrupted_continuity_worker_cannot_suppress_stall_alert(self):
+        configured = json.loads(json.dumps(SETTINGS))
+        configured['daily_generation'].update(no_start_grace_minutes=15, stall_minutes=30)
+        self.write(self.day/'continuity-progress.json', {'date':'2026-10-02',
+            'status':'running', 'updated_utc':'2026-10-02T09:30:00+00:00'})
+        result = alerts.inspect(self.root, self.seven, configured)
+        self.assertEqual(result[0]['kind'], 'no-progress')
+
+    def test_public_get_rejects_wrong_html_200_and_only_known_edge_addition(self):
+        posts = self.frozen()
+        urls = {p['symbol']:p['url'] for p in posts}
+        good = b'<html><body>Approved article</body></html>'
+        receipt = {'files':{u.split('/',3)[-1]:hashlib.sha256(good).hexdigest() for u in urls.values()}}
+        class Response(io.BytesIO):
+            status = 200
+        def probe(body):
+            requests = []
+            def fetch(request, timeout):
+                requests.append(request)
+                return Response(json.dumps(posts).encode() if request.full_url.endswith('/posts.json') else body)
+            with patch.object(alerts, 'urlopen', side_effect=fetch):
+                result = alerts._public_probe(alerts.ORIGINS['production'], urls, receipt)
+            self.assertTrue(all(r.get_method() == 'GET' for r in requests))
+            return set(result[1].values())
+        self.assertEqual(probe(good), {'available'})
+        self.assertEqual(probe(b'<html>old edition</html>'), {'changed'})
+        self.assertEqual(probe(good + alerts.CF_BEACON), {'available'})
+        self.assertEqual(probe(good + alerts.CF_BEACON + b'\n'), {'available'})
+        self.assertEqual(probe(good + alerts.CF_BEACON + b'\n\n'), {'changed'})
+        self.assertEqual(probe(good + b'<script>unexpected()</script>'), {'changed'})
+
+    def test_membership_public_preview_is_bound_to_saved_copy(self):
+        url = 'https://smn-dev.trxstat.com/editions/2026-10-02/ABC/article.html'
+        content = {'headline':{'text':'ABC & earnings'}, 'preview':[{'text':'Approved preview.'}],
+                   'qualification':{'text':'Historical study.'}, 'full_article_value':{'text':'Read complete analysis.'}}
+        receipt = {'membership_publication':{'new':[{'url':url, 'preview_content':content}]}}
+        html = b'<main><h1>ABC &amp; earnings</h1><p role="status">Sign in</p><p>Approved preview.</p><p class="qualification">Historical study.</p><aside><h2>Complete</h2><p>Read complete analysis.</p><p class="small">Public access</p></aside></main>'
+        self.assertEqual(alerts._matches_content(html, 'ABC', url, receipt), 'available')
+        self.assertEqual(alerts._matches_content(html.replace(b'Approved', b'Stale'), 'ABC', url, receipt), 'changed')
+
+    def test_membership_catalog_relative_urls_and_public_metadata_survive_cache(self):
+        posts = self.frozen()
+        public = [{k:v for k,v in p.items() if k != 'edition_id'} for p in posts]
+        for p in public: p['url'] = '/' + p['url'].split('/',3)[-1]
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified','production_written':True,
+                    'membership_publication':{'new':[{'url':p['url']} for p in posts]}})
+        calls = []
+        def probe(origin, urls):
+            calls.append(1)
+            return public, {url:'available' for url in urls.values()}
+        with patch.dict(os.environ, {'RESEND_API_KEY':''}):
+            first = alerts.run(self.root, self.six, SETTINGS, public_probe=probe)
+            second = alerts.run(self.root, self.six+timedelta(seconds=60), SETTINGS, public_probe=probe)
+        self.assertEqual((first['observed'], second['observed']), (0,0))
+        self.assertEqual(len(calls), 1)
+        for changed in ('origin', 'date'):
+            invalid = json.loads(json.dumps(public))
+            if changed == 'origin': invalid[0]['url'] = 'https://example.com' + invalid[0]['url']
+            else: invalid[0]['published_date'] = '2026-10-01'
+            result = alerts.inspect(self.root, self.six, SETTINGS,
+                public_probe=lambda origin, urls: (invalid, {url:'available' for url in urls.values()}))
+            self.assertEqual(result[0]['kind'], 'edition-incomplete')
+
+    def test_empty_provider_ack_is_not_delivery_and_acceptance_dedupes(self):
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'held','reason':'source hold'})
+        class Response(io.BytesIO):
+            status = 202
+        incident = alerts._incident('2026-10-02','article-held','ABC held','ABC alert')
+        with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}), \
+             patch.object(alerts, 'urlopen', return_value=Response(b'{}')):
+            self.assertFalse(alerts.send_resend('one@example.com', incident))
+        with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
+            no_id = alerts.run(self.root, self.six, SETTINGS, sender=lambda *a: True)
+            self.assertEqual(no_id['accepted'], 0)
+            accepted = alerts.run(self.root, self.six, SETTINGS,
+                sender=lambda *a: {'status':'accepted','provider_id':'provider-123'})
+            again = alerts.run(self.root, self.six, SETTINGS,
+                sender=lambda *a: self.fail('Accepted message must not be resent'))
+        self.assertEqual(accepted['accepted'], 2)
+        self.assertEqual(accepted['delivered'], 0)
+        self.assertEqual(again['accepted'], 0)
+        state = json.loads((self.root/'operational-alerts-state.json').read_text())
+        self.assertFalse(state['delivered'])
+        self.assertTrue(all(v['provider_id'] == 'provider-123' for v in state['accepted'].values()))
 
     def test_scheduler_selector_failure_alerts_without_controller_receipt(self):
         ledger = self.root/'schedule-runs'
@@ -209,6 +371,64 @@ class OperationalAlertTests(unittest.TestCase):
                    {'status':'live_verified','production_written':True})
         self.assertEqual(alerts.inspect(self.root, self.seven, configured,
                          public_probe=lambda origin, urls: (posts, {url:'available' for url in urls.values()})), [])
+
+    def test_unchanged_receipt_rechecks_public_after_five_minutes(self):
+        posts = self.frozen()
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'completed'})
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified','production_written':True})
+        calls = []
+        def probe(origin, urls):
+            calls.append(1)
+            return posts, {url: 'available' if len(calls) == 1 else 'missing' for url in urls.values()}
+        with patch.dict(os.environ, {'RESEND_API_KEY':''}):
+            first = alerts.run(self.root, self.six, SETTINGS, public_probe=probe)
+            cached = alerts.run(self.root, self.six + timedelta(seconds=299), SETTINGS, public_probe=probe)
+            expired = alerts.run(self.root, self.six + timedelta(seconds=300), SETTINGS, public_probe=probe)
+        self.assertEqual(first['observed'], 0)
+        self.assertEqual(cached['observed'], 0)
+        self.assertEqual(expired['observed'], 1)
+        self.assertEqual(len(calls), 2)
+
+    def test_missing_transport_does_not_acknowledge_incident_or_prevent_later_delivery(self):
+        self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'held', 'reason':'source hold'})
+        attempts = []
+        sender = lambda recipient, incident, from_addr: attempts.append(recipient) or {'status':'accepted','provider_id':'test-id'}
+        with patch.dict(os.environ, {'RESEND_API_KEY':''}):
+            alerts.run(self.root, self.six, SETTINGS, sender=sender)
+        status = json.loads((self.root/'dashboard/operational-alerts-status.json').read_text())
+        self.assertEqual(status['delivery_state'], 'missing_credential')
+        self.assertEqual(status['unacknowledged_incidents'], 1)
+        self.assertFalse(attempts)
+        with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
+            alerts.run(self.root, self.six, SETTINGS, sender=sender)
+            alerts.run(self.root, self.six, SETTINGS, sender=sender)
+        self.assertEqual(attempts, SETTINGS['alert_recipients'])
+
+    def test_partial_coverage_is_pending_not_missing_declared_public_article(self):
+        posts = self.frozen()
+        receipt = {'status':'live_verified','production_written':True,
+                   'edition_date':'2026-10-02','publication_policy':'continuity-v1','coverage_status':'partial','complete':False,
+                   'expected_symbols':['ABC','XYZ'],'published_symbols':['ABC'],'pending_symbols':['XYZ']}
+        self.write(self.day/'chatgpt/production-publication-receipt.json', receipt)
+        def probe(origin, urls):
+            self.assertEqual(list(urls), ['ABC'])
+            return posts[:1], {url:'available' for url in urls.values()}
+        result = alerts.inspect(self.root, self.six, SETTINGS, public_probe=probe)
+        self.assertEqual(result[0]['kind'], 'coverage-pending')
+        result = alerts.inspect(self.root, self.six, SETTINGS,
+                                public_probe=lambda origin, urls: ([], {url:'missing' for url in urls.values()}))
+        self.assertEqual(result[0]['kind'], 'edition-incomplete')
+        receipt['complete'] = True
+        self.write(self.day/'chatgpt/production-publication-receipt.json', receipt)
+        self.assertEqual(alerts.inspect(self.root, self.six, SETTINGS)[0]['kind'], 'edition-incomplete')
+
+    def test_notice_with_unknown_selection_is_not_false_completion(self):
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified','production_written':True,'publication_policy':'continuity-v1',
+                    'edition_date':'2026-10-02','coverage_status':'notice','complete':False,'expected_symbols':[],
+                    'published_symbols':[],'pending_symbols':[]})
+        self.assertEqual(alerts.inspect(self.root, self.six, SETTINGS)[0]['kind'], 'coverage-pending')
 
     def test_installer_unit_is_separate_and_explicitly_targets_dev(self):
         units = installer.unit_texts(Path(__file__).resolve().parents[2], 'dev')
