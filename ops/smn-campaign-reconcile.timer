@@ -1,0 +1,7 @@
+[Unit]
+Description=SMN bounded campaign GET status polling
+[Timer]
+OnCalendar=*-*-* *:0/5:00 UTC
+Persistent=false
+[Install]
+WantedBy=timers.target

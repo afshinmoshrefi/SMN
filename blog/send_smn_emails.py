@@ -639,6 +639,38 @@ def reconcile_campaign(kind, day):
     return record
 
 
+@_serialized_newsletter
+def poll_pending_campaigns(current=None, max_polls=48):
+    """Bounded GET-only status reconciliation; never reserves or sends a campaign."""
+    current = current or datetime.now(timezone.utc)
+    state = _load_state()
+    results = {}
+    for key, record in sorted(state.get('campaigns', {}).items()):
+        if (not record.get('campaign_id') or record.get('provider_status') in {'failed', 'canceled', 'cancelled'} or
+                (record.get('provider_status') == 'sent' and record.get('provider_finished_at'))):
+            continue
+        if record.get('poll_count', 0) >= max_polls:
+            results[key] = {'status': 'needs_attention', 'reason': 'Provider status polling limit reached'}
+            continue
+        retry = record.get('next_poll_utc')
+        if retry and current < datetime.fromisoformat(retry):
+            continue
+        record['poll_count'] = record.get('poll_count', 0) + 1
+        record['next_poll_utc'] = (current + timedelta(minutes=30)).isoformat()
+        _save_state(state)
+        try:
+            _apply_provider_status(record, _get_provider_campaign(record['campaign_id']))
+            record.pop('poll_error', None)
+        except Exception as exc:
+            record['poll_error'] = str(exc)[:300]
+        record['last_poll_utc'] = current.isoformat()
+        results[key] = {'provider_status': record.get('provider_status'),
+                        'provider_counts': record.get('provider_counts'),
+                        'poll_error': record.get('poll_error')}
+        _save_state(state)
+    return results
+
+
 def attach_existing_campaign(kind, day, campaign_id, slugs):
     """Reconcile a legacy campaign from a supplied ID and legacy catalog evidence.
 

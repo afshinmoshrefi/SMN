@@ -1,0 +1,10 @@
+[Unit]
+Description=SMN GET-only campaign status reconciliation
+After=network-online.target
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/tradewave/secrets.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/opt/smn-subscription/current/blog
+ExecStart=/home/flask/venv/bin/python /opt/smn-subscription/current/blog/smn_campaign_reconcile.py
+TimeoutStartSec=3min

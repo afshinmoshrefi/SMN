@@ -22,6 +22,14 @@ SETTINGS = {'alerts_enabled': True,
 
 
 class OperationalAlertTests(unittest.TestCase):
+    def test_campaign_failures_unknown_and_poll_exhaustion_remain_independent(self):
+        path=self.root/'campaign-state.json'
+        self.write(path,{'campaigns':{'daily:2026-10-02':{'provider_status':'failed'},
+            'unknown':{'phase':'create_unknown'},'pending':{'provider_status':'queued','poll_count':48},
+            'done':{'provider_status':'sent','provider_finished_at':'2026-10-02T12:00Z','poll_count':48}}})
+        with patch.object(alerts,'CAMPAIGN_STATE',path):
+            self.assertEqual(len(alerts._campaign_incidents(self.seven,'production')),3)
+            self.assertEqual(alerts._campaign_incidents(self.seven,'dev'),[])
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

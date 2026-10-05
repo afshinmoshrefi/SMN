@@ -13,6 +13,32 @@ from unittest.mock import patch
 
 
 class NewsletterStateTest(unittest.TestCase):
+    def test_automatic_poll_is_get_only_bounded_and_preserves_delivery_counts(self):
+        module = self.module
+        module.STATE_FILE.write_text(json.dumps({'daily_sent':['legacy'], 'campaigns': {
+            'daily:2026-10-05': {'campaign_id':'123','name':'SMN-Daily-2026-10-05','provider_status':'queued'}}}))
+        current = datetime(2026,10,5,14,tzinfo=timezone.utc)
+        with patch.object(module, '_get_provider_campaign', return_value={
+                'id':'123','name':'SMN-Daily-2026-10-05','status':'sent','finished_at':'2026-10-05T14:00Z',
+                'stats':{'sent':42,'delivered_count':40}}) as get, \
+                patch.object(module, '_create_and_schedule') as send:
+            module.poll_pending_campaigns(current)
+            module.poll_pending_campaigns(current)
+            self.assertEqual(get.call_count,1)
+            send.assert_not_called()
+        state=json.loads(module.STATE_FILE.read_text())
+        self.assertEqual(state['daily_sent'],['legacy'])
+        self.assertEqual(state['campaigns']['daily:2026-10-05']['provider_counts']['delivered'],40)
+
+    def test_automatic_poll_unknown_id_and_exhaustion_never_sends(self):
+        module=self.module
+        module.STATE_FILE.write_text(json.dumps({'campaigns':{
+            'unknown':{'campaign_id':None},'exhausted':{'campaign_id':'123','poll_count':48}}}))
+        with patch.object(module,'_get_provider_campaign') as get:
+            result=module.poll_pending_campaigns()
+            get.assert_not_called()
+            self.assertEqual(result['exhausted']['status'],'needs_attention')
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)

@@ -21,6 +21,7 @@ MAX_PUBLIC_BYTES = 2 * 1024 * 1024
 CF_BEACON = b'''<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"6c5153e7bcd94cb993504acb03b8923e","r":1,"spa":2}' crossorigin="anonymous"></script>'''
 ORIGINS = {'production':'https://seasonalmarketnews.com', 'dev':'https://smn-dev.trxstat.com'}
 LEDGER_DIR = Path('/var/lib/smn-dashboard/schedule-runs')
+CAMPAIGN_STATE = Path('/home/flask/blog/logs/sent_smn_emails.json')
 TRANSIENT = re.compile(r'OAuth token|rate.?limit|overloaded|\b(?:429|500|502|503|529)\b|'
                        r'temporarily|ECONNRESET|ETIMEDOUT|timed? ?out', re.I)
 
@@ -191,7 +192,27 @@ def _delivery_incidents(now, settings, target, ledger_dir):
 def inspect(root, now, settings, public_probe=_public_probe, target='production', ledger_dir=LEDGER_DIR):
     """Return independent reader and mail incidents without mutating source receipts."""
     reader = _inspect_reader(root, now, settings, public_probe, target, ledger_dir)
-    return reader + _delivery_incidents(now, settings, target, ledger_dir)
+    return reader + _delivery_incidents(now, settings, target, ledger_dir) + _campaign_incidents(now, target)
+
+
+def _campaign_incidents(now, target):
+    if target != 'production':return []
+    state=_json(CAMPAIGN_STATE) or {}
+    incidents=[]
+    for key,record in state.get('campaigns',{}).items():
+        if not isinstance(record,dict):continue
+        phase=record.get('phase','')
+        status=record.get('provider_status')
+        if status in {'failed','canceled','cancelled'}:
+            detail='Campaign '+key+' provider reports '+status
+        elif phase in {'create_unknown','schedule_unknown','provider_unknown'}:
+            detail='Campaign '+key+' has an uncertain provider outcome; inspect known ID before any retry'
+        elif record.get('poll_count',0)>=48 and not (status=='sent' and record.get('provider_finished_at')):
+            detail='Campaign '+key+' exhausted bounded provider status polls'
+        else:continue
+        date=str(record.get('date') or key.rsplit(':',1)[-1])
+        incidents.append(_incident(date,'newsletter-provider-needs-attention',detail,'SMN newsletter provider needs attention'))
+    return incidents
 
 
 def _inspect_reader(root, now, settings, public_probe, target, ledger_dir):
