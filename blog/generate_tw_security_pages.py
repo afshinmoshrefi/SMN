@@ -17,8 +17,9 @@ import os, sys, json, shutil
 from pathlib import Path
 from datetime import datetime
 
-sys.path.insert(0, '/home/flask')
-sys.path.insert(0, '/home/flask/blog')
+if '/home/flask' not in sys.path:
+    sys.path.append('/home/flask')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
 from get_price_eod import get_quote_details
 
