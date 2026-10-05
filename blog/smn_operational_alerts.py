@@ -209,10 +209,24 @@ def _campaign_incidents(now, target):
             detail='Campaign '+key+' has an uncertain provider outcome; inspect known ID before any retry'
         elif record.get('poll_count',0)>=48 and not (status=='sent' and record.get('provider_finished_at')):
             detail='Campaign '+key+' exhausted bounded provider status polls'
+        elif status in {'ready','queued','sending'} and _campaign_overdue(record,now):
+            detail='Campaign '+key+' remains '+status+' more than 30 minutes after its intended send time; delivery is unconfirmed'
         else:continue
         date=str(record.get('date') or key.rsplit(':',1)[-1])
         incidents.append(_incident(date,'newsletter-provider-needs-attention',detail,'SMN newsletter provider needs attention'))
     return incidents
+
+
+def _campaign_overdue(record, now):
+    try:
+        if record.get('scheduled_for_utc'):
+            intended=datetime.fromisoformat(record['scheduled_for_utc'].replace('Z','+00:00'))
+        else:
+            date,clock,zone=record['scheduled_for_account_time'].split()
+            intended=datetime.strptime(date+' '+clock,'%Y-%m-%d %H:%M').replace(tzinfo=ZoneInfo(zone))
+        return intended.tzinfo is not None and (now-intended).total_seconds()>30*60
+    except (KeyError,TypeError,ValueError):
+        return False
 
 
 def _inspect_reader(root, now, settings, public_probe, target, ledger_dir):

@@ -22,6 +22,17 @@ SETTINGS = {'alerts_enabled': True,
 
 
 class OperationalAlertTests(unittest.TestCase):
+    def test_campaign_queued_overdue_after_timezone_bound_grace_only(self):
+        record={'provider_status':'queued','poll_count':4,'scheduled_for_account_time':'2026-10-02 07:00 America/New_York'}
+        path=self.root/'campaign-state.json';self.write(path,{'campaigns':{'daily:2026-10-02':record}})
+        with patch.object(alerts,'CAMPAIGN_STATE',path):
+            for minutes in (-1,0,29,30):
+                self.assertEqual(alerts._campaign_incidents(self.seven+timedelta(minutes=minutes),'production'),[])
+            self.assertEqual(len(alerts._campaign_incidents(self.seven+timedelta(minutes=31),'production')),1)
+            record.update(provider_status='sent',provider_finished_at='2026-10-02T11:10Z')
+            self.write(path,{'campaigns':{'daily:2026-10-02':record}})
+            self.assertEqual(alerts._campaign_incidents(self.seven+timedelta(hours=2),'production'),[])
+        self.assertFalse(alerts._campaign_overdue({'scheduled_for_utc':'2026-10-02T11:00:00'},self.seven+timedelta(hours=2)))
     def test_campaign_failures_unknown_and_poll_exhaustion_remain_independent(self):
         path=self.root/'campaign-state.json'
         self.write(path,{'campaigns':{'daily:2026-10-02':{'provider_status':'failed'},

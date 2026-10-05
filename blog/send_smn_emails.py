@@ -588,6 +588,10 @@ def _create_and_schedule(group_id, subject, html, campaign_name, state, kind, da
     record['phase'] = 'schedule_unknown'
     _save_state(state)
     d, h, m = _schedule_fields(5)
+    intended=datetime.strptime(f'{d} {h}:{m}','%Y-%m-%d %H:%M').replace(tzinfo=MAILERLITE_ACCOUNT_TIMEZONE)
+    record['scheduled_for_account_time'] = f'{d} {h}:{m} {MAILERLITE_ACCOUNT_TIMEZONE.key}'
+    record['scheduled_for_utc'] = intended.astimezone(timezone.utc).isoformat()
+    _save_state(state)
     response = _schedule_campaign_explicit(campaign_id, d, h, m)
     data = response.get('data') if isinstance(response, dict) else None
     if (not isinstance(data, dict) or str(data.get('id')) != str(campaign_id)
