@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -71,6 +72,43 @@ class ContinuityPackageTests(unittest.TestCase):
             publication.write(root/'input-selection.json',selection)
             with self.assertRaisesRegex(ValueError,'frozen selection|Selected lineup|coverage'):
                 publication.validate_staged_reviews(root)
+
+    def test_neutral_fallback_hero_is_private_store_compatible_raster(self):
+        import membership_publication as member
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);rel='editions/'+DATE+'/AAA/assets/continuity-placeholder.png'
+            file=root/rel;file.parent.mkdir(parents=True);file.write_bytes(publication.continuity_hero_png())
+            self.assertEqual(file.read_bytes()[:8],b'\x89PNG\r\n\x1a\n')
+            post={'url':'https://smn-dev.trxstat.com/editions/'+DATE+'/AAA/article.html',
+                  'production_original':'https://seasonalmarketnews.com/articles/original.html',
+                  'title':'Bound article','dek':'Bound opening.',
+                  'hero_image':'https://smn-dev.trxstat.com/'+rel}
+            raw='<article><section data-role="opening"><p>Bound opening.</p></section><p>Historical coverage.</p></article>'
+            with patch.dict(os.environ,{'SMN_READER_PRIVATE_ROOT':str(root/'private')}):
+                member.store().set_enabled(True)
+                updated,manifest=member.prepare(post,raw,source_root=root)
+            self.assertIn('/member/public-assets?',updated['hero_image'])
+            self.assertTrue(any(name.endswith('continuity-placeholder.png') and data['public']
+                                for name,data in manifest['assets'].items()))
+
+    def test_empty_notice_prepares_real_membership_journal(self):
+        import article_index
+        import membership_pipeline as pipeline
+        import membership_publication as member
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);package=root/'package';package.mkdir()
+            posts=root/'posts.json';posts.write_text('[]')
+            record=root/'record';record.mkdir()
+            with patch.dict(os.environ,{'SMN_READER_PRIVATE_ROOT':str(root/'private')}), \
+                    patch.object(article_index,'POSTS_JSON',posts):
+                member.store().set_enabled(True)
+                result=pipeline.prepare_batch([],package,record,{'edition_date':DATE,
+                    'private_files':{},'membership_sources':{}})
+                self.assertEqual(result['new'],[])
+                self.assertEqual(result['retained'],[])
+                pipeline.activate_batch(result)
+                pipeline.verify_private(result)
+                pipeline.rollback_batch(result)
 
 
 class RestartTests(unittest.TestCase):

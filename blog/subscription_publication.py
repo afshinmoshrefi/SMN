@@ -2,7 +2,7 @@
 from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime, timezone
-import hashlib,html,json,re,shutil
+import hashlib,html,json,re,shutil,struct,zlib
 
 DEV='https://smn-dev.trxstat.com'
 CHECKS={'facts_and_sources','why_now_and_opening','reader_value','history_and_numeric_meaning',
@@ -172,7 +172,15 @@ def qualified_html(result, review, *, continuity=False):
 CSS='''
 :root{--ink:#183140;--muted:#627781;--accent:#0066cc;--border:#dfe6e7;--soft:#f6f8fa}*{box-sizing:border-box}body{margin:0;font:16px/1.6 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#fff}header{border-bottom:1px solid var(--border);background:#fff}.header-content{max-width:1200px;margin:0 auto;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;gap:24px}.logo{display:flex;align-items:baseline;gap:2px;text-decoration:none}.logo-seasonal,.logo-market{font-size:22px;font-weight:700;letter-spacing:-.5px}.logo-seasonal{color:var(--accent)}.logo-market{color:var(--ink)}.logo-news{font-size:22px;font-weight:400;letter-spacing:-.5px;color:var(--muted)}nav{display:flex;gap:28px}nav a{color:#526873;text-decoration:none;font-size:14px;font-weight:500}nav a:hover,.edition-card h3 a:hover{text-decoration:underline}.smn-edition{max-width:1200px;margin:0 auto;padding:42px 24px 54px}.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--ink)}.section-title{font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase}.edition-intro{color:#526873;margin:0 0 24px}.edition-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.edition-card{display:block;border:1px solid var(--border);background:#fff;color:inherit;text-decoration:none;transition:box-shadow .2s ease,transform .2s ease}.edition-card:hover{box-shadow:0 8px 24px #15334418;transform:translateY(-2px)}.edition-card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--soft)}.edition-copy{padding:18px}.edition-meta{font:12px/1.4 "IBM Plex Mono",monospace;color:var(--muted);text-transform:uppercase}.edition-card h3{font-size:20px;line-height:1.3;letter-spacing:-.3px;margin:8px 0}.edition-card h3 a{color:var(--ink);text-decoration:none}.edition-copy p{font-size:14px;line-height:1.55;color:#526873;margin:0 0 14px}.read-more{color:var(--accent);font-size:14px;font-weight:600}.edition-proof{margin-top:14px;font-size:12px;color:var(--muted)}.edition-proof summary{cursor:pointer}.edition-proof a{color:var(--muted)}footer{border-top:1px solid var(--border);padding:28px 24px;background:var(--soft)}.footer-content{max-width:1200px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.footer-left,.footer-links a{font-size:13px;color:var(--muted);text-decoration:none}.footer-links{display:flex;gap:24px}@media(max-width:750px){.header-content{padding:16px 20px}.edition-grid{grid-template-columns:1fr}.smn-edition{padding:30px 20px 42px}.footer-content{flex-direction:column;text-align:center}.logo-seasonal,.logo-market,.logo-news{font-size:20px}}
 '''
-CONTINUITY_HERO='<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675"><rect width="1200" height="675" fill="#f3f7fa"/><text x="600" y="338" text-anchor="middle" fill="#183140" font-family="sans-serif" font-size="60">Seasonal Market News</text></svg>'
+def continuity_hero_png():
+    """Neutral deterministic raster for articles whose decorative hero failed."""
+    def chunk(kind,data):
+        return struct.pack('!I',len(data))+kind+data+struct.pack('!I',zlib.crc32(kind+data)&0xffffffff)
+    width,height=1200,675
+    top=b'\xf3\xf7\xfa'*width
+    stripe=b'\x18\x31\x40'*width
+    raw=b''.join(b'\x00'+(stripe if 320<=y<355 else top) for y in range(height))
+    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!2I5B',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
 
 def edition_section(entries,date,target_origin=DEV):
     esc=html.escape;cards=[]
@@ -243,7 +251,7 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,co
         entry.update(title=a['title'],dek=a['dek'],slug=sym.lower()+'-subscription-'+date,
             url=url,path='/var/www/smn/'+rel.as_posix()+'/article.html',lookback_years=original['lookback_years'],
             published_date=original['published_date'],updated_date=asof,tags=['subscription-edition'],
-            hero_image=target_origin+'/'+rel.as_posix()+'/'+('assets/continuity-placeholder.svg' if fallback else hero['url']),
+            hero_image=target_origin+'/'+rel.as_posix()+'/'+('assets/continuity-placeholder.png' if fallback else hero['url']),
             hero_alt='Seasonal Market News article' if fallback else hero['alt'],
             seo_title=a['title'],meta_description=a['dek'][:155],publish_status='true',
             production_original='' if original.get('source_mode')=='selected_inputs' else original.get('url',''),edition_id='subscription-'+date,source_commit=source_commit,
@@ -270,9 +278,9 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,co
         for source,relative in assets:
             d=dest/relative;d.parent.mkdir(exist_ok=True);shutil.copy2(source,d)
         if fallback:
-            placeholder=dest/'assets/continuity-placeholder.svg'
+            placeholder=dest/'assets/continuity-placeholder.png'
             placeholder.parent.mkdir(exist_ok=True)
-            placeholder.write_text(CONTINUITY_HERO,encoding='utf-8')
+            placeholder.write_bytes(continuity_hero_png())
     entries.sort(key=lambda p:p['published_date'],reverse=True)
     section=edition_section(entries,date,target_origin)
     landing='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Seasonal Market News</title><style>'+CSS+'</style></head><body><header><div class="header-content"><a href="/" class="logo"><span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span></a><nav><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></nav></div></header>'+section+'<footer><div class="footer-content"><div class="footer-left">© '+str(datetime.now().year)+' <a href="https://taradataresearch.com" target="_blank" rel="noopener">Tara Data Research LLC</a>. All rights reserved.</div><div class="footer-links"><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></div></div></footer></body></html>'

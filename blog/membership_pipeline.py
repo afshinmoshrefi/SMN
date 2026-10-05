@@ -89,6 +89,7 @@ def retain_capsule(package, record, package_manifest, entries):
     """Verify all capsule bytes, re-run the original editorial gate on target."""
     from subscription_publication import reviewed
     root = publication.store().root / 'qualified-inputs' / publication.sha(str(Path(record).absolute()).encode())
+    root.mkdir(parents=True,exist_ok=True,mode=0o700)
     declared = package_manifest.get('private_files', {})
     expected = package_manifest.get('membership_sources', {})
     if (not declared and entries) or set(expected) != {e['symbol'] for e in entries}:
