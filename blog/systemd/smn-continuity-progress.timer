@@ -1,0 +1,11 @@
+[Unit]
+Description=SMN opt-in Dev continuity progress minute timer
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* *:*:00
+Persistent=true
+AccuracySec=1s
+Unit=smn-continuity-progress.service
+
+[Install]
+WantedBy=timers.target

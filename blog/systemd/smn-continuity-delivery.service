@@ -1,0 +1,16 @@
+[Unit]
+Description=SMN opt-in Dev continuity delivery tick
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/smn-daily/current/blog
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SMN_PLAYWRIGHT=/opt/smn-playwright/node_modules/playwright
+Environment=SMN_BROWSER_CHANNEL=bundled
+Environment=PATH=/opt/smn-daily/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/flask/venv-smn-integrity-20260711T205457Z/bin/python /opt/smn-daily/current/blog/continuity_schedule.py deliver --enable-dev-continuity
+TimeoutStartSec=1h
+UMask=0077

@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import operational_settings
 
 from subscription_writer import load_json, save_json
-from smn_daily import Day, CLIS, now
+from smn_daily import Day, Hold, CLIS, now
 
 ORIGIN = 'https://seasonalmarketnews.com'
 AUTH_FAILURE = ('login', 'auth', 'quota', 'rate limit', 'rate_limit', 'usage limit')
@@ -152,26 +152,47 @@ def release_login_holds(day):
     day.save()
 
 
-def run_profile(root, date, profile, canonical, publication_origin=ORIGIN):
+def run_profile(root, date, profile, canonical, publication_origin=ORIGIN, continuity=False):
     root.mkdir(parents=True, exist_ok=True)
     authenticate(profile, root)
     freeze_inputs(canonical, root)
     day = Day(root, date, profile=profile,
               publication_origin=publication_origin if profile == 'chatgpt' else None)
     day.symbols = [p['symbol'] for p in load_json(root/'production/posts.json')]
+    if continuity:
+        if profile != 'chatgpt' or publication_origin is not None:
+            raise ValueError('Continuity progression is Dev ChatGPT only')
+        day.continuity = True
     release_login_holds(day)
     day.release_transient_holds()
-    day.research()
-    day.articles()
-    day.visual()
+    if continuity:
+        symbols = day.symbols
+        try:
+            for symbol in symbols:
+                day.symbols = [symbol]
+                try:
+                    day.research()
+                    day.articles()
+                    day.visual()
+                except Hold:
+                    # An article hold does not prevent later subjects progressing.
+                    continue
+        finally:
+            day.symbols = symbols
+    else:
+        day.research()
+        day.articles()
+        day.visual()
     return day.check()
 
 
-def run(root, date, publish=False, target='production', scheduled=False):
+def run(root, date, publish=False, target='production', scheduled=False, continuity=False):
     Date.fromisoformat(date)
     root = Path(root).resolve()
     if target not in {'production','dev'}:
         raise ValueError('Unsupported publication target')
+    if continuity and (target != 'dev' or publish):
+        raise ValueError('Continuity progression is Dev-only and uses a separate delivery tick')
     with lock(root):
         if scheduled:
             scheduled_window(root, date)
@@ -184,7 +205,7 @@ def run(root, date, publish=False, target='production', scheduled=False):
         state['target'] = target
         # Reserve two actual selected publication dates. A failed day resumes in
         # its own directory and never silently spends a third comparison edition.
-        compare = date in state['comparison_dates'] or len(state['comparison_dates']) < 2
+        compare = False if continuity else date in state['comparison_dates'] or len(state['comparison_dates']) < 2
         canonical = root/date/'inputs'
         canonical.mkdir(parents=True, exist_ok=True)
         from subscription_inputs import capture, prepare_heroes
@@ -215,7 +236,8 @@ def run(root, date, publish=False, target='production', scheduled=False):
                 if profile in auth_errors:
                     raise ValueError(auth_errors[profile])
                 outcomes[profile] = (run_profile(edition, date, profile, canonical) if target == 'production' else
-                    run_profile(edition, date, profile, canonical, publication_origin=None))
+                    run_profile(edition, date, profile, canonical, publication_origin=None,
+                                continuity=continuity and profile == 'chatgpt'))
                 if profile == 'chatgpt' and publish and outcomes[profile].get('passed') is True:
                     if scheduled:
                         scheduled_window(root, date)

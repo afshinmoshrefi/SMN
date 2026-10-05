@@ -1,0 +1,11 @@
+[Unit]
+Description=SMN opt-in Dev continuity independent delivery minute timer
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* *:*:00
+Persistent=true
+AccuracySec=1s
+Unit=smn-continuity-delivery.service
+
+[Install]
+WantedBy=timers.target
