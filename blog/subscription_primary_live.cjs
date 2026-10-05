@@ -1,5 +1,6 @@
 const {chromium}=require(process.env.SMN_PLAYWRIGHT || 'playwright');
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
+const {verifyMemberHtml}=require('./cloudflare_email_bytes.cjs');
 const R=path.resolve(process.argv[2]),read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
 const root=path.join(R,'publication-package'),manifest=read(path.join(root,'manifest.json')),entries=read(path.join(root,'entries.json'));
 const base=manifest.target_origin,date=manifest.edition_date;let browser;
@@ -120,7 +121,8 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
    const anonymousHash=sha(await res.body());
    assert(anonymousHash!==expected.full_html_sha256&&await page.locator('[data-native-chart]').count()===0,'Anonymous full article absent');
    const full=await memberContext.request.get(expected.url,{timeout:60000,headers:{'Cache-Control':'no-cache'}});
-   assert(full.status()===200&&sha(await full.body())===expected.full_html_sha256,'Member full private bytes');
+   const fullBytes=await full.body(),memberBytes=verifyMemberHtml(fullBytes,expected.full_html_sha256);
+   assert(full.status()===200&&memberBytes.passed,'Member full private bytes');
    const assets=[];
    for(const asset of expected.assets){
     const member=await memberContext.request.get(base+asset.url,{timeout:60000});
@@ -132,7 +134,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
    }
    const rawAssets=[];
    for(const url of expected.raw_asset_urls||[]){const res=await page.context().request.get(url,{timeout:60000});assert([401,403,404].includes(res.status()),'Raw engine asset denied');rawAssets.push({url,denied:true,status:res.status()});}
-   membershipArticles.push({canonical:expected.canonical,revision:expected.revision,preview_sha256:expected.preview_sha256,full_html_sha256:expected.full_html_sha256,public_preview_passed:true,member_full_passed:true,anonymous_full_absent:true,assets,raw_assets:rawAssets});
+   membershipArticles.push({canonical:expected.canonical,revision:expected.revision,preview_sha256:expected.preview_sha256,full_html_sha256:expected.full_html_sha256,member_raw_sha256:memberBytes.raw_sha256,member_verified_sha256:memberBytes.verified_sha256,member_normalization:memberBytes.normalization,public_preview_passed:true,member_full_passed:true,anonymous_full_absent:true,assets,raw_assets:rawAssets});
   }
  }
  const homeManifestBytes=await page.evaluate(async ()=>Array.from(new Uint8Array(await (await fetch('/home-manifest.json',{cache:'no-store'})).arrayBuffer())));
