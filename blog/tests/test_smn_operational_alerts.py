@@ -205,6 +205,23 @@ class OperationalAlertTests(unittest.TestCase):
         self.assertEqual(alerts._matches_content(html, 'ABC', url, receipt), 'available')
         self.assertEqual(alerts._matches_content(html.replace(b'Approved', b'Stale'), 'ABC', url, receipt), 'changed')
 
+    def test_membership_catalog_relative_urls_and_public_metadata_survive_cache(self):
+        posts = self.frozen()
+        public = [{k:v for k,v in p.items() if k != 'edition_id'} for p in posts]
+        for p in public: p['url'] = '/' + p['url'].split('/',3)[-1]
+        self.write(self.day/'chatgpt/production-publication-receipt.json',
+                   {'status':'live_verified','production_written':True,
+                    'membership_publication':{'new':[{'url':p['url']} for p in posts]}})
+        calls = []
+        def probe(origin, urls):
+            calls.append(1)
+            return public, {url:'available' for url in urls.values()}
+        with patch.dict(os.environ, {'RESEND_API_KEY':''}):
+            first = alerts.run(self.root, self.six, SETTINGS, public_probe=probe)
+            second = alerts.run(self.root, self.six+timedelta(seconds=60), SETTINGS, public_probe=probe)
+        self.assertEqual((first['observed'], second['observed']), (0,0))
+        self.assertEqual(len(calls), 1)
+
     def test_empty_provider_ack_is_not_delivery_and_acceptance_dedupes(self):
         self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'held','reason':'source hold'})
         class Response(io.BytesIO):

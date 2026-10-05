@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 DEFAULT_FROM = 'TradeWave <help@tradewave.ai>'
@@ -225,9 +226,9 @@ def inspect(root, now, settings, public_probe=_public_probe, target='production'
         try:
             public, statuses = (public_probe(origin, urls, receipt) if public_probe is _public_probe
                                 else public_probe(origin, urls))
-            live = {(p.get('symbol'), p.get('url')) for p in public if isinstance(p, dict)
+            live = {(p.get('symbol'), urljoin(origin, p.get('url', ''))) for p in public if isinstance(p, dict)
                     and str(p.get('published_date', ''))[:10] == date
-                    and p.get('edition_id') == 'subscription-' + date}
+                    and (p.get('edition_id') == 'subscription-' + date or receipt.get('membership_publication'))}
             missing = sorted(symbol for symbol, url in urls.items()
                              if (symbol, url) not in live or statuses.get(url) == 'missing')
             unknown = sorted(symbol for symbol, url in urls.items() if statuses.get(url) != 'available')
@@ -366,7 +367,7 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
         posts, statuses = (public_probe(origin, expected, _json(receipt_path)) if public_probe is _public_probe
                            else public_probe(origin, expected))
         if all(value in {'available','missing','changed'} for value in statuses.values()):
-            selected = [p for p in posts if isinstance(p, dict) and p.get('url') in set(expected.values())]
+            selected = [p for p in posts if isinstance(p, dict) and urljoin(origin, p.get('url','')) in set(expected.values())]
             state['public_checks'] = {version: {'posts':selected, 'statuses':statuses,
                                               'checked_utc':now.isoformat()}}
             _save(path, state)
