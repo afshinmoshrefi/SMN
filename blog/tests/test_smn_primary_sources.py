@@ -342,6 +342,23 @@ class PrimarySourcesTests(unittest.TestCase):
         kept = primary._validate_sources(rows, '2026-09-26')
         self.assertEqual([r['date'] for r in kept], ['2026-09-24'])
 
+    def test_zero_padded_written_date_is_visible_but_wrong_date_still_fails(self):
+        url = 'https://www.lbma.org.uk/articles/london-gold-and-silver-vault-data-for-august-2026'
+        row = dict(self.rows[0], title='London Gold and Silver Vault Data for August 2026',
+                   url=url, date='2026-09-07')
+        page = ('September 07, 2026\nLondon Gold and Silver Vault Data for August 2026\n'
+                'There were also 28,431 tonnes of silver in London vaults. ' * 12)
+        cache = {'pages': {}, 'failed_urls': {}}
+        with patch.object(primary, 'fetch_page', return_value=(url, page)):
+            primary._capture_rows([row], cache, self.root/'cache.json')
+        self.assertIn(url, cache['pages'])
+        wrong = dict(row, date='2026-09-08')
+        cache = {'pages': {}, 'failed_urls': {}}
+        with patch.object(primary, 'fetch_page', return_value=(url, page)):
+            primary._capture_rows([wrong], cache, self.root/'cache.json')
+        self.assertNotIn(url, cache['pages'])
+        self.assertEqual(cache['failed_urls'][url], 'published date not visible in fetched page')
+
     def test_private_and_non_https_urls_rejected(self):
         with self.assertRaises(primary.Held):
             primary._safe_url('http://company.example/report')
