@@ -27,7 +27,10 @@ import sys
 import argparse
 import logging
 import os
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, date, timedelta, timezone
+from functools import wraps
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import requests
@@ -87,12 +90,61 @@ def _load_state():
 
 def _save_state(state):
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = STATE_FILE.with_name(STATE_FILE.name + '.tmp')
-    with open(temporary, 'w') as f:
-        json.dump(state, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(temporary, STATE_FILE)
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=STATE_FILE.parent,
+                                         prefix=STATE_FILE.name + '.', suffix='.tmp',
+                                         delete=False) as f:
+            temporary = Path(f.name)
+            json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, STATE_FILE)
+    except BaseException:
+        if 'temporary' in locals():
+            temporary.unlink(missing_ok=True)
+        raise
+
+
+@contextmanager
+def _newsletter_lock():
+    """Serialize entrypoints across processes; the OS releases locks on exit."""
+    lock_path = STATE_FILE.with_name(STATE_FILE.name + '.lock')
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, 'a+b') as lock_file:
+        if os.name == 'nt':
+            import msvcrt
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b'0')
+                lock_file.flush()
+            lock_file.seek(0)
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise RuntimeError('Newsletter sender already running') from exc
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError('Newsletter sender already running') from exc
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _serialized_newsletter(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with _newsletter_lock():
+            return function(*args, **kwargs)
+    return wrapped
 
 
 def _reserved_slugs(state, kind):
@@ -516,6 +568,12 @@ def _campaign_key(kind, day):
     return f'{kind}:{day.isoformat()}'
 
 
+def _campaign_name(kind, day):
+    if kind not in ('daily', 'weekly'):
+        raise ValueError('Campaign kind must be daily or weekly')
+    return f'SMN-{kind.title()}-{day.isoformat()}'
+
+
 def _create_and_schedule(group_id, subject, html, campaign_name, state, kind, day, articles):
     """Journal intent before any POST; an uncertain result must be reconciled."""
     key = _campaign_key(kind, day)
@@ -545,19 +603,17 @@ def _create_and_schedule(group_id, subject, html, campaign_name, state, kind, da
     return record
 
 
-def reconcile_campaign(state, kind, day):
-    """Read the provider status of an existing campaign; never creates or sends."""
-    key = _campaign_key(kind, day)
-    record = state.get('campaigns', {}).get(key)
-    if not record or not record.get('campaign_id'):
-        raise ValueError(f'No known campaign id for {key}; inspect MailerLite manually')
+def _get_provider_campaign(campaign_id):
     response = requests.get(
-        MAILERLITE_CAMPAIGN_URL + str(record['campaign_id']),
+        MAILERLITE_CAMPAIGN_URL + str(campaign_id),
         headers=_mailerlite_headers(), timeout=15)
     response.raise_for_status()
-    data = response.json().get('data', {})
+    return response.json().get('data', {})
+
+
+def _apply_provider_status(record, data):
     if str(data.get('id')) != str(record['campaign_id']) or data.get('name') != record['name']:
-        raise ValueError(f'MailerLite campaign identity mismatch for {key}')
+        raise ValueError('MailerLite campaign identity mismatch')
     record['provider_status'] = data.get('status')
     record['provider_finished_at'] = data.get('finished_at')
     stats = data.get('stats') or {}
@@ -568,14 +624,69 @@ def reconcile_campaign(state, kind, day):
         'delivered': stats.get('delivered_count'),
     }
     record['phase'] = 'provider_sent' if data.get('status') == 'sent' and data.get('finished_at') else 'provider_' + str(data.get('status') or 'unknown')
+
+
+def reconcile_campaign(state, kind, day):
+    """Read the provider status of a journaled campaign; never creates or sends."""
+    key = _campaign_key(kind, day)
+    record = state.get('campaigns', {}).get(key)
+    if not record or not record.get('campaign_id'):
+        raise ValueError(f'No known campaign id for {key}; inspect MailerLite manually')
+    _apply_provider_status(record, _get_provider_campaign(record['campaign_id']))
     _save_state(state)
     return record
+
+
+def attach_existing_campaign(kind, day, campaign_id, slugs):
+    """Reconcile a legacy campaign from a supplied ID and legacy catalog evidence.
+
+    MailerLite's campaign GET does not return the sent HTML. The slug binding here
+    is explicitly inherited from the old local *_sent marker, not provider proof.
+    """
+    if not isinstance(day, date) or not str(campaign_id).isdigit():
+        raise ValueError('A date and numeric campaign ID are required')
+    name = _campaign_name(kind, day)
+    if not slugs or len(slugs) != len(set(slugs)):
+        raise ValueError('A nonempty unique slug lineup is required')
+    with _newsletter_lock():
+        state = _load_state()
+        key = _campaign_key(kind, day)
+        if key in state.get('campaigns', {}):
+            raise ValueError(f'Campaign {key} is already journaled')
+        legacy = set(state.get(f'{kind}_sent', []))
+        if not set(slugs) <= legacy:
+            raise ValueError('Lineup is not present in the legacy sent marker')
+        matches = {slug: [post for post in _load_posts() if post.get('slug') == slug]
+                   for slug in slugs}
+        if any(len(posts) != 1 or not posts[0].get('url')
+               for posts in matches.values()):
+            raise ValueError('Lineup is missing or ambiguous in the article catalog')
+        try:
+            published_days = [date.fromisoformat(matches[slug][0]['published_date'][:10])
+                              for slug in slugs]
+        except (KeyError, ValueError) as exc:
+            raise ValueError('Lineup publication dates are unavailable') from exc
+        if any(published != day if kind == 'daily' else
+               not day - timedelta(days=7) <= published <= day
+               for published in published_days):
+            raise ValueError('Lineup publication dates do not match campaign date')
+        data = _get_provider_campaign(campaign_id)
+        if str(data.get('id')) != str(campaign_id) or data.get('name') != name:
+            raise ValueError('MailerLite campaign identity mismatch')
+        record = {'name': name, 'slugs': list(slugs), 'campaign_id': str(campaign_id),
+                  'lineup_evidence': 'legacy_sent_marker_and_current_catalog',
+                  'provider_status': None}
+        _apply_provider_status(record, data)
+        state.setdefault('campaigns', {})[key] = record
+        _save_state(state)
+        return record
 
 
 # =============================================================================
 # Daily send  (Mon–Fri)
 # =============================================================================
 
+@_serialized_newsletter
 def daily_send(force=False, verified_urls=None, edition_date=None):
     today = edition_date or _today()
 
@@ -638,6 +749,7 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
 # Weekly send  (Sunday)
 # =============================================================================
 
+@_serialized_newsletter
 def weekly_send(force=False):
     today = _today()
     state = _load_state()

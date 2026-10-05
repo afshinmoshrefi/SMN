@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import logging
+import multiprocessing
+import os
 import sys
 import tempfile
 import types
@@ -35,6 +37,45 @@ class NewsletterStateTest(unittest.TestCase):
                                       'AI_tools': ai_tools}), patch.object(logging, 'basicConfig'):
             spec.loader.exec_module(self.module)
         self.module.STATE_FILE = root / 'state.json'
+        self.module.POSTS_JSON = root / 'posts.json'
+
+    def test_lock_serializes_entrypoints_and_releases(self):
+        module = self.module
+        with module._newsletter_lock():
+            with self.assertRaisesRegex(RuntimeError, 'already running'):
+                module.weekly_send()
+            if os.name != 'nt':
+                result = multiprocessing.get_context('fork').Queue()
+
+                def child():
+                    try:
+                        with module._newsletter_lock():
+                            result.put('acquired')
+                    except RuntimeError:
+                        result.put('blocked')
+
+                process = multiprocessing.get_context('fork').Process(target=child)
+                process.start()
+                self.assertEqual(result.get(timeout=5), 'blocked')
+                process.join(timeout=5)
+                self.assertEqual(process.exitcode, 0)
+        with module._newsletter_lock():
+            pass
+        if os.name != 'nt':
+            receive, send = multiprocessing.get_context('fork').Pipe(duplex=False)
+
+            def exit_holding_lock():
+                with module._newsletter_lock():
+                    send.send('locked')
+                    os._exit(0)
+
+            process = multiprocessing.get_context('fork').Process(target=exit_holding_lock)
+            process.start()
+            self.assertEqual(receive.recv(), 'locked')
+            process.join(timeout=5)
+            self.assertEqual(process.exitcode, 0)
+            with module._newsletter_lock():
+                pass
 
     def test_schedule_uses_account_zone_across_dst_and_midnight(self):
         cases = [
@@ -131,6 +172,36 @@ class NewsletterStateTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'timezone ID unavailable'):
                 module._schedule_campaign_explicit(123, '2026-07-15', '10', '23')
         post.assert_not_called()
+
+    def test_legacy_reconciliation_reads_provider_and_preserves_counts(self):
+        module = self.module
+        module.STATE_FILE.write_text(json.dumps({'daily_sent': ['aaa'], 'campaigns': {}}))
+        module.POSTS_JSON.write_text(json.dumps([
+            {'slug': 'aaa', 'url': 'https://seasonalmarketnews.com/aaa',
+             'published_date': '2026-10-05T12:00:00Z'}]))
+        data = {'id': '123', 'name': 'SMN-Daily-2026-10-05', 'status': 'sent',
+                'finished_at': '2026-10-05 14:30:01',
+                'stats': {'sent': 138, 'hard_bounces_count': 0, 'soft_bounces_count': 0}}
+        with patch.object(module, '_get_provider_campaign', return_value=data):
+            record = module.attach_existing_campaign('daily', date(2026, 10, 5), '123', ['aaa'])
+        self.assertEqual(record['provider_counts']['sent'], 138)
+        self.assertIsNone(record['provider_counts']['delivered'])
+        self.assertEqual(record['lineup_evidence'], 'legacy_sent_marker_and_current_catalog')
+        self.assertEqual(module._load_state()['daily_sent'], ['aaa'])
+        with self.assertRaisesRegex(ValueError, 'already journaled'):
+            module.attach_existing_campaign('daily', date(2026, 10, 5), '123', ['aaa'])
+
+    def test_legacy_reconciliation_rejects_wrong_campaign(self):
+        module = self.module
+        module.STATE_FILE.write_text(json.dumps({'daily_sent': ['aaa']}))
+        module.POSTS_JSON.write_text(json.dumps([
+            {'slug': 'aaa', 'url': 'https://seasonalmarketnews.com/aaa',
+             'published_date': '2026-10-05T12:00:00Z'}]))
+        with patch.object(module, '_get_provider_campaign', return_value={
+                'id': '123', 'name': 'SMN-Daily-2026-10-04'}):
+            with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+                module.attach_existing_campaign('daily', date(2026, 10, 5), '123', ['aaa'])
+        self.assertNotIn('campaigns', module._load_state())
 
 
 if __name__ == '__main__':
