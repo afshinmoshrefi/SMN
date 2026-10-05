@@ -86,4 +86,21 @@ class PrimaryPublicationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'Peer changed'):p.rollback(record)
         self.assertEqual((self.web/'index.html').read_text(),'peer update')
 
+    def test_public_catalog_projection_binds_preview_revision_and_nullable_metadata(self):
+        canonical='/editions/2026-10-05/AAA/article.html'
+        hero='/member/public-assets?article=AAA&revision=r-one&name=hero.png'
+        posts=[{'url':p.ORIGIN+canonical,'slug':'aaa','symbol':'AAA','category':None,
+                'published_date':'2026-10-05','direction':'long','hero_image':hero,
+                'membership_revision':'r-one'}]
+        private={'new':[{'canonical':canonical,'revision':'r-one',
+                         'preview_content':{'headline':{'text':'Exact headline'},'preview':[{'text':'Exact public opening'}]},
+                         'assets':[{'url':hero,'public':True}]}],'retained':[]}
+        expected=[{'slug':'aaa','symbol':'AAA','category':None,'published_date':'2026-10-05',
+                   'date':'','direction':'long','url':canonical,'title':'Exact headline',
+                   'dek':'Exact public opening','hero_image':hero}]
+        self.assertEqual(p.public_catalog_projection(posts,private),expected)
+        posts[0]['membership_revision']='r-wrong'
+        with self.assertRaisesRegex(ValueError,'bound revision'):
+            p.public_catalog_projection(posts,private)
+
 if __name__=='__main__':unittest.main()

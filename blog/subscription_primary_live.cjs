@@ -15,13 +15,22 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  if(!production)assert(await page.locator('meta[name="robots"]').getAttribute('content')==='noindex,nofollow','Dev homepage noindex');
  assert(new URL(page.url()).pathname==='/','Cumulative home must not redirect to one edition');
  assert(await page.locator('.wire-lead').count()===1,'Production wire homepage');
- const catalog=await page.evaluate(async ()=>(await fetch('/posts.json',{cache:'no-store'})).json());
+ const publicCatalog=await page.evaluate(async ()=>{const response=await fetch('/posts.json',{cache:'no-store'}),bytes=await response.arrayBuffer();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');return {status:response.status,body:new TextDecoder().decode(bytes),sha256:hash}});
+ assert(publicCatalog.status===200,'Public catalog HTTP');
+ const catalog=JSON.parse(publicCatalog.body);
+ assert(Array.isArray(catalog),'Public catalog shape');
+ const normalizeUrl=value=>{const url=new URL(value,base);assert(url.origin===base&&!url.search&&!url.hash&&/^\/(?:articles|editions)\//.test(url.pathname),'Public catalog article origin/path');return base+url.pathname};
  const homeManifest=await page.evaluate(async ()=>(await fetch('/home-manifest.json',{cache:'no-store'})).json());
- const catalogUrls=catalog.map(e=>e.url);
+ const catalogUrls=catalog.map(e=>normalizeUrl(e.url));
  assert(new Set(catalogUrls).size===catalogUrls.length&&homeManifest.article_count===catalog.length,'Unique cumulative catalog');
  assert(entries.every(e=>catalogUrls.includes(e.url)),'All new articles retained');
- assert(homeManifest.previous_article_urls.every(url=>catalogUrls.includes(url)),'All prior articles retained');
+ assert(homeManifest.previous_article_urls.every(url=>catalogUrls.includes(normalizeUrl(url))),'All prior articles retained');
  assert(homeManifest.source_commit===manifest.source_commit,'Homepage source provenance');
+ if(membership)assert(homeManifest.files['posts.json']===activation.files['posts.json'],'Private catalog hash in public home manifest');
+ const canon=row=>Object.fromEntries(Object.entries(row).sort(([a],[b])=>a.localeCompare(b)));
+ const sorted=rows=>rows.map(canon).sort((a,b)=>a.url<b.url?-1:a.url>b.url?1:0);
+ if(membership)assert(JSON.stringify(sorted(catalog))===JSON.stringify(sorted(activation.public_catalog_projection||[])),'Public catalog differs from bound private revision projection');
+ const catalogProof=membership?{status:publicCatalog.status,sha256:publicCatalog.sha256,projection:sorted(catalog)}:null;
  if(manifest.continuity_policy===1){
   const coverage=await page.evaluate(async ()=>(await fetch('/coverage-status.json',{cache:'no-store'})).json());
   for(const key of ['revision_id','transaction_id','revision','selection_sha256','selection_status','coverage_status','complete','expected_symbols','published_symbols','pending_symbols'])
@@ -32,7 +41,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  }
  const expectedPins=(activation.expected_pins||[]).filter(p=>!p.expires_at||Date.parse(p.expires_at)>Date.now());
  const ordered=await page.locator('.wire-lead h2 a,.wire-lead h1 a,.wire-headline-item h3 a,.wire-headline-item h2 a').evaluateAll(a=>a.map(x=>x.href));
- for(const pin of expectedPins){const entry=catalog.find(p=>p.slug===pin.slug);assert(entry,'Pinned catalog entry retained');if(pin.position===1)assert(await page.locator('.wire-lead a').evaluateAll((a,url)=>a.some(x=>x.href===url),entry.url),'Pinned lead retained');}
+ for(const pin of expectedPins){const entry=catalog.find(p=>p.slug===pin.slug);assert(entry,'Pinned catalog entry retained');if(pin.position===1)assert(await page.locator('.wire-lead a').evaluateAll((a,url)=>a.some(x=>x.href===url),normalizeUrl(entry.url)),'Pinned lead retained');}
  const editionHomeLinks=async()=>page.locator('.wire-container a').evaluateAll((anchors,edition)=>edition.map(e=>{
   const a=anchors.find(x=>x.href===e.url&&x.getClientRects().length&&getComputedStyle(x).visibility!=='hidden');
   const section=a?.closest('.wire-headlines')?'Latest Patterns':a?.closest('.wire-lead')?'Lead':
@@ -61,11 +70,11 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile homepage fits viewport');
  await page.goto(base+'/search.html',{waitUntil:'domcontentloaded'});
  await page.waitForFunction(()=>document.querySelectorAll('#resultsList a[href]').length>0);
- const archived=catalog.find(e=>!entries.some(n=>n.url===e.url));
+ const archived=catalog.find(e=>!entries.some(n=>n.url===normalizeUrl(e.url)));
  if(archived){
   await page.locator('#searchQuery').fill(archived.title);
   await page.locator('#searchQuery').press('Enter');
-  const oldPath=new URL(archived.url).pathname;
+  const oldPath=new URL(normalizeUrl(archived.url)).pathname;
   await page.waitForFunction(p=>[...document.querySelectorAll('#resultsList a[href]')].some(a=>new URL(a.href).pathname===p),oldPath);
   await page.goto(base+oldPath,{waitUntil:'domcontentloaded'});
   const titleText=t=>t.replace(/[—–]/g,'-').replace(/\s+/g,' ').trim();
@@ -132,7 +141,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  // retained articles and heroes through the public site ran ~20 h and exhausted Dev (Sept 29-30);
  // this publish does not modify them, and earlier editions already verified them.
  const sample=(o,n)=>{const e=Object.entries(o).sort(([a],[b])=>a<b?-1:1);const step=Math.max(1,Math.floor(e.length/n));return e.filter((_,i)=>i%step===0).slice(0,n);};
- const files=[...Object.entries(activation.files),...sample(activation.retained_articles,40),...sample(activation.retained_heroes,40)];
+ const files=[...Object.entries(activation.files).filter(([rel])=>!(membership&&rel==='posts.json')),...sample(activation.retained_articles,40),...sample(activation.retained_heroes,40)];
  const checked=[];
  for(let i=0;i<files.length;i+=6){
   const results=await page.evaluate(async ({batch,base,retained})=>Promise.race([new Promise((_,no)=>setTimeout(()=>no(new Error('public asset batch timed out')),90000)),Promise.all(batch.map(async ([rel,expected])=>{
@@ -153,7 +162,7 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
   for(const r of results)assert(r.passed,'Public asset hash: '+r.rel);checked.push(...results);
  }
  if(!membership){const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');}
- const proof={passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,membership_articles:membershipArticles,home_redirect:false,home_links:{desktop:desktopHomeLinks,mobile:mobileHomeLinks},archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true,
+ const proof={passed:true,verified_at:new Date().toISOString(),source_commit:manifest.source_commit,origin:base,edition_date:date,membership_articles:membershipArticles,public_catalog:catalogProof,home_redirect:false,home_links:{desktop:desktopHomeLinks,mobile:mobileHomeLinks},archive_article_count:catalog.length,archive_search_verified:true,home_manifest_sha256:homeManifestHash,pages,public_files:checked,preserved_prior_articles:true,
   publication_policy:manifest.publication_policy||null,coverage_status:manifest.coverage_status||null,revision_id:manifest.revision_id||null,
   deterministic_landing:manifest.continuity_policy===1,
   landing_screenshots:manifest.continuity_policy===1?Object.fromEntries(['live-edition-desktop.png','live-edition-mobile.png'].map(n=>[n,crypto.createHash('sha256').update(fs.readFileSync(path.join(R,n))).digest('hex')])):null};

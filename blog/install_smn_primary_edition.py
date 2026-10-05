@@ -117,6 +117,32 @@ def merge_posts(previous, incoming, *, continuity=False):
     return sorted(merged.values(), key=lambda p: (p.get('published_date',''), p['url']), reverse=True)
 
 
+def public_catalog_projection(posts, private):
+    """Bind the reader's privacy-safe catalog to exact private revisions."""
+    from urllib.parse import urlsplit
+    revisions={row['canonical']:row for row in private['new']+private['retained']}
+    if len(revisions)!=len(private['new'])+len(private['retained']):
+        raise ValueError('Duplicate private catalog revision')
+    rows=[]
+    for post in posts:
+        canonical=urlsplit(post['url']).path
+        row=revisions.get(canonical)
+        if not row or post.get('membership_revision')!=row['revision']:
+            raise ValueError('Private catalog projection lacks bound revision')
+        preview=row['preview_content']
+        public={key:post.get(key,'') for key in ('slug','symbol','category','published_date','date','direction')}
+        public.update(url=canonical,title=preview['headline']['text'],dek=preview['preview'][0]['text'])
+        heroes=[asset['url'] for asset in row['assets'] if asset['public']]
+        if heroes:
+            if post.get('hero_image') not in heroes:
+                raise ValueError('Catalog hero differs from approved public asset')
+            public['hero_image']=post['hero_image']
+        rows.append(public)
+    if len(rows)!=len(revisions):
+        raise ValueError('Private registry and catalog coverage differ')
+    return sorted(rows,key=lambda row:row['url'])
+
+
 def noindex_html(html):
     """Keep the native page intact while replacing any robots indexing policy."""
     html = re.sub(r"<meta\b(?=[^>]*\bname\s*=\s*['\"]robots['\"])[^>]*>", '', html, flags=re.I)
@@ -299,6 +325,7 @@ def prepare(package):
         receipt['overwritten'] = {rel:sha(WEB/rel) for rel in files if rel not in GENERATED and (WEB/rel).is_file()}
     if gated:
         receipt['membership_publication'] = private
+        receipt['public_catalog_projection']=public_catalog_projection(posts,private)
         home['membership_articles'] = [{k:v for k,v in row.items() if k not in {'source', 'expected_revision', 'raw_asset_urls'}} for row in private['new'] + private['retained']]
         write(candidate/'home-manifest.json', home)
         receipt['files']['home-manifest.json'] = sha(candidate/'home-manifest.json')
@@ -442,7 +469,15 @@ def finish(record):
     # must still match on disk, and a sample of them through the public site: hashing all ~1,400
     # publicly ran ~20 h and exhausted Dev (Sept 29-30); this publish does not modify them.
     for rel, digest in r['files'].items():
-        if sha(WEB/rel) != digest or verified.get(rel) != digest:
+        if sha(WEB/rel) != digest:
+            raise ValueError('Public verification missing/changed: '+rel)
+        if rel=='posts.json' and r.get('membership_publication'):
+            public=proof.get('public_catalog',{})
+            if (public.get('status')!=200 or public.get('projection')!=r.get('public_catalog_projection') or
+                    not re.fullmatch('[a-f0-9]{64}',public.get('sha256',''))):
+                raise ValueError('Public catalog projection differs from private revisions')
+            continue
+        if verified.get(rel) != digest:
             raise ValueError('Public verification missing/changed: '+rel)
     for group in ('retained_articles', 'retained_heroes'):
         retained = r.get(group, {})
@@ -454,6 +489,7 @@ def finish(record):
     if r.get('membership_publication'):
         pipeline.verify_private(r['membership_publication'])
         verify_membership_proof(r['membership_publication'], proof)
+        r['public_catalog_sha256']=proof['public_catalog']['sha256']
     r['status'] = 'live_verified'
     write(record/'receipt.json', r)
     release_lock(r)
