@@ -291,7 +291,9 @@ def _capture_rows(rows, cache, path):
             if _mutable_release_url(final_url):
                 raise Held('primary page redirects to a mutable BLS release URL')
             published = Date.fromisoformat(row['date'])
-            date_clues = (row['date'], published.strftime('%B %d, %Y').replace(' 0', ' '),
+            date_clues = (row['date'], published.strftime('%B %d, %Y'),
+                          published.strftime('%B %d, %Y').replace(' 0', ' '),
+                          published.strftime('%b %d, %Y'),
                           published.strftime('%b %d, %Y').replace(' 0', ' '),
                           published.strftime('%B %d %Y').replace(' 0', ' '),
                           published.strftime('%b. %d, %Y').replace(' 0', ' '),
