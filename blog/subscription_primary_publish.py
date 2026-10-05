@@ -53,7 +53,7 @@ def source_guard(repo, receipt):
 
 
 def stage(root, repo):
-    extra = ('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs','blog/claude_subscription_writer.py',
+    extra = ('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs','blog/cloudflare_email_bytes.cjs','blog/claude_subscription_writer.py',
              'blog/membership_pipeline.py','blog/membership_publication.py','blog/article_content_store.py',
              'blog/article_index.py','blog/pin_store.py','blog/reader_app.py','blog/reader_auth.py',
              'blog/public_derivative.py','blog/promotion_jobs.py','blog/daily_briefing.py',
@@ -73,7 +73,7 @@ def stage_continuity(root, repo, date, stages, revision, *, candidate_base=None)
     """Stage an immutable Dev coverage revision without entering the legacy full-edition path."""
     from subscription_publication import package
     root=Path(root).resolve()
-    extra=('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs',
+    extra=('blog/install_smn_primary_edition.py','blog/subscription_primary_publish.py','blog/subscription_primary_live.cjs','blog/cloudflare_email_bytes.cjs',
            'blog/membership_pipeline.py','blog/membership_publication.py','blog/article_content_store.py',
            'blog/article_index.py','blog/pin_store.py','blog/reader_app.py','blog/reader_auth.py',
            'blog/public_derivative.py','blog/promotion_jobs.py','blog/daily_briefing.py',

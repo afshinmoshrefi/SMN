@@ -1,7 +1,10 @@
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -17,6 +20,36 @@ COMMIT='a'*40
 
 
 class ContinuityPackageTests(unittest.TestCase):
+    def test_committed_source_captures_live_verifier_runtime_helper(self):
+        repo=Path(__file__).resolve().parents[2]
+        commit=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
+        original=primary.shared.SOURCE_FILES
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                root=Path(folder)/DATE;root.mkdir()
+                with patch.object(primary.shared,'stage',return_value={'source_commit':commit}):
+                    primary.stage(root,repo)
+                self.assertIn('blog/cloudflare_email_bytes.cjs',primary.shared.SOURCE_FILES)
+            primary.shared.SOURCE_FILES=original
+            with tempfile.TemporaryDirectory() as folder:
+                root=Path(folder)
+                (root/'publication-package').mkdir()
+                manifest={'transaction_id':'b'*64,'revision_id':'c'*64}
+                with patch.object(primary,'candidate_source',return_value=(repo,commit,'codex/test')), \
+                     patch.object(publication,'package',return_value=manifest):
+                    primary.stage_continuity(root,repo,DATE,{},1,candidate_base='a'*40)
+                with tarfile.open(root/'committed-source.tar') as archive:
+                    names=set(archive.getnames())
+                    verifier=archive.extractfile('source/blog/subscription_primary_live.cjs').read().decode()
+                for dependency in re.findall(r"require\(['\"]\./([^'\"]+)['\"]\)",verifier):
+                    self.assertIn('source/blog/'+dependency,names)
+                self.assertIn('source/blog/cloudflare_email_bytes.cjs',names)
+                subprocess.run(['node','-e',
+                    'const h=require(process.argv[1]);if(typeof h.verifyMemberHtml!=="function")process.exit(1)',
+                    str(root/'committed-source/blog/cloudflare_email_bytes.cjs')],check=True)
+        finally:
+            primary.shared.SOURCE_FILES=original
+
     def frozen(self,root):
         publication.write(root/'production/posts.json',[{'symbol':'AAA'},{'symbol':'BBB'}])
         publication.write(root/'input-selection.json',{'date':DATE,'symbols':['AAA','BBB'],
