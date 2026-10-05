@@ -158,6 +158,24 @@ class RestartTests(unittest.TestCase):
             self.assertEqual(receipt['transaction_id'],rolling._json_sha({'content_sha256':identity,'attempt':2}))
             self.assertTrue((root/'publication-revisions'/identity/'attempt-2'/'coverage-receipt.json').is_file())
 
+    def test_yesterday_selection_produces_today_pending_notice(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            publication.write(root/'production/posts.json',[{'symbol':'AAA'}])
+            publication.write(root/'input-selection.json',{'date':'2026-10-04','symbols':['AAA'],
+                'files':{'production/posts.json':publication.digest_bytes((root/'production/posts.json').read_bytes())}})
+            publication.write(root/'smn-daily-state.json',{'date':'2026-10-04','articles':{}})
+            with patch.object(rolling.subprocess,'check_output',return_value=COMMIT), \
+                    patch('subscription_primary_publish.stage_continuity',side_effect=self.fake_stage), \
+                    patch.object(rolling,'_resume_or_publish',side_effect=self.fake_verified):
+                receipt=rolling.publish_available(root,DATE,'dev',repo=root)
+            self.assertEqual(receipt['selection_status'],'pending')
+            self.assertEqual(receipt['expected_symbols'],[])
+            tx=Path(receipt['transaction_root'])
+            self.assertFalse((tx/'input-selection.json').exists())
+            self.assertFalse((tx/'smn-daily-state.json').exists())
+            self.assertTrue((tx/'rejected-input-selection.json').is_file())
+
     def test_candidate_requires_exact_pushed_head_and_unchanged_main_base(self):
         base='a'*40;head='b'*40
         def output(args,**kwargs):

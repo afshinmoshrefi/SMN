@@ -81,9 +81,15 @@ def _copy_subject(source,target,symbol,date,stage):
             if path.is_file(): shutil.copy2(path,target/'primary'/path.name)
 
 
-def _snapshot(root,target,date,stages,prior):
+def _snapshot(root,target,date,stages,prior,*,selection_frozen):
     target.mkdir(parents=True)
     for name in ('input-selection.json','shared-inputs.json','daily-state.json','smn-daily-state.json'):
+        if name in ('input-selection.json','shared-inputs.json') and not selection_frozen:
+            if (root/name).is_file():shutil.copy2(root/name,target/('rejected-'+name))
+            continue
+        if name in ('daily-state.json','smn-daily-state.json') and (root/name).is_file() and read(root/name).get('date')!=date:
+            shutil.copy2(root/name,target/('rejected-'+name))
+            continue
         if (root/name).is_file(): shutil.copy2(root/name,target/name)
     if (root/'production/posts.json').is_file():
         (target/'production').mkdir(exist_ok=True)
@@ -160,7 +166,13 @@ def publish_available(root: Path, date: str, target: str, *, repo: Path | None =
     root=Path(root).resolve();repo=Path(repo or Path(__file__).resolve().parent.parent).resolve()
     root.mkdir(parents=True,exist_ok=True)
     with _lock(root):
-        expected=selected_lineup(root,date,required=False) or []
+        try:
+            expected=selected_lineup(root,date,required=False) or []
+        except ValueError:
+            selection_path=root/'input-selection.json'
+            if not selection_path.is_file() or read(selection_path).get('date')==date:
+                raise
+            expected=[]
         prior_path=root/'dev-publication-receipt.json'
         prior=read(prior_path) if prior_path.is_file() else None
         if prior and prior.get('publication_policy')!='continuity-v1':
@@ -192,7 +204,7 @@ def publish_available(root: Path, date: str, target: str, *, repo: Path | None =
         for attempt in range(1,4):
             tx=family/('attempt-'+str(attempt))
             if not tx.exists():
-                _snapshot(root,tx,date,stages,prior)
+                _snapshot(root,tx,date,stages,prior,selection_frozen=bool(expected))
                 break
             stage_file=tx/'primary-stage.json'
             if stage_file.is_file():
@@ -207,7 +219,7 @@ def publish_available(root: Path, date: str, target: str, *, repo: Path | None =
                     continue
                 break
             _archive_unstaged(root,tx)
-            _snapshot(root,tx,date,stages,prior)
+            _snapshot(root,tx,date,stages,prior,selection_frozen=bool(expected))
             break
         else:
             raise ValueError('Three publication attempts exhausted; retain evidence and investigate')

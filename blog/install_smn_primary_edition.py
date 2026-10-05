@@ -33,7 +33,10 @@ if os.environ.get('SMN_MEMBERSHIP_ENV_FILE'):
 WEB = Path('/var/www/smn')
 STATE = Path('/var/lib/tradewave/release-state')
 DASH = Path('/var/lib/smn-dashboard')
-BLOG = Path('/home/flask/blog')
+LEGACY_BLOG = Path('/home/flask/blog')
+ACTIVE_DEV_BLOG = Path('/opt/smn-daily/current/blog')
+BLOG = LEGACY_BLOG
+RUNTIME_BLOG = None
 ORIGIN = 'https://smn-dev.trxstat.com'
 GENERATED = ('posts.json', 'index.html', 'suggest.json', 'home-manifest.json', 'search_index.json', 'search.html')
 PRODUCTION = False
@@ -89,6 +92,15 @@ def local_path(url):
     return path
 
 
+def runtime_blog():
+    """Pin the renderer used by the live Dev dashboard for this transaction."""
+    if PRODUCTION or BLOG != LEGACY_BLOG or not ACTIVE_DEV_BLOG.exists():
+        return BLOG.resolve(), None
+    if ACTIVE_DEV_BLOG.is_symlink():
+        raise ValueError('Active Dev blog path must resolve through the release pointer')
+    return ACTIVE_DEV_BLOG.resolve(), str(ACTIVE_DEV_BLOG.parent.resolve())
+
+
 def merge_posts(previous, incoming, *, continuity=False):
     merged = {p['url']: p for p in previous}
     if len(merged) != len(previous):
@@ -118,7 +130,7 @@ def render(candidate):
     # Use the installed dashboard template, with output paths scoped to candidate.
     # The two legacy security-page price updaters are outside this publication.
     sys.path.insert(0, '/home/flask')
-    sys.path.insert(0, str(BLOG))
+    sys.path.insert(0, str(RUNTIME_BLOG or BLOG))
     import rebuild_news_home as home
     home.NEWS_ROOT = candidate
     home.POSTS_JSON = candidate/'posts.json'
@@ -177,10 +189,12 @@ def prepare(package):
         if archive.exists(): raise ValueError('Interrupted candidate archive already exists')
         candidate.rename(archive)
     candidate.mkdir()
+    global RUNTIME_BLOG
+    RUNTIME_BLOG,pointer=runtime_blog()
     with catalog_lock():
         previous = read(WEB/'posts.json')
         before = {n: sha(WEB/n) if (WEB/n).exists() else None for n in GENERATED}
-        helpers = {n:(sha(BLOG/n) if (BLOG/n).exists() else None)
+        helpers = {n:(sha(RUNTIME_BLOG/n) if (RUNTIME_BLOG/n).exists() else None)
                    for n in (('rebuild_news_home.py','pin_store.py','article_index.py') +
                              (('membership_publication.py','article_content_store.py','reader_app.py','membership_pipeline.py') if membership.configured() else ()))}
         if helpers['rebuild_news_home.py'] is None or (not PRODUCTION and None in helpers.values()):
@@ -276,6 +290,8 @@ def prepare(package):
                'expected_pins':read(DASH/'pins.json').get('pins',[]) if pin_hash else [], 'files':files,
                'retained_articles':{k:v for k,v in articles.items() if not k.startswith('editions/'+date+'/')},
                'retained_heroes':heroes, 'production_written':False, 'target_host':HOST_IP, 'urls':[p['url'] for p in entries]}
+    receipt['runtime_blog']=str(RUNTIME_BLOG)
+    receipt['runtime_pointer']=pointer
     if continuity:
         receipt.update({k:manifest[k] for k in ('revision','revision_id','transaction_id','selection_sha256','selection_status','published_symbols',
             'pending_symbols','coverage_status','complete','publication_policy')})
@@ -291,6 +307,11 @@ def prepare(package):
 
 
 def unchanged(receipt):
+    runtime=Path(receipt.get('runtime_blog',str(BLOG)))
+    pointer=receipt.get('runtime_pointer')
+    if pointer is not None and (str(ACTIVE_DEV_BLOG.parent.resolve())!=pointer or
+                                str(ACTIVE_DEV_BLOG.resolve())!=str(runtime)):
+        raise ValueError('Active Dev renderer pointer changed during publication')
     if receipt.get('membership_publication'):
         # Incoming revisions are prepared but inactive; retained revisions must remain current.
         import article_index
@@ -299,7 +320,7 @@ def unchanged(receipt):
             if pipeline.describe(posts[row['canonical']]) != row:
                 raise ValueError('Retained private article changed')
     for name, digest in receipt['runtime_helpers'].items():
-        if (sha(BLOG/name) if (BLOG/name).exists() else None) != digest:
+        if (sha(runtime/name) if (runtime/name).exists() else None) != digest:
             raise ValueError('Dashboard renderer changed during preparation')
     for n, digest in receipt['before'].items():
         if (sha(WEB/n) if (WEB/n).exists() else None) != digest:
