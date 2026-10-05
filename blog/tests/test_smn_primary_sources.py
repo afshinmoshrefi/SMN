@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch, Mock
 
 import smn_primary_sources as primary
@@ -69,6 +70,30 @@ class PrimarySourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(primary.Held, 'non-public'):
                 conn.connect()
             connect.assert_not_called()
+
+    def test_fetch_retries_temporary_failure_but_not_permanent_http_error(self):
+        page = Mock()
+        page.headers.get_content_type.return_value = 'text/html'
+        page.headers.get_content_charset.return_value = 'utf-8'
+        page.read.return_value = ('<main><p>September 7, 2026 silver vault holdings. '
+                                  'Official source detail. </p></main>' * 12).encode()
+        page.__enter__ = Mock(return_value=page)
+        page.__exit__ = Mock(return_value=False)
+        opener = Mock()
+        opener.open.side_effect = [URLError('temporary'), page]
+        with patch.object(primary, 'build_opener', return_value=opener), \
+             patch.object(primary, '_safe_url'):
+            _, content = primary.fetch_page('https://lbma.org.uk/report')
+        self.assertIn('silver vault holdings', content)
+        self.assertEqual(opener.open.call_count, 2)
+
+        opener.open.side_effect = [HTTPError('https://lbma.org.uk/report', 404, 'missing', {}, None)]
+        opener.open.reset_mock()
+        with patch.object(primary, 'build_opener', return_value=opener), \
+             patch.object(primary, '_safe_url'):
+            with self.assertRaisesRegex(primary.Held, 'HTTP 404'):
+                primary.fetch_page('https://lbma.org.uk/report')
+        self.assertEqual(opener.open.call_count, 1)
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -238,6 +263,45 @@ class PrimarySourcesTests(unittest.TestCase):
         self.assertEqual(len(cache['pages']), 1)
         self.assertEqual(len(cache['failed_urls']), 3)
         self.assertEqual(prepared, ['ABC-20260926-primary-discovery-two'])
+
+    def test_transient_failure_does_not_poison_cache_and_success_reuses_page(self):
+        cache = {'pages': {}, 'failed_urls': {}, 'transient_urls': {}}
+        path = self.root/'cache.json'
+        page = ('Results 2026-09-25 reported official business results. ' * 20)
+        with patch.object(primary, 'fetch_page', side_effect=primary.TransientFetch('primary page network fetch failed: TimeoutError')):
+            primary._capture_rows(self.rows[:1], cache, path)
+        self.assertEqual(cache['failed_urls'], {})
+        self.assertIn(self.rows[0]['url'], cache['transient_urls'])
+        with patch.object(primary, 'fetch_page', return_value=(self.rows[0]['url'], page)) as fetched:
+            primary._capture_rows(self.rows[:1], cache, path)
+            primary._capture_rows(self.rows[:1], cache, path)
+        self.assertEqual(fetched.call_count, 1)
+        self.assertEqual(cache['transient_urls'], {})
+        self.assertEqual(len(cache['pages']), 1)
+
+    def test_existing_timeout_and_date_failure_are_retried_without_new_discovery_job(self):
+        job = self.root/'jobs/ABC-20260926-primary-discovery'
+        job.mkdir(parents=True)
+        (job/'output.json').write_text(json.dumps({'sources': self.rows}))
+        (self.root/'primary').mkdir()
+        cache_path = self.root/'primary/ABC.fetch-cache.json'
+        cache_path.write_text(json.dumps({'edition_date': '2026-09-26', 'symbol': 'ABC',
+            'pages': {}, 'failed_urls': {
+                self.rows[0]['url']: 'primary page network fetch failed: TimeoutError',
+                self.rows[1]['url']: 'published date not visible in fetched page'},
+            'jobs': [job.name]}))
+        def fetch(url):
+            row = next(r for r in self.rows if r['url'] == url)
+            return url, (row['title'] + ' ' + row['date'] + ' official results. ') * 20
+        with patch.object(primary.smn_models, 'prepare') as prepare, \
+             patch.object(primary, 'fetch_page', side_effect=fetch) as fetched:
+            primary.collect(self.root, '2026-09-26', ['ABC'], {}, {}, lambda job: None)
+        prepare.assert_not_called()
+        self.assertEqual(fetched.call_count, 2)
+        cache = json.loads(cache_path.read_text())
+        self.assertEqual(len(cache['pages']), 2)
+        self.assertEqual(cache['failed_urls'], {})
+        self.assertEqual(cache['transient_urls'], {})
 
     def test_one_of_three_failed_urls_still_yields_two_pages(self):
         self.rows.append({'title': 'Update', 'url': 'https://abc.example/update',

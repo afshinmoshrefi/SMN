@@ -35,6 +35,10 @@ class Held(RuntimeError):
     """Primary evidence is missing or unsafe; research must stop."""
 
 
+class TransientFetch(Held):
+    """A temporary fetch failure that must not permanently exclude a URL."""
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
         return None
@@ -147,23 +151,38 @@ def fetch_page(url):
         _safe_url(current)
         req = Request(current, headers={'User-Agent': 'Mozilla/5.0 (compatible; SMNResearch/1.0; +https://seasonalmarketnews.com)',
                                         'Accept': 'text/html,application/xhtml+xml'})
-        try:
-            response = opener.open(req, timeout=15)
-        except HTTPError as exc:
-            if exc.code not in (301, 302, 303, 307, 308) or not exc.headers.get('Location'):
+        redirected = False
+        for attempt in range(2):
+            try:
+                response = opener.open(req, timeout=15)
+                break
+            except HTTPError as exc:
+                if exc.code in (301, 302, 303, 307, 308) and exc.headers.get('Location'):
+                    current = urljoin(current, exc.headers['Location'])
+                    redirected = True
+                    break
+                if exc.code in (429, 500, 502, 503, 504):
+                    if attempt == 0:
+                        continue
+                    raise TransientFetch('primary page fetch failed: HTTP %s' % exc.code) from exc
                 raise Held('primary page fetch failed: HTTP %s' % exc.code) from exc
-            current = urljoin(current, exc.headers['Location'])
+            except (URLError, TimeoutError, OSError) as exc:
+                if attempt == 0:
+                    continue
+                raise TransientFetch('primary page network fetch failed: ' + type(exc).__name__) from exc
+        if redirected:
             continue
+        try:
+            with response:
+                kind = response.headers.get_content_type()
+                if kind not in ('text/html', 'application/xhtml+xml'):
+                    raise Held('primary page is not HTML')
+                raw = response.read(MAX_PAGE_BYTES + 1)
+                if len(raw) > MAX_PAGE_BYTES:
+                    raise Held('primary page exceeds byte limit')
+                charset = response.headers.get_content_charset() or 'utf-8'
         except (URLError, TimeoutError, OSError) as exc:
-            raise Held('primary page network fetch failed: ' + type(exc).__name__) from exc
-        with response:
-            kind = response.headers.get_content_type()
-            if kind not in ('text/html', 'application/xhtml+xml'):
-                raise Held('primary page is not HTML')
-            raw = response.read(MAX_PAGE_BYTES + 1)
-            if len(raw) > MAX_PAGE_BYTES:
-                raise Held('primary page exceeds byte limit')
-            charset = response.headers.get_content_charset() or 'utf-8'
+            raise TransientFetch('primary page network fetch failed: ' + type(exc).__name__) from exc
         parser = _Text()
         parser.feed(raw.decode(charset, errors='replace'))
         page = re.sub(r'[ \t]+', ' ', parser.text())
@@ -257,9 +276,11 @@ def _mutable_release_url(url):
 
 
 def _capture_rows(rows, cache, path):
+    cache.setdefault('transient_urls', {})
     for row in rows:
         url = row['url']
-        if url in cache['pages'] or url in cache['failed_urls']:
+        if url in cache['pages'] or (url in cache['failed_urls'] and
+                                     cache['failed_urls'][url] != 'published date not visible in fetched page'):
             continue
         if len(cache['pages']) >= MAX_SOURCES:
             break
@@ -285,9 +306,13 @@ def _capture_rows(rows, cache, path):
                 raise Held('source title not supported by fetched page')
             if any(item['final_url'] == final_url for item in cache['pages'].values()):
                 raise Held('primary URLs resolve to the same page')
+            cache['failed_urls'].pop(url, None)
+            cache['transient_urls'].pop(url, None)
             cache['pages'][url] = {'source': row, 'final_url': final_url, 'page': page,
                                    'page_text_sha256': sha256(page.encode()),
                                    'fetched_utc': datetime.now(timezone.utc).isoformat()}
+        except TransientFetch as exc:
+            cache['transient_urls'][url] = str(exc)[:300]
         except Held as exc:
             cache['failed_urls'][url] = str(exc)[:300]
         _save_cache(path, cache)
@@ -326,6 +351,15 @@ def collect(root, edition, symbols, roles, clis, run_job):
             if cache_path.is_symlink():
                 raise Held('unsafe primary fetch cache')
             cache = load_json(cache_path)
+            cache.setdefault('transient_urls', {})
+            for url, reason in list(cache['failed_urls'].items()):
+                if reason.startswith(('primary page network fetch failed:',
+                                      'primary page fetch failed: HTTP 429',
+                                      'primary page fetch failed: HTTP 500',
+                                      'primary page fetch failed: HTTP 502',
+                                      'primary page fetch failed: HTTP 503',
+                                      'primary page fetch failed: HTTP 504')):
+                    cache['transient_urls'][url] = cache['failed_urls'].pop(url)
             if cache.get('edition_date') != edition or cache.get('symbol') != sym:
                 raise Held('primary fetch cache belongs to another edition')
             try:
@@ -336,7 +370,8 @@ def collect(root, edition, symbols, roles, clis, run_job):
             except (KeyError, TypeError, AttributeError) as exc:
                 raise Held('primary fetch cache is malformed') from exc
         else:
-            cache = {'edition_date': edition, 'symbol': sym, 'pages': {}, 'failed_urls': {}, 'jobs': []}
+            cache = {'edition_date': edition, 'symbol': sym, 'pages': {}, 'failed_urls': {},
+                     'transient_urls': {}, 'jobs': []}
         job = root/'jobs'/(sym + '-' + edition.replace('-', '') + '-primary-discovery')
         post = posts[sym]
         leads_path = root/'production'/sym/'audit/research_context.txt'
@@ -367,8 +402,10 @@ def collect(root, edition, symbols, roles, clis, run_job):
             retry_job = root/'jobs'/(sym + '-' + edition.replace('-', '') + '-primary-discovery-two')
             retry_prompt = (prompt + '\nRETRY: The first discovery did not yield two accessible primary pages. '
                             'Find different official HTML pages. Do not return any of these already tried URLs: ' +
-                            json.dumps(sorted(set(cache['pages']) | set(cache['failed_urls']))) +
-                            '\nFetch failures: ' + json.dumps(cache['failed_urls']))
+                            json.dumps(sorted(set(cache['pages']) | set(cache['failed_urls']) |
+                                              set(cache['transient_urls']))) +
+                            '\nFetch failures: ' + json.dumps({**cache['failed_urls'],
+                                                                 **cache['transient_urls']}))
             retry_sources = _discover(retry_job, retry_prompt, root, edition, roles, run_job)
             if retry_job.name not in cache['jobs']:
                 cache['jobs'].append(retry_job.name)
@@ -392,7 +429,7 @@ def collect(root, edition, symbols, roles, clis, run_job):
         blob = ('\n\n'.join(sections) + '\n').encode()
         proof = {'edition_date': edition, 'symbol': sym, 'fetched_utc': fetched,
                  'discovery_jobs': cache['jobs'], 'text_sha256': sha256(blob), 'sources': records,
-                 'failed_urls': cache['failed_urls']}
+                 'failed_urls': cache['failed_urls'], 'transient_urls': cache['transient_urls']}
         # A retry after either exclusive write holds so evidence cannot be replaced.
         with target.open('xb') as f:
             f.write(blob)
