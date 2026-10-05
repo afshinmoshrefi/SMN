@@ -19,7 +19,10 @@ class PresentationFallbackTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.result = Path(self.temp.name)
+        self.result = Path(self.temp.name)/'results'/'ABC'
+        self.result.mkdir(parents=True)
+        (Path(self.temp.name)/'smn-daily-state.json').write_text(json.dumps({'date':'2026-10-05'}))
+        (self.result/'review-binding.json').write_text(json.dumps({'review_stage':'review','editorial_audit':{'passed':True}}))
         (self.result/'assets').mkdir()
         (self.result/'assets/chart.png').write_bytes(b'bound-chart')
         (self.result/'chart-manifest.json').write_text(json.dumps({
@@ -37,7 +40,7 @@ class PresentationFallbackTests(unittest.TestCase):
         self.assertIn('deterministic-readable-v1', rendered)
 
     def test_failed_substantive_review_cannot_use_fallback(self):
-        with patch('editorial_gate.verify_content', side_effect=ValueError('Unsupported forecast')):
+        with patch('subscription_publication.reviewed', side_effect=ValueError('Unsupported forecast')):
             with self.assertRaisesRegex(ValueError, 'Unsupported forecast'):
                 fallback.prepare_fallback(self.result)
 
@@ -45,18 +48,18 @@ class PresentationFallbackTests(unittest.TestCase):
         failure = self.result/'visual-checks-failed.json'
         failure.write_text('{"passed":false}')
         before = {p.name:p.read_bytes() for p in self.result.iterdir() if p.is_file()}
-        with patch('editorial_gate.verify_content', return_value={'passed':True}) as content:
+        with patch('subscription_publication.reviewed', return_value={'passed':True}) as content:
             rendered, proof = fallback.prepare_fallback(self.result)
             self.assertEqual(fallback.verify_fallback(self.result, rendered, proof), proof)
             self.assertTrue(proof['browser_verification_required'])
-            content.assert_called_with(self.result, allow_held_binding=True)
+            content.assert_called_with(self.result, Path(self.temp.name)/'jobs/ABC-20261005-review/output.json', require_visual=False)
             with self.assertRaisesRegex(ValueError, 'differs from bound content'):
                 fallback.verify_fallback(self.result, rendered.replace('$12.4', '$14.2'), proof)
         self.assertEqual(before, {p.name:p.read_bytes() for p in self.result.iterdir() if p.is_file()})
 
     def test_changed_chart_still_blocks_when_decorative_hero_missing(self):
         (self.result/'assets/chart.png').write_bytes(b'wrong-chart')
-        with patch('editorial_gate.verify_content', return_value={'passed':True}):
+        with patch('subscription_publication.reviewed', return_value={'passed':True}):
             with self.assertRaisesRegex(ValueError, 'Reviewed chart asset changed'):
                 fallback.prepare_fallback(self.result)
 

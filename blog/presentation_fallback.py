@@ -120,9 +120,20 @@ def derive(original):
 
 def prepare_fallback(result):
     """Return HTML and a content-bound derivative proof; browser checks still required."""
-    from editorial_gate import verify_content
+    from subscription_publication import reviewed
     result = Path(result)
-    content = verify_content(result, allow_held_binding=True)
+    root = result.parent.parent
+    binding_path = result/'review-binding.json'
+    if not binding_path.exists():
+        binding_path = result/'review-binding.held.json'
+    binding = _read(binding_path)
+    state_path = root/'smn-daily-state.json'
+    if not state_path.exists():
+        state_path = root/'daily-state.json'
+    edition = _read(state_path)['date']
+    review = root/'jobs'/(result.name+'-'+edition.replace('-', '')+'-'+binding['review_stage'])/'output.json'
+    reviewed(result, review, require_visual=False)
+    content = binding['editorial_audit']
     _chart_assets(result)
     original = (result/'article.html').read_bytes()
     rendered = derive(original.decode('utf-8'))
