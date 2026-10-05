@@ -236,7 +236,10 @@ def review_schema(schema, context):
 
 RULES = '''Mandatory source audit (editorial_audit): raw captured primary pages below outrank prepared summaries.
 For EVERY material_context item provide its item_id, covered/missing/uncertain and an exact quote from this
-article that communicates the fact/qualification. Required omissions fail even if they are called minor.
+article that communicates the fact/qualification. Choose quoted text carrying the item's source_id citation;
+if the meaning spans multiple cited units, quote those exact spans in reading order with an ellipsis.
+Check the item's full summary against the article before marking it covered. A nearby paragraph citing a
+different source does not establish coverage for this ledger item. Required omissions fail even if minor.
 Read management explanations for all material causes and counterevidence, not only the selected headline.
 Truncated captured pages do not prove that a management explanation is complete; require the relevant primary
 account for causal claims or hold for source repair. Secondary attribution alone cannot establish causality.
