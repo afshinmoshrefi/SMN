@@ -5,7 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import subscription_publication as p
 import smn_held_recovery as recovery
@@ -25,6 +25,7 @@ def fixture(root,held=()):
 
 
 class LineupTests(unittest.TestCase):
+    @unittest.skipIf(os.name=='nt','The real installer uses Linux file locks')
     def test_completion_receipt_cannot_bypass_incomplete_selection(self):
         import smn_subscription_publish as publisher
         with tempfile.TemporaryDirectory() as tmp:
@@ -74,6 +75,7 @@ class LineupTests(unittest.TestCase):
                 manifest['expected_symbols']=expected;p.write(root/'manifest.json',manifest)
                 with self.assertRaisesRegex(ValueError,'complete selected'):validate_package(root,origin,True)
 
+    @unittest.skipIf(os.name=='nt','The real installer uses Linux file locks')
     def test_direct_activation_refuses_old_partial_receipt_before_lock(self):
         import install_smn_primary_edition as installer
         with tempfile.TemporaryDirectory() as tmp:
@@ -105,6 +107,31 @@ class RuntimeAssetTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_review_binding_retry_is_once_bounded_and_never_rewrites(self):
+        from types import SimpleNamespace
+        from editorial_gate import ReviewEvidenceError
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.prepare(Path(tmp));day=recovery.Day(root,DATE,profile='chatgpt',roles={})
+            ed=SimpleNamespace(job=lambda s,stage:root/'jobs'/(s+'-'+stage),result=lambda s:root/'results'/s,
+                               review=Mock(),repair=Mock())
+            ed.review.side_effect=lambda s,stage:ed.job(s,stage).mkdir()
+            with patch('editorial_gate.verify_review',side_effect=ReviewEvidenceError('bad coverage quote')),patch.object(day,'run_job') as run:
+                self.assertEqual(day._review_binding_retry(ed,'NVDA','rereview'),'binding-review')
+                self.assertEqual(day._review_binding_retry(ed,'NVDA','rereview'),'rereview')
+                run.assert_called_once();ed.review.assert_called_once();ed.repair.assert_not_called()
+
+    def test_review_reinspection_never_runs_for_content_failure_or_exhausted_budget(self):
+        from types import SimpleNamespace
+        from editorial_gate import ReviewEvidenceError
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.prepare(Path(tmp));day=recovery.Day(root,DATE,profile='chatgpt',roles={},max_jobs=37)
+            ed=SimpleNamespace(job=lambda s,stage:root/'jobs'/(s+'-'+stage),result=lambda s:root/'results'/s,review=Mock())
+            with patch('editorial_gate.verify_review',side_effect=ValueError('missing required facts')):
+                self.assertEqual(day._review_binding_retry(ed,'NVDA','rereview'),'rereview')
+            with patch('editorial_gate.verify_review',side_effect=ReviewEvidenceError('bad coverage quote')):
+                with self.assertRaisesRegex(Hold,'budget'):day._review_binding_retry(ed,'NVDA','rereview')
+            ed.review.assert_not_called()
+
     def test_reinspection_uses_the_reviewer_role(self):
         import smn_models
         self.assertEqual(smn_models.role_of('reinspect-review'),'review')

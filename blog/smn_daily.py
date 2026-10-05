@@ -371,10 +371,12 @@ class Day:
         if not ed.job(sym, stage).exists():
             ed.review(sym, stage)
         self.run_job(ed.job(sym, stage))
+        stage = self._review_binding_retry(ed,sym,stage)
         review = load_json(ed.job(sym, stage)/'output.json')
         problems = editorial_review_problems(ed,sym,stage)
         if problems:
-            if stage in {'rereview','third-review','reinspect-review'}:
+            if (stage in {'rereview','third-review','reinspect-review'} or
+                stage=='binding-review' and s.get('binding_review_origin')=='rereview'):
                 raise Hold('%s failed %s: %s' % (sym,'editorial recovery review' if stage=='third-review' else 'review twice',problems))
             issues = self._issues(sym + '-review.txt', problems)
             if not ed.job(sym, 'repair-two').exists():
@@ -394,6 +396,7 @@ class Day:
             if not ed.job(sym, stage).exists():
                 ed.review(sym, stage)
             self.run_job(ed.job(sym, stage))
+            stage = self._review_binding_retry(ed,sym,stage)
             review = load_json(ed.job(sym, stage)/'output.json')
             problems = editorial_review_problems(ed,sym,stage)
             if problems:
@@ -404,6 +407,28 @@ class Day:
         s['review_stage'] = stage
         self.save()
         log(step='article', symbol=sym, review_stage=stage)
+
+    def _review_binding_retry(self,ed,sym,stage):
+        """One independent receipt repair for a passed review with an invalid quote."""
+        from editorial_gate import ReviewEvidenceError, verify_review
+        s=self.state['articles'][sym]
+        if stage not in {'review','rereview'} or s.get('binding_review_origin'):
+            return stage
+        try:
+            verify_review(ed.result(sym),ed.job(sym,stage)/'output.json')
+        except ReviewEvidenceError:
+            retry_stage='binding-review'
+            if not ed.job(sym,retry_stage).exists():
+                if self.jobs_used()>=self.max_jobs:
+                    raise Hold('model-job budget of %d exhausted before review reinspection' % self.max_jobs)
+                ed.review(sym,retry_stage)
+            s.update(binding_review_origin=stage,review_stage=retry_stage)
+            self.save()
+            self.run_job(ed.job(sym,retry_stage))
+            return retry_stage
+        except Exception:
+            pass  # Content, custody and source errors use the existing hard-failure path.
+        return stage
 
     def _release_inconsistent_visual_holds(self):
         from editorial_gate import verify_review
