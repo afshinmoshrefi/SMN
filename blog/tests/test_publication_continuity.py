@@ -8,6 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import subscription_publication as publication
 import publication_continuity as rolling
+import subscription_primary_publish as primary
 from install_smn_recovery_edition import validate_package
 
 DATE='2026-10-05'
@@ -73,7 +74,7 @@ class ContinuityPackageTests(unittest.TestCase):
 
 
 class RestartTests(unittest.TestCase):
-    def fake_stage(self,tx,repo,date,stages,revision):
+    def fake_stage(self,tx,repo,date,stages,revision,*,candidate_base=None):
         with patch('membership_pipeline.capture_sources',return_value=({},{})):
             manifest=publication.package(tx,date,COMMIT,{},continuity=revision)
         publication.write(tx/'primary-stage.json',{'transaction_id':manifest['transaction_id']})
@@ -118,6 +119,26 @@ class RestartTests(unittest.TestCase):
             self.assertEqual(receipt['revision_id'],identity)
             self.assertEqual(receipt['transaction_id'],rolling._json_sha({'content_sha256':identity,'attempt':2}))
             self.assertTrue((root/'publication-revisions'/identity/'attempt-2'/'coverage-receipt.json').is_file())
+
+    def test_candidate_requires_exact_pushed_head_and_unchanged_main_base(self):
+        base='a'*40;head='b'*40
+        def output(args,**kwargs):
+            command=args[3]
+            if command=='status':return ''
+            if command=='rev-parse':return head if args[4]=='HEAD' else base
+            if command=='branch':return 'codex/coverage-candidate'
+            if command=='merge-base':return base
+            if command=='ls-remote':return head+'\trefs/heads/codex/coverage-candidate'
+            raise AssertionError(args)
+        with tempfile.TemporaryDirectory() as folder,patch.object(primary.shared,'run'), \
+                patch.object(primary.subprocess,'check_output',side_effect=output):
+            self.assertEqual(primary.candidate_source(Path(folder),base)[1:],(head,'codex/coverage-candidate'))
+            with self.assertRaisesRegex(ValueError,'base'):
+                primary.candidate_source(Path(folder),'c'*40)
+            with patch.object(primary.subprocess,'check_output',side_effect=lambda args,**kw:
+                    ('c'*40+'\trefs/heads/codex/coverage-candidate') if args[3]=='ls-remote' else output(args,**kw)):
+                with self.assertRaisesRegex(ValueError,'not pushed'):
+                    primary.candidate_source(Path(folder),base)
 
 
 if __name__=='__main__': unittest.main()

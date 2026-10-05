@@ -153,12 +153,24 @@ def prepare(package):
     continuity = manifest.get('continuity_policy') == 1
     ident = ('smn-production-' if PRODUCTION else 'smn-primary-')+manifest['edition_date']+'-'+(manifest['transaction_id'][:16] if continuity else manifest['source_commit'][:10])
     record = STATE/ident
+    intent = {'id':ident,'source_commit':manifest['source_commit'],
+              'manifest_sha256':sha(package/'manifest.json')}
     if (record/'receipt.json').exists():
         prior = read(record/'receipt.json')
         if prior.get('transaction_id') != manifest.get('transaction_id') or prior.get('source_commit') != manifest['source_commit']:
             raise ValueError('Existing publication transaction differs')
         return {'record':str(record), **prior}
-    record.mkdir(parents=True, mode=0o700)
+    if record.exists():
+        if record.is_symlink() or not record.is_dir():
+            raise ValueError('Unsafe existing publication record')
+        marker=record/'transaction-intent.json'
+        if marker.is_file():
+            if read(marker)!=intent: raise ValueError('Interrupted publication intent differs')
+        elif any(record.iterdir()):
+            raise ValueError('Unowned interrupted publication record')
+    else:
+        record.mkdir(parents=True, mode=0o700)
+    atomic(record/'transaction-intent.json',(json.dumps(intent,sort_keys=True)+'\n').encode())
     candidate = record/'candidate'
     if candidate.exists():
         archive=record/('candidate.incomplete.'+str(os.getpid()))

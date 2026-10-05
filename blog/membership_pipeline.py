@@ -32,9 +32,10 @@ def safe_file(root, relative):
     return path
 
 
-def capture_sources(root, target, date, stages):
+def capture_sources(root, target, date, stages, *, fallbacks=None):
     """Retain reviewer inputs privately; never add them to public manifest files."""
     sources, files = {}, {}
+    fallbacks=fallbacks or {}
     root, target = Path(root), Path(target)
     base = '.membership-sources/' + date
 
@@ -63,7 +64,10 @@ def capture_sources(root, target, date, stages):
         for path in (root/'primary').glob(symbol + '*'):
             if path.is_file():
                 copy(path, base + '/primary/' + path.name)
-        visual = read(article/'visual-checks.json').get('inspector', {}).get('job_id')
+        visual_path=article/'visual-checks.json'
+        if not visual_path.is_file() and symbol not in fallbacks:
+            raise ContentError('Final article visual proof missing')
+        visual = read(visual_path).get('inspector', {}).get('job_id') if visual_path.is_file() else None
         job_names = {review.name}
         if visual:
             if Path(visual).name != visual or not visual.startswith(symbol + '-'):
@@ -111,6 +115,11 @@ def retain_capsule(package, record, package_manifest, entries):
         article, review = root / source['article'], root / source['review']
         fallback = package_manifest.get('presentation_fallbacks', {}).get(entry['symbol'])
         if fallback:
+            if (package_manifest.get('continuity_policy') != 1 or
+                    package_manifest.get('publication_policy') != 'continuity-v1' or
+                    package_manifest.get('target_origin') != 'https://smn-dev.trxstat.com' or
+                    package_manifest.get('production_allowed') is not False):
+                raise ContentError('Presentation fallback requires explicit Dev continuity policy')
             from presentation_fallback import verify_fallback
             raw = safe_file(package, urlsplit(entry['url']).path.lstrip('/')).read_text('utf-8')
             verify_fallback(article, raw, fallback)

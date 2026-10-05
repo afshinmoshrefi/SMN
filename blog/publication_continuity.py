@@ -118,6 +118,7 @@ def _resume_or_publish(tx,repo,node,playwright):
     stage=read(tx/'primary-stage.json')
     remote=_remote_status(stage)
     status=remote['status']
+    if status!='live_verified':primary.source_guard(repo,stage)
     if status!='missing' and remote.get('transaction_id')!=stage['transaction_id']:
         raise ValueError('Remote transaction identity differs from local stage')
     if status=='rolled_back':
@@ -150,7 +151,8 @@ def _resume_or_publish(tx,repo,node,playwright):
 
 
 def publish_available(root: Path, date: str, target: str, *, repo: Path | None = None,
-                      max_jobs: int = 40, node: str = 'node', playwright: str | None = None) -> dict:
+                      max_jobs: int = 40, node: str = 'node', playwright: str | None = None,
+                      candidate_base: str | None = None) -> dict:
     """Publish the qualified subset or an honest notice; never creates model jobs."""
     if target!='dev': raise ValueError('Continuity publication is Dev-only')
     if not 0<=max_jobs<=40: raise ValueError('Normal daily job cap is 40')
@@ -194,7 +196,10 @@ def publish_available(root: Path, date: str, target: str, *, repo: Path | None =
                 break
             stage_file=tx/'primary-stage.json'
             if stage_file.is_file():
-                state=_remote_status(read(stage_file))['status']
+                saved=read(stage_file)
+                if saved.get('candidate_base_main')!=candidate_base:
+                    raise ValueError('Existing attempt has a different source qualification mode')
+                state=_remote_status(saved)['status']
                 if state in ('rolled_back','activating'):
                     if state=='activating':
                         import subscription_primary_publish as primary
@@ -216,7 +221,7 @@ def publish_available(root: Path, date: str, target: str, *, repo: Path | None =
         if not (tx/'primary-stage.json').is_file():
             primary=__import__('subscription_primary_publish')
             primary.stage_continuity(tx,repo,date,stages,{'revision':revision,'revision_id':identity,
-                                                           'transaction_id':transaction_id})
+                                                           'transaction_id':transaction_id},candidate_base=candidate_base)
         verified=_resume_or_publish(tx,repo,node,playwright)
         manifest=read(tx/'publication-package/manifest.json')
         if verified.get('status')!='live_verified' or verified.get('revision_id')!=identity or verified.get('transaction_id')!=transaction_id:

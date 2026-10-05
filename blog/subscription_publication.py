@@ -283,7 +283,7 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,co
         shutil.copy2(root/'archive-seed.json',target/'archive-seed.json')
     (target/'home-section.html').write_text('<style>'+CSS+'</style>'+section,encoding='utf-8')
     from membership_pipeline import capture_sources
-    membership_sources, private_files = capture_sources(root, target, date, review_stages)
+    membership_sources, private_files = capture_sources(root, target, date, review_stages,fallbacks=fallbacks)
     manifest={'schema_version':1,'target_origin':target_origin,'target_root':'/var/www/smn','edition_date':date,
       'editorial_gate_version':1,
       'edition_id':'subscription-'+date,'source_commit':source_commit,'production_allowed':production,
