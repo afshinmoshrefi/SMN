@@ -184,6 +184,8 @@ class OperationalAlertTests(unittest.TestCase):
         self.assertEqual(probe(good), {'available'})
         self.assertEqual(probe(b'<html>old edition</html>'), {'changed'})
         self.assertEqual(probe(good + alerts.CF_BEACON), {'available'})
+        self.assertEqual(probe(good + alerts.CF_BEACON + b'\n'), {'available'})
+        self.assertEqual(probe(good + alerts.CF_BEACON + b'\n\n'), {'changed'})
         self.assertEqual(probe(good + b'<script>unexpected()</script>'), {'changed'})
 
     def test_membership_public_preview_is_bound_to_saved_copy(self):

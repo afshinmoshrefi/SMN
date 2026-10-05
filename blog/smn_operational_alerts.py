@@ -108,8 +108,10 @@ def _matches_content(body, symbol, url, receipt):
     digest = (receipt or {}).get('files', {}).get(url.split('/', 3)[-1])
     if not digest: return 'unknown'
     if hashlib.sha256(body).hexdigest() == digest: return 'available'
-    if body.count(CF_BEACON) == 1 and hashlib.sha256(body.replace(CF_BEACON, b'', 1)).hexdigest() == digest:
-        return 'available'
+    if body.count(CF_BEACON) == 1:
+        for addition in (CF_BEACON, CF_BEACON + b'\n'):
+            if addition in body and hashlib.sha256(body.replace(addition, b'', 1)).hexdigest() == digest:
+                return 'available'
     return 'changed'
 
 
