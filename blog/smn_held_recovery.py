@@ -83,9 +83,6 @@ def recover(root,destination,retry_source=(),rereview=(),max_jobs=40):
             for sym in ledger['approved_articles']:
                 from editorial_gate import verify_complete
                 verify_complete(root/'results'/sym)
-            if read(root/'smn-daily-state.json').get('publication_origin')=='https://seasonalmarketnews.com':
-                import install_smn_primary_edition as installer
-                installer.configure_production();installer.guard()
             shutil.copytree(root,destination,ignore=lambda folder,names:
                             list(set(names)&PUBLICATION_FILES) if Path(folder)==root else [])
             ledger.update(utc=now(),status='prepared')

@@ -66,6 +66,16 @@ class LineupTests(unittest.TestCase):
                 manifest['expected_symbols']=expected;p.write(root/'manifest.json',manifest)
                 with self.assertRaisesRegex(ValueError,'complete selected'):validate_package(root,origin,True)
 
+    def test_direct_activation_refuses_old_partial_receipt_before_lock(self):
+        import install_smn_primary_edition as installer
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);record=root/'record'
+            p.write(record/'receipt.json',{'editorial_gate_version':1,'status':'prepared',
+                    'edition_date':DATE,'urls':[]})
+            with patch.object(installer,'guard'),patch.object(installer,'PRODUCTION',True),patch.object(installer,'STATE',root):
+                with self.assertRaisesRegex(ValueError,'complete selected'):installer.activate(record)
+            self.assertFalse((root/installer.LOCK_NAME).exists())
+
 
 class RuntimeAssetTests(unittest.TestCase):
     def test_real_subprocess_preflight_uses_explicit_asset_from_empty_cwd(self):
@@ -87,6 +97,10 @@ class RuntimeAssetTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_reinspection_uses_the_reviewer_role(self):
+        import smn_models
+        self.assertEqual(smn_models.role_of('reinspect-review'),'review')
+
     def prepare(self,root):
         fixture(root,('SI','NVDA'));state=p.read(root/'smn-daily-state.json')
         state['articles']['SI']={'held':{'reason':'fewer than two accessible primary pages for SI'}}
