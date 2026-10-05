@@ -17,16 +17,19 @@ def publish_edition(root, date, max_jobs=40):
     root = Path(root).resolve()
     installer.configure_production()
     installer.guard()
+    state = read(root/'smn-daily-state.json')
+    stages = {symbol: row['review_stage'] for symbol, row in state['articles'].items()
+              if row.get('finalized') and not row.get('held')}
+    complete_lineup(root,date,list(stages),required=True)
     receipt_path = root/'production-publication-receipt.json'
     if receipt_path.exists():
         receipt = read(receipt_path)
         if receipt.get('status') != 'live_verified':
             raise ValueError('Production receipt is not live verified')
+        if (receipt.get('edition_date')!=date or len(receipt.get('urls',[]))!=len(stages) or
+            set(receipt.get('urls',[]))!={ORIGIN+'/editions/'+date+'/'+s+'/article.html' for s in stages}):
+            raise ValueError('Production receipt differs from the complete selected lineup')
         return receipt
-    state = read(root/'smn-daily-state.json')
-    stages = {symbol: row['review_stage'] for symbol, row in state['articles'].items()
-              if row.get('finalized') and not row.get('held')}
-    complete_lineup(root,date,list(stages),required=True)
     repo = Path(__file__).resolve().parent.parent
     commit = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
     if subprocess.check_output(['git', '-C', str(repo), 'status', '--porcelain', '--untracked-files=no'], text=True).strip():

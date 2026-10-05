@@ -21,10 +21,18 @@ def fixture(root,held=()):
     p.write(root/'input-selection.json',{'date':DATE,'symbols':SYMBOLS,
         'files':{'production/posts.json':p.digest_bytes((root/'production/posts.json').read_bytes())}})
     p.write(root/'smn-daily-state.json',{'date':DATE,'profile':'chatgpt','roles':{},
-        'publication_origin':None,'articles':{s:{'finalized':s not in held,**({'held':{'reason':'failed'}} if s in held else {})} for s in SYMBOLS}})
+        'publication_origin':None,'articles':{s:{'review_stage':'review','finalized':s not in held,**({'held':{'reason':'failed'}} if s in held else {})} for s in SYMBOLS}})
 
 
 class LineupTests(unittest.TestCase):
+    def test_completion_receipt_cannot_bypass_incomplete_selection(self):
+        import smn_subscription_publish as publisher
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root,('SI','NVDA'))
+            p.write(root/'production-publication-receipt.json',{'status':'live_verified'})
+            with patch.object(publisher.installer,'configure_production'),patch.object(publisher.installer,'guard'):
+                with self.assertRaisesRegex(ValueError,'Incomplete selected edition'):publisher.publish_edition(root,DATE)
+
     def test_partial_package_rejected_before_review_or_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);fixture(root,('SI','NVDA'))
