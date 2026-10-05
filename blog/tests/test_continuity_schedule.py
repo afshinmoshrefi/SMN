@@ -78,6 +78,18 @@ class ContinuityScheduleTests(unittest.TestCase):
             self.assertEqual(schedule.main(), 2)
             deliver.assert_not_called()
 
+    def test_finished_edition_can_publish_before_target_but_not_before_start(self):
+        path = self.root/DAY/'continuity-progress.json'
+        path.parent.mkdir()
+        path.write_text(json.dumps({'date':DAY, 'status':'generation_complete'}))
+        with patch('publication_continuity.publish_available', return_value={
+                'status':'live_verified', 'complete':True}) as publish:
+            early = schedule.deliver(self.root, DAY, AT_SEVEN-timedelta(hours=2))
+            self.assertEqual(early['status'], 'before_delivery_window')
+            done = schedule.deliver(self.root, DAY, AT_SEVEN-timedelta(minutes=30))
+            self.assertTrue(done['complete'])
+            publish.assert_called_once()
+
     def test_held_reader_remains_pending_and_retries_with_backoff(self):
         result = {'providers': {'chatgpt': {'passed': False, 'reason': 'review held'}}}
         with patch.object(smn_subscription_daily, 'run', return_value=result) as run:

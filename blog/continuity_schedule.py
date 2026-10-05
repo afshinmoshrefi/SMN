@@ -157,7 +157,11 @@ def deliver(root, day, current=None, repo=None):
     root = Path(root).resolve()
     current = current or datetime.now(timezone.utc)
     if not _eligible(root, day, current, 'target_time'):
-        return {'status': 'before_delivery_window'}
+        progress_path = root/day/'continuity-progress.json'
+        ready = load_json(progress_path) if progress_path.is_file() else {}
+        if (ready.get('date') != day or ready.get('status') != 'generation_complete' or
+                not _eligible(root, day, current, 'start_time')):
+            return {'status': 'before_delivery_window'}
     state_path = root/day/'continuity-delivery-state.json'
     with _lock(root/day/'continuity-delivery.lock') as acquired:
         if not acquired:
