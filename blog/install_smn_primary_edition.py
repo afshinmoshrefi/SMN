@@ -225,6 +225,7 @@ def prepare(package):
     write(candidate/'home-manifest.json', home)
     files = {str(p.relative_to(candidate)):sha(p) for p in candidate.rglob('*') if p.is_file()}
     receipt = {'id':ident, 'status':'prepared', 'source_commit':manifest['source_commit'],
+               'expected_symbols':manifest.get('expected_symbols'),
                'editorial_gate_version':manifest['editorial_gate_version'],
                'edition_date':date, 'before':before, 'runtime_helpers':helpers, 'pins_sha256':pin_hash,
                'expected_pins':read(DASH/'pins.json').get('pins',[]) if pin_hash else [], 'files':files,
@@ -268,6 +269,12 @@ def activate(record):
         raise ValueError('Prepared publication predates required editorial completion gate')
     if r['status'] != 'prepared':
         raise ValueError('Edition not prepared')
+    if PRODUCTION or r.get('expected_symbols') is not None:
+        symbols=r.get('expected_symbols')
+        if (not isinstance(symbols,list) or not 1<=len(symbols)<=6 or len(set(symbols))!=len(symbols) or
+            r.get('urls') is None or len(r['urls'])!=len(symbols) or set(r['urls'])!={
+                ORIGIN+'/editions/'+r['edition_date']+'/'+s+'/article.html' for s in symbols}):
+            raise ValueError('Prepared publication lacks the complete selected lineup')
     lock = STATE/LOCK_NAME
     lock.mkdir()
     write(lock/'owner.json', {'task':r['id'], 'pid':os.getpid()})
