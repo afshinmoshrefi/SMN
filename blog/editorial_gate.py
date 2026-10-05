@@ -15,6 +15,11 @@ from visual_evidence import digest
 VERSION = 1
 STYLE_ADVISORY_POLICY = 2
 MARKER = 'EDITORIAL_CONTEXT_SHA256: '
+
+
+class ReviewEvidenceError(ValueError):
+    """A valid passing review quoted article text under the wrong source citation."""
+
 CAUSAL = re.compile(r'\b(blam\w*|attribut\w*|due to|driven by|caused by|resulted from)\b', re.I)
 INFERENCE_LIMIT = re.compile(r'\b(?:no\s+(?:basis|evidence|grounds|support|justification)\s+(?:for|to)|without)\s*$', re.I)
 FUTURE = re.compile(r'\b(upcoming|next\s+(?:\w+\s+){0,3}(?:tests?|meeting|decision|release|earnings|report|week|month))\b', re.I)
@@ -325,6 +330,29 @@ def problems(article, bundle, ctx, review, result=None):
     return issues
 
 
+def review_quote_binding_errors(article, bundle, ctx, review, result=None):
+    """Identify only wrong-citation quotations, without inferring semantic coverage."""
+    coverage = (review.get('editorial_audit') or {}).get('coverage', [])
+    items = ctx['material_context']
+    if (len(coverage) != len(items) or
+            {row.get('item_id') for row in coverage} != {item['id'] for item in items} or
+            any(row.get('status') != 'covered' for row in coverage)):
+        return []
+    displayed = units(article) + (evidence_units(result,bundle) if result is not None else [])
+    by_id = {row['item_id']: row for row in coverage}
+    errors = []
+    for item in items:
+        if not item['required']:
+            continue
+        quote = spaced(by_id[item['id']].get('article_quote', ''))
+        cited = [unit for unit in displayed if item['source_id'] in unit['source_ids']]
+        if not quote_in_verified_units(quote, cited):
+            if not quote_in_verified_units(quote, displayed):
+                return []
+            errors.append('Missing material context '+item['id']+': '+item['summary'])
+    return errors
+
+
 def completed_job(job):
     """Verify completed immutable inputs/output, including the receipt's input binding."""
     job = Path(job); manifest = load_json(job/'job.json'); receipt = load_json(job/'receipt.json')
@@ -362,7 +390,11 @@ def verify_review(result, review_path):
     errors = problems(article,bundle,ctx,review,result)
     if not hard_review_passed(review):
         errors.append('Independent reviewer did not pass every hard check')
-    if errors: raise ValueError('; '.join(errors))
+    if errors:
+        binding_errors = review_quote_binding_errors(article,bundle,ctx,review,result)
+        if review.get('passed') is True and hard_review_passed(review) and binding_errors and errors == binding_errors:
+            raise ReviewEvidenceError('; '.join(errors))
+        raise ValueError('; '.join(errors))
     proof = {'version':VERSION,'article_sha256':digest(article),'context_sha256':digest(ctx),
              'review_sha256':sha256(Path(review_path).read_bytes()),'passed':True}
     advisory_used = (review.get('passed') is not True or
