@@ -60,6 +60,16 @@ The failed trial is sealed as `failed_needs_review`, with its one-start nonce
 and original attempt receipt preserved. The actual generic adapter refuses the
 sealed job before account probing or dispatch; no additional CLI start occurred.
 
+Read-only compatibility diagnosis confirms that the installed client predates
+the official 0.159.1 release that added 6.1-Sol to its bundled catalog. Official
+docs use the requested identifier and include Pro in the CLI rollout. An
+outdated client/catalog is a likely contributor, not a proven sole cause or
+proof of plan exclusion. The canonical [diagnosis and isolated 0.160.1 plan](https://github.com/afshinmoshrefi/tradewave-tw2/blob/codex/smn-approved-release-handoff-20261005/docs/tasks/evidence/TW-TASK-0006/20261006-sol61/compatibility-and-next-step.md)
+records the official sources, installed metadata, desktop/cloud distinction,
+remaining account-rollout uncertainty and older Sol quality limits. No upgrade
+or second model call was performed. A fresh trial needs a new explicit budget;
+the consumed approval cannot reopen this sealed job.
+
 The retained trial uses the original XLK article and TradeWave values, reduced
 source excerpts, the actual production review schema and three separately
 labelled rejection probes. It permits one native CLI start, medium effort,
