@@ -153,7 +153,7 @@ def account_snapshot(codex, cwd, timeout=45):
 
 
 def prepare_job(root, job_id, prompt, schema, *, as_of, valid_until,
-                evidence_sha256, stage='write', effort='xhigh', model='gpt-6-astra',
+                evidence_sha256, stage='write', effort='medium', model='gpt-6.1-sol',
                 images=(), web_search=False):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,100}', job_id):
         raise ValueError('Invalid job ID')
