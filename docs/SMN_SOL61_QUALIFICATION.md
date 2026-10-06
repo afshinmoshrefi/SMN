@@ -1,6 +1,7 @@
 # GPT-6.1-Sol Candidate Qualification, October 6, 2026
 
-Status: WIP, not qualified for activation. No Dev or production deployment.
+Status: WIP, backend rejected the requested model; not qualified for activation.
+No Dev or production deployment.
 
 Dorothy (`01a0f25f-c964-7675-91ca-caa44db7c0c4`) delegated one bounded
 subscription-backed XLK review at medium effort and local default changes.
@@ -40,12 +41,24 @@ showed a saved ChatGPT subscription with allowance available, but the complete
 `model/list` response, including hidden entries and with no remaining cursor,
 did not list `gpt-6.1-sol`. Catalog acceptance is not backend model identity.
 
-Automatic approval review rejected the proposed isolated Dev attempt before
-execution because it could not find user-authored authorization to transmit
-the retained fixture to the subscription model. Zero qualification CLI starts
-and zero completed model turns occurred. Facts, numbers, unsupported-claim
-detection and instruction following have therefore not been graded for 6.1-Sol.
-The previous successful XLK review belongs to 6-Sol and must not be relabeled.
+The initial approval-review block was resolved by the user's explicit answer,
+"Approve one subscription call," to the exact Dev/XLK/medium request. A fresh
+subscription allowance check passed, and the single isolated native attempt
+finished at 2026-10-06T12:28:24.796889Z. It returned HTTP 400:
+
+> The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.
+
+Exactly one qualification CLI start occurred, with exit code 1 after 6.413
+seconds, zero completed model turns and no output. The event stream exposed no
+response model identity or token usage. Facts, numbers, unsupported-claim
+detection, instruction following and live output-schema acceptance remain
+ungraded. The native error item is not an executed tool. No retry, substitute
+model, paid fallback or Astra comparison was attempted. The previous successful
+XLK review belongs to 6-Sol and must not be relabeled.
+
+The failed trial is sealed as `failed_needs_review`, with its one-start nonce
+and original attempt receipt preserved. The actual generic adapter refuses the
+sealed job before account probing or dispatch; no additional CLI start occurred.
 
 The retained trial uses the original XLK article and TradeWave values, reduced
 source excerpts, the actual production review schema and three separately
@@ -57,11 +70,13 @@ qualification limit. No Astra comparison or article regeneration is authorized.
 
 ## Activation Gate and Rollback
 
-Do not merge or activate these defaults while model availability and quality
-remain unqualified: the missing-model guard would intentionally hold new jobs.
-The existing release owner must reconcile the draft, qualify the exact CLI,
-account and response identity where exposed, and obtain separate authorization
-for any production deployment. This patch does not update or install the CLI.
+Do not merge or activate these defaults: the requested model was rejected by
+the pinned CLI/ChatGPT account, and the normal availability guard would hold new
+jobs. The single-attempt allowance is consumed. The existing owner must first
+reconcile the requested identifier with a supported subscription runner before
+any further experiment or migration, then establish appropriate quality and
+obtain separate authorization for production deployment. This patch does not
+update the CLI, change credentials or substitute another model.
 
 Rollback would restore the previous profile and generic default from the base
 commit, while leaving all immutable jobs and receipts unchanged. No live
