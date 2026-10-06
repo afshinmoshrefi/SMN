@@ -1,95 +1,122 @@
 # GPT-6.1-Sol Candidate Qualification, October 6, 2026
 
-Status: WIP, backend rejected the requested model; not qualified for activation.
-No Dev or production deployment.
+Status: **isolated subscription compatibility succeeded; quality hold**.
+The defaults remain draft, unmerged and unactivated. Writing/research quality
+are unqualified. The corrected review packet was prepared offline and has not
+been executed. Both prior one-start allowances are consumed; no further call
+is authorized.
 
-Dorothy (`01a0f25f-c964-7675-91ca-caa44db7c0c4`) delegated one bounded
-subscription-backed XLK review at medium effort and local default changes.
-This candidate does not take over the daily recovery or continuity release.
-Canonical review and ownership: [TW-TASK-0006](https://github.com/afshinmoshrefi/tradewave-tw2/blob/codex/smn-approved-release-handoff-20261005/docs/tasks/TW-TASK-0006.md),
-review ID `SMN-SOL61-20261006`. No peer agreement is claimed.
+Dorothy (`01a0f25f-c964-7675-91ca-caa44db7c0c4`) coordinates this bounded scope.
+Existing release/schedule owners retain daily production and continuity work.
+Canonical record: [TW-TASK-0006](https://github.com/afshinmoshrefi/tradewave-tw2/blob/codex/smn-approved-release-handoff-20261005/docs/tasks/TW-TASK-0006.md),
+review `SMN-SOL61-20261006`. No peer agreement is claimed.
 
-## Changes
+## Candidate and local tests
 
-Based on SMN main `185af5cbec060a41958650c1bc709cfc68f0946d`, which already
-allowlists `gpt-6.1-sol` and `gpt-5.6-sol`. This patch preserves that work.
+Base SMN main `185af5cbec060a41958650c1bc709cfc68f0946d` already allowlists
+6.1-Sol/5.6-Sol. Tested application change remains
+`7ff4b8dc99fdfe4210ddfdd967939607b7cca5e0`; later commits change documentation.
 
 | Surface | Previous | Candidate |
 | --- | --- | --- |
-| Generic `prepare_job` default | Astra / xhigh | 6.1-Sol / medium |
-| ChatGPT write and repair role | Astra / high | 6.1-Sol / medium |
-| ChatGPT research and review roles | 6-Sol / medium | 6.1-Sol / medium |
-| Visual and hero-check roles | Luna / low | Luna / low |
+| Generic prepare_job default | Astra / xhigh | 6.1-Sol / medium |
+| ChatGPT write and repair | Astra / high | 6.1-Sol / medium |
+| ChatGPT research and review | 6-Sol / medium | 6.1-Sol / medium |
+| Visual and hero checks | Luna / low | Luna / low |
 
-Explicit legacy model choices, stored job manifests, the all-Astra opt-in
-workflow, Claude profiles, financial/source/layout gates and budgets are
-preserved. There is no automatic fallback. A missing model or effort puts the
-job into `failed_needs_review` before a provider process can start.
+Explicit model choices, stored manifests, all-Astra opt-in, Claude profiles,
+engine values, quality gates and budgets stay intact. Missing model/effort
+holds before dispatch; there is no automatic fallback.
 
-## Evidence and Limits
+Sixteen focused adapter tests passed (13 baseline plus three), with providers
+mocked: `cd blog; python -B -m unittest -v test_subscription_writer`. They cover
+unavailable model/effort, no automatic retry, legacy manifests, receipt reuse,
+races, claims, expiry, changed inputs, schema and login. Six separate corrected
+packet regressions now pass in shared evidence. Neither proves writing quality.
 
-Sixteen focused tests pass: `cd blog; python -B -m unittest -v test_subscription_writer`.
-New cases use the actual profile and dispatcher to reject an absent 6.1-Sol
-model for all three text roles, reject absent medium effort, prevent automatic
-retry and preserve explicit legacy manifests. Existing cases cover receipt
-reuse, competing completion, claims, expiry, changed inputs, schema rejection
-and login failure without paid fallback. All provider processes are mocked.
-The baseline had 13 passing tests. `git diff --check` also passes.
+## Actual subscription result
 
-Dev's pinned native CLI is `0.155.0-alpha.16`. Successful metadata-only probes
-showed a saved ChatGPT subscription with allowance available, but the complete
-`model/list` response, including hidden entries and with no remaining cursor,
-did not list `gpt-6.1-sol`. Catalog acceptance is not backend model identity.
+The first approved attempt on installed CLI `0.155.0-alpha.16` returned HTTP400
+that 6.1-Sol was unsupported with a ChatGPT account, at
+`2026-10-06T12:28:24.796889Z`: one start, zero completed turns, 6.413 seconds,
+no output/usage. That failed job remains sealed. The original successful XLK
+production review belongs to 6-Sol and is never relabeled.
 
-The initial approval-review block was resolved by the user's explicit answer,
-"Approve one subscription call," to the exact Dev/XLK/medium request. A fresh
-subscription allowance check passed, and the single isolated native attempt
-finished at 2026-10-06T12:28:24.796889Z. It returned HTTP 400:
+The user separately approved an isolated newer CLI and one additional call
+(parent-relayed "Yes", 13:37 UTC). Official `0.160.1` package/native artifacts
+were verified and installed only under `/var/tmp` on Dev. Matching metadata
+advertised 6.1-Sol/medium and saved ChatGPT/Pro allowance. No global runtime
+pointer or credential changed. An ephemeral authenticated provider enforced
+zero native request/stream retries; built-in OpenAI provider overrides would
+not enforce that limit.
 
-> The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.
+Additional attempt finished `2026-10-06T13:56:58.693522+00:00`:
 
-Exactly one qualification CLI start occurred, with exit code 1 after 6.413
-seconds, zero completed model turns and no output. The event stream exposed no
-response model identity or token usage. Facts, numbers, unsupported-claim
-detection, instruction following and live output-schema acceptance remain
-ungraded. The native error item is not an executed tool. No retry, substitute
-model, paid fallback or Astra comparison was attempted. The previous successful
-XLK review belongs to 6-Sol and must not be relabeled.
+| Measure | Actual result |
+| --- | --- |
+| Additional CLI starts / completed turns | 1 / 1 |
+| Exit / duration | 0 / 62.447 seconds |
+| Input / cached input tokens | 25,105 / 0 |
+| Output / reasoning output tokens | 1,335 / 119 |
+| Output schema / executed tools | Passed / 0 |
+| Labelled rejection probes | 3 / 3 rejected |
+| Material ledger | 6 / 6 covered, exact citation binding passed |
+| Required causal semantic support | **Failed independent assessment** |
+| Actual served model / dollar billing | Not exposed |
 
-The failed trial is sealed as `failed_needs_review`, with its one-start nonce
-and original attempt receipt preserved. The actual generic adapter refuses the
-sealed job before account probing or dispatch; no additional CLI start occurred.
+The real reviewer reported all seven checks passed and no issues. Its quote
+for `sections.1.paragraphs.2` contains only the Microsoft call title/date.
+That continuous quote is in the supplied excerpts but does not support the
+paragraph's attributed growth/margin causes. The actual result is quality_hold.
+Schema acceptance, literal presence and the probes cannot replace source
+support. Validation used the hash-verified retained fixture and pure retained
+gate components plus manual semantic reading; the full installed pipeline
+was not rerun.
 
-Read-only compatibility diagnosis confirms that the installed client predates
-the official 0.159.1 release that added 6.1-Sol to its bundled catalog. Official
-docs use the requested identifier and include Pro in the CLI rollout. An
-outdated client/catalog is a likely contributor, not a proven sole cause or
-proof of plan exclusion. The canonical [diagnosis and isolated 0.160.1 plan](https://github.com/afshinmoshrefi/tradewave-tw2/blob/codex/smn-approved-release-handoff-20261005/docs/tasks/evidence/TW-TASK-0006/20261006-sol61/compatibility-and-next-step.md)
-records the official sources, installed metadata, desktop/cloud distinction,
-remaining account-rollout uncertainty and older Sol quality limits. No upgrade
-or second model call was performed. A fresh trial needs a new explicit budget;
-the consumed approval cannot reopen this sealed job.
+This proves compatibility of the isolated controlled subscription runner, not
+actual backend identity, writing quality, savings or permanent-worker support.
+Transport/retry settings also changed, so CLI version alone is not proven the
+sole cause of the earlier rejection. Output/receipts/nonces are preserved; the
+actual adapter and exclusive nonce refuse reentry to the sealed quality hold.
 
-The retained trial uses the original XLK article and TradeWave values, reduced
-source excerpts, the actual production review schema and three separately
-labelled rejection probes. It permits one native CLI start, medium effort,
-no tools, no paid API fallback and no retry. A single successful review would
-not establish writer/research quality, visual ability, comparative cost or
-durable publication reliability. Same-model writing/review is an additional
-qualification limit. No Astra comparison or article regeneration is authorized.
+## Offline correction and potential future plan
 
-## Activation Gate and Rollback
+The handmade compact helper loaded article/evidence/schema, but never the
+original production prompt/context. It omitted requirements[].kinds, full
+mandatory audit RULES and opening/calendar/cohort instructions. This prevents
+attributing the failure solely to the model. A separate offline packet now
+restores exact retained instructions and typed requirements from the verified
+production-context digest. Article, engine values, excerpts, material ledger,
+probes and schema are unchanged. No expected answer or new quote was inserted;
+missing evidence must hold. The actual bad response remains preserved.
 
-Do not merge or activate these defaults: the requested model was rejected by
-the pinned CLI/ChatGPT account, and the normal availability guard would hold new
-jobs. The single-attempt allowance is consumed. The existing owner must first
-reconcile the requested identifier with a supported subscription runner before
-any further experiment or migration, then establish appropriate quality and
-obtain separate authorization for production deployment. This patch does not
-update the CLI, change credentials or substitute another model.
+Six offline regressions passed: exact context/instructions, context/article
+drift rejection, unchanged inputs, real title/date causal counterexample,
+missing/mismatched independent semantic assessment, duplicate claim IDs and
+separation from consumed jobs/receipts. The offline semantic contract is not
+a classifier or installed production fix.
 
-Rollback would restore the previous profile and generic default from the base
-commit, while leaving all immutable jobs and receipts unchanged. No live
-rollback or production switch was performed. Production remains on its last
-verified configuration. Newsletter delivery is already complete; do not send,
-retry or regenerate October 6 mail as part of model qualification.
+[Corrected packet and minimal plan](https://github.com/afshinmoshrefi/tradewave-tw2/blob/codex/smn-approved-release-handoff-20261005/docs/tasks/evidence/TW-TASK-0006/20261006-sol61/offline-correction/README.md).
+Prompt: 47,670 UTF-8 bytes. Input estimate: **28,891 tokens**, using actual old
+usage plus byte delta / 3; planning reserve **32,000 input / 4,000 output**,
+approximate and not an enforced CLI token cap. It has not been executed.
+Only new explicit approval could authorize one corrected 6.1-Sol/medium
+subscription review in a new immutable job after matching metadata/allowance
+checks. No retry, fallback, Astra comparison or benchmark cascade. A pass would
+qualify only this retained review, not writing/research or visuals.
+
+## Migration gates and rollback
+
+Keep this draft unmerged. Existing owners must reconcile exact code/runtime
+and review role changes; permanent runner compatibility requires separate
+evidence. Writing/research need separately approved bounded qualification with
+authoritative engine/source inputs and independent review, preserving numeric,
+causal, temporal, cohort, source-cap, visual and publication gates. Existing
+owners retain durable failure/recovery verification. This packet does not
+establish production reliability or comparative savings.
+
+Production activation requires explicit approval for the tested release and
+rollback plan. Rollback restores the base default/profile without altering
+immutable jobs or receipts. No production deployment, profile activation,
+article regeneration or newsletter send occurred in this qualification.
+October 6 delivery is already terminal; do not resend.
