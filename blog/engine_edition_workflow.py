@@ -285,6 +285,9 @@ class Edition:
         request={'prompt':'Use the receipt-bound editorial illustration.' if p.get('source_mode')=='selected_inputs' else 'Reuse the inspected production editorial illustration.', 'prompt_sha256':sha256(hero.read_bytes()),
             'story_id':sym,'evidence_sha256':b['evidence_sha256'],'alt':spec['hero_alt'],
             'caption':'AI-generated conceptual illustration · Seasonal Market News','provenance':{'kind':'illustration','source':p['hero_image']}}
+        if hero_provider=='SMN deterministic neutral placeholder':
+            request.update(alt='Neutral SMN article placeholder',caption='Neutral placeholder · Seasonal Market News',
+                           provenance={'kind':'neutral_placeholder','source':p['hero_image']})
         h=install_hero(request,{'path':str(hero),'prompt_sha256':request['prompt_sha256'],'provider':hero_provider},out)
         save_json(out/'hero-asset.json',h)
         print(json.dumps({'prepared':sym,'source_allowances':allowances,'study_verified':True}),flush=True)

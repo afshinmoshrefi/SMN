@@ -241,6 +241,11 @@ def hero(root, date, sym, roles, clis, run_job=None):
     out = Path(root)/'results'/sym
     asset = load_json(out/'hero-asset.json')
     image = Path(asset['path']) if Path(asset.get('path', '')).is_file() else out/asset['url']
+    if asset.get('provenance',{}).get('kind')=='neutral_placeholder':
+        record={'report_only':True,'image_sha256':_sha(image),
+                'review_status':'not_applicable_neutral_placeholder','model_called':False}
+        save_json(out/'hero-check.json',record)
+        return record
     company = load_json(Path(root)/'sources.json')[sym]['company']
     try:
         answer, receipt, _ = _job(root, date, sym, 'hero-check', HERO_RULES.format(company=company, symbol=sym),
@@ -248,8 +253,6 @@ def hero(root, date, sym, roles, clis, run_job=None):
         record = {'report_only': True, 'image_sha256': _sha(image), **answer,
                   'model': receipt['model_requested']}
     except Exception as exc:
-        if exc.__class__.__name__ == 'Hold':
-            raise
         record = {'report_only': True, 'image_sha256': _sha(image), 'error': str(exc)[:300]}
     save_json(out/'hero-check.json', record)
     return record

@@ -195,7 +195,41 @@ def _delivery_incidents(now, settings, target, ledger_dir):
 def inspect(root, now, settings, public_probe=_public_probe, target='production', ledger_dir=LEDGER_DIR):
     """Return independent reader and mail incidents without mutating source receipts."""
     reader = _inspect_reader(root, now, settings, public_probe, target, ledger_dir)
-    return reader + _delivery_incidents(now, settings, target, ledger_dir) + _campaign_incidents(now, target)
+    return reader + _recovery_incidents(root,now,settings,target) + _delivery_incidents(now, settings, target, ledger_dir) + _campaign_incidents(now, target)
+
+
+def _recovery_incidents(root,now,settings,target):
+    """Escalate exhausted safe paths or an independently observed failed supervisor.
+
+    This only builds incidents for the existing opt-in delivery journal. It does
+    not send, create credentials, treat provider acceptance as delivery or retry
+    an uncertain external effect.
+    """
+    if target!='production':return []
+    date=now.astimezone(ZoneInfo(settings['daily_generation']['timezone'])).date().isoformat()
+    edition=Path(root)/date;incidents=[]
+    repairs=_json(edition/'chatgpt/automatic-recovery.json') or {}
+    for symbol,row in repairs.get('articles',{}).items():
+        if row.get('status') in {'safe_paths_exhausted','authorization_or_evidence_required'}:
+            detail=symbol+': '+str(row.get('repair_error') or row.get('failure',{}).get('reason') or row['status'])
+            incidents.append(_incident(date,'recovery-exhausted',detail,f'SMN safe recovery needs attention: {symbol} ({date})'))
+    supervision=_json(edition/'continuity-supervision.json') or {}
+    for condition in supervision.get('conditions',[]):
+        if condition.get('phase')!='reconcile':continue
+        worker=_json(edition/'continuity-workers/reconcile.json') or {}
+        kind=condition.get('kind')
+        if kind=='worker_failed' and worker.get('consecutive_failures',0)<3:continue
+        if kind=='worker_not_observed':
+            # No new deadline is invented. Use the existing configured start grace.
+            schedule=settings['daily_generation'];grace=schedule.get('no_start_grace_minutes')
+            if not isinstance(grace,int) or grace<=0:continue
+            local=now.astimezone(ZoneInfo(schedule['timezone']))
+            start=datetime.combine(local.date(),time.fromisoformat(schedule['start_time']),local.tzinfo)
+            if now<start+timedelta(minutes=grace):continue
+        if kind in {'worker_stalled','worker_evidence_invalid','worker_not_observed','worker_failed'}:
+            incidents.append(_incident(date,'recovery-supervisor',kind,
+                                       f'SMN recovery supervisor needs attention ({date})'))
+    return incidents
 
 
 def _campaign_incidents(now, target):

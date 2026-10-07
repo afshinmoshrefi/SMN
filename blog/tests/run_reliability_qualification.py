@@ -23,6 +23,7 @@ TEST_MODULES = (
     'test_verified_newsletter', 'test_smn_newsletter_state',
     'test_editorial_gate', 'test_editorial_evidence_guards',
     'test_subscription_publication', 'test_selected_publication',
+    'test_smn_self_recovery','test_subscription_inputs',
 )
 
 

@@ -343,7 +343,7 @@ class SchedulerRecoveryFailures(unittest.TestCase):
         path = self.root/DAY/'continuity-progress.json'
         save_json(path, {'date': DAY, 'status': 'needs_attention', 'fingerprint': fingerprint,
                          'reason': 'Provider failed', 'unchanged_attempts': 6})
-        with patch.object(smn_subscription_daily, 'run', return_value={'providers': {'chatgpt': {'passed': True}}}) as run:
+        with patch.object(smn_subscription_daily, 'run', return_value={'providers': {'chatgpt': {'passed': True}}}) as run,patch.object(schedule,'verify_generation',return_value={'complete':True,'verified_symbols':['ALB']}):
             self.assertEqual(schedule.progress(self.root, DAY, AT_DEADLINE)['status'], 'needs_attention')
             run.assert_not_called()
             save_json(self.root/DAY/'chatgpt/research/ALB.json', {'repaired_source': True})

@@ -1,5 +1,58 @@
 # Prepared production continuity candidate, not activated
 
+## Bounded self-repair candidate (October 7, local only)
+
+The existing reconcile tick now supervises the existing reader workflow. It
+does not create a second workflow. Research, article and visual checkpoints
+retain hashes of their saved artifacts. A checkpoint or successful timer exit
+does not replace the downstream source, metric, security or publication gates.
+Generation completes only when every selected article has qualified bytes.
+Independent delivery can publish qualified articles while other subjects wait.
+
+Transient and infrastructure failures yield immediately to other subjects.
+Saved backoff is 5, 15 and 30 minutes, with four attempts per private job and
+the existing cumulative 40-job ceiling. Archives remain counted. Exhaustion
+is durable across repeated runs. One eligible second-review failure can prepare
+the existing source-backed third-review path if two budget slots remain;
+it retains the failed review and still requires the essential checks. No
+review is changed to passed. Auth, provenance and security uncertainty require
+evidence or a new owner decision. Editorial framing warnings remain visible.
+
+A private provider process checkpoints its actual exit before account polling.
+After interruption, immutable input, invocation, model/tool, output and event
+evidence can restore the missing private receipt without another model call.
+Missing completion evidence stays uncertain. Claims are retired only with
+same-host dead-process evidence. A stalled child can be signaled only when it
+is this workflow's private read-only CLI and its Linux birth identity, argv,
+cwd and saved invocation agree; the parent or a reused/foreign PID is preserved.
+Real Linux process behavior remains a separate qualification requirement.
+
+Missing decorative heroes use a truthful deterministic neutral placeholder,
+with its byte-bound provenance, no paid generation retry and no visual-review
+badge. Existing fact-qualified presentation fallback may replace optional
+layout failure. Essential chart/source custody failures remain blocking for
+that subject. Passed subjects and warnings are retained.
+
+Progress and delivery ticks independently observe the recovery worker lease.
+The reconcile-only systemd drop-in bounds a hung worker to 90 seconds, with
+three restart attempts per hour. Exhausted safe paths, malformed/stalled
+supervisor evidence or three consecutive recovery failures feed the existing
+opt-in alert journal. Alert acceptance is distinct from verified delivery;
+uncertain POSTs and newsletter IDs reconcile before retry. No new credentials
+or test messages are part of this patch.
+
+Before activation: qualify the final source and operator hashes on isolated
+Linux, inject process death and receipt/mail/alert failures, finish native
+archive/rollback and desktop/mobile checks, obtain the actual SMN host's
+current-day snapshot and exact-source approval, and preserve the separate
+October 7 five-article recovery receipt. Never regenerate October 7. Then
+verify at least three consecutive unattended weekday runs with dated artifact,
+publication, pending-coverage, job-budget and actual alert-delivery evidence.
+This reduces bounded failure modes; it is not a promise of zero failures.
+Partial newsletters and the optional one-hour human review window still require
+explicit workflow decisions. Human overrides must name the actor and timestamp,
+retain AI warnings, and cannot impersonate a factual check.
+
 Base: working production 2d1de1a9c9f200fa29a2db7f9660f3527727b660. No membership imports or routes. No models, email, provider writes or server changes were performed in preparation.
 
 ## Qualification and cutover boundaries

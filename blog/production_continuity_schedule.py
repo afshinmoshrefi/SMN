@@ -15,6 +15,7 @@ import subprocess
 from zoneinfo import ZoneInfo
 
 import operational_settings
+from smn_recovery import verify_generation
 from subscription_writer import load_json, save_json
 
 DEFAULT_ROOT = Path('/var/lib/tradewave/smn-daily/subscription-primary')
@@ -84,6 +85,7 @@ def _fingerprint(root, day):
     for pattern in ('sources.json', 'input-selection.json', 'primary/*.receipt.json',
                     'research/*.json', 'jobs/*/job.json', 'jobs/*/receipt.json',
                     'jobs/*/output.json', 'results/*/article.json',
+                    'jobs/*/state.json','jobs/*/execution.json',
                     'results/*/article.html', 'results/*/review-binding*.json',
                     'results/*/bundle.json', 'results/*/commission.json',
                     'results/*/generation.json', 'results/*/hero-asset.json',
@@ -155,7 +157,8 @@ def progress(root, day, current=None):
         try:
             result = run(root, day, publish=False, target='production', scheduled=True, continuity=True)
             reader = (result.get('providers') or {}).get('chatgpt') or {}
-            complete = reader.get('passed') is True
+            verification=verify_generation(root,day)
+            complete = verification['complete'] is True
             status = 'generation_complete' if complete else 'pending'
             reason = reader.get('reason') or result.get('status', '')
         except BlockingIOError:
@@ -172,6 +175,7 @@ def progress(root, day, current=None):
                   'attempts': prior.get('attempts', 0) + 1,
                   'unchanged_attempts': unchanged, 'jobs_used': jobs,
                   'max_jobs': MAX_JOBS, 'fingerprint': after,
+                  'artifact_verification':verification if 'verification' in locals() else {'complete':False},
                   'updated_utc': datetime.now(timezone.utc).isoformat(),
                   'next_attempt_utc': None if status in {'generation_complete', 'needs_attention'} else
                       (current + timedelta(minutes=minutes)).isoformat()}
@@ -236,15 +240,25 @@ def main():
     day = args.date or current.astimezone(ZONE).date().isoformat()
     try:
         require_production_host()
+        from smn_recovery import worker_start,worker_finish,watch_workers,supervise
+        watch_workers(args.root,day,current)
+        worker=worker_start(args.root,day,args.phase,current)
         if args.phase == 'reconcile':
+            recovery=supervise(args.root,day,current)
             from send_smn_emails import poll_pending_campaigns
-            result = poll_pending_campaigns(current)
+            try:
+                mail=poll_pending_campaigns(current)
+            except Exception as exc:
+                mail={'status':'held','reason':str(exc)[:500],'resend_attempted':False}
+            result={**recovery,'mail_reconciliation':mail}
         else:
             result = progress(args.root, day, current) if args.phase == 'progress' else deliver(args.root, day, current)
     except Exception as exc:
         result = {'status': 'held', 'reason': str(exc)[:500]}
+    if 'worker' in locals():
+        worker_finish(worker,result,datetime.now(timezone.utc))
     print(json.dumps(result, default=str))
-    return 2 if result.get('status') == 'held' else 0
+    return 2 if result.get('status') in {'held','needs_attention'} else 0
 
 
 if __name__ == '__main__':

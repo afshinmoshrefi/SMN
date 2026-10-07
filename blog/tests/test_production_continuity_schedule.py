@@ -31,7 +31,7 @@ class ContinuityScheduleTests(unittest.TestCase):
 
     def test_reconcile_cli_only_calls_get_poll_after_policy_guard(self):
         mail=types.ModuleType('send_smn_emails');mail.poll_pending_campaigns=lambda *_:{'campaign':'queued'}
-        with patch.dict(sys.modules,{'send_smn_emails':mail}),patch.object(sys,'argv',['production_continuity_schedule.py','reconcile','--enable-production-continuity']),patch('builtins.print'),patch('production_continuity.require_policy') as policy:
+        with patch.dict(sys.modules,{'send_smn_emails':mail}),patch.object(sys,'argv',['production_continuity_schedule.py','reconcile','--enable-production-continuity','--root',str(self.root),'--date',DAY]),patch('builtins.print'),patch('production_continuity.require_policy') as policy:
             self.assertEqual(schedule.main(),0)
             policy.assert_called_once()
 
@@ -133,7 +133,7 @@ class ContinuityScheduleTests(unittest.TestCase):
             'unchanged_attempts': 0,
             'next_attempt_utc': (AT_SEVEN+timedelta(minutes=15)).isoformat()}))
         with patch.object(smn_subscription_daily, 'run', return_value={
-                'providers': {'chatgpt': {'passed': True}}}) as run:
+                'providers': {'chatgpt': {'passed': True}}}) as run,patch.object(schedule,'verify_generation',return_value={'complete':True,'verified_symbols':['AAA']}):
             self.assertEqual(schedule.progress(self.root, DAY, AT_SEVEN)['status'], 'running')
             run.assert_not_called()
             finished = schedule.progress(self.root, DAY, AT_SEVEN+timedelta(minutes=15))
@@ -193,7 +193,7 @@ class ContinuityScheduleTests(unittest.TestCase):
         with patch.object(smn_subscription_daily, 'Day', FakeDay), \
                 patch.object(smn_subscription_daily, 'authenticate'), \
                 patch.object(smn_subscription_daily, 'freeze_inputs'), \
-                patch.object(smn_subscription_daily, 'release_login_holds'):
+                patch.object(smn_subscription_daily, 'release_login_holds'),patch('smn_recovery.checkpoint'):
             result = smn_subscription_daily.run_profile(
                 self.root, DAY, 'chatgpt', canonical, publication_origin=smn_subscription_daily.ORIGIN, continuity=True)
         self.assertTrue(result['passed'])

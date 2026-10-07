@@ -213,7 +213,7 @@ def generate_hero(post, edition):
     return _remote(REMOTE_HERO,payload=json.dumps({'post':post,'date':edition}),timeout=900)
 
 
-def prepare_heroes(root, edition, callback=None):
+def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False):
     root=Path(root); _date(edition)
     selection=json.loads((root/'input-selection.json').read_bytes()); _verify(root,selection)
     if selection['date']!=edition:
@@ -231,7 +231,24 @@ def prepare_heroes(root, edition, callback=None):
         if one.exists():
             item=json.loads(one.read_bytes()); _verify(root,{'files':{item['path']:item['sha256']}})
         else:
-            generated=(callback or generate_hero)(post,edition)
+            if nonessential_fallback:
+                # Reuse the tested neutral raster; never retry an uncertain paid
+                # image request. Preserve any old private remote generation state.
+                from subscription_publication import continuity_hero_png
+                from PIL import Image
+                import io
+                raw=continuity_hero_png();extension=Path(post['hero_image']).suffix.lower()
+                if extension in {'.jpg','.jpeg','.webp'}:
+                    output=io.BytesIO()
+                    with Image.open(io.BytesIO(raw)) as image:
+                        image.convert('RGB').save(output,format='WEBP' if extension=='.webp' else 'JPEG')
+                    raw=output.getvalue()
+                generated={'image_base64':base64.b64encode(raw).decode(),'sha256':_sha(raw),
+                           'provider':'SMN deterministic neutral placeholder','api_cost_stage':False,
+                           'asset_kind':'neutral_placeholder','method':'continuity-placeholder-v1',
+                           'paid_generation_retried':False,'cost_usd':0}
+            else:
+                generated=(callback or generate_hero)(post,edition)
             blob=base64.b64decode(generated['image_base64'],validate=True)
             if _sha(blob)!=generated['sha256']:
                 raise Held('hero asset hash differs')

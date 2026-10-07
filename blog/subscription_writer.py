@@ -281,12 +281,34 @@ def run_job(job, codex, *, timeout=900):
             proc = subprocess.Popen(cmd, cwd=job, env=child_environment(),
                 stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                 text=True, encoding='utf-8', **_startup())
+            from smn_recovery import process_identity
+            save_json(lock/'owner.json', {'pid':os.getpid(),'host':socket.gethostname(),
+                      'utc':utc_now(),'child_pid':proc.pid,'child_identity':process_identity(proc.pid),
+                      'invocation_sha256':sha256((job/'invocation.json').read_bytes())})
             try:
                 proc.communicate((job/'prompt.txt').read_text(encoding='utf-8'), timeout=timeout)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
+                stdout.flush()
+                save_json(job/'execution.json', {'job_id':manifest['job_id'],
+                          'job_sha256':sha256((job/'job.json').read_bytes()),
+                          'returncode':proc.returncode,'finished_utc':utc_now(),
+                          'seconds':round(time.monotonic()-started,3),
+                          'termination':'own child killed after configured timeout',
+                          'input_hashes':manifest['input_hashes'],
+                          'evidence_sha256':manifest['evidence_sha256'],
+                          'invocation_sha256':sha256((job/'invocation.json').read_bytes())})
                 raise RuntimeError('Codex timed out; partial evidence retained, no automatic retry')
+        # Bind the actual process outcome before account polling or validation can
+        # fail. Recovery uses these bytes, never an inferred completion timestamp.
+        save_json(job/'execution.json', {'job_id':manifest['job_id'],'returncode':proc.returncode,
+                  'job_sha256':sha256((job/'job.json').read_bytes()),
+                  'finished_utc':utc_now(),'seconds':round(time.monotonic()-started,3),
+                  'output_sha256':sha256((job/'output.json').read_bytes()) if (job/'output.json').is_file() else None,
+                  'events_sha256':sha256((job/'events.jsonl').read_bytes()),
+                  'invocation_sha256':sha256((job/'invocation.json').read_bytes()),
+                  'input_hashes':manifest['input_hashes'],'evidence_sha256':manifest['evidence_sha256']})
         events = []
         for line in (job/'events.jsonl').read_text(encoding='utf-8').splitlines():
             try:
@@ -336,6 +358,75 @@ def run_job(job, codex, *, timeout=900):
         # Remove only this process's two known lock artifacts, never recursively.
         (lock/'owner.json').unlink(missing_ok=True)
         lock.rmdir()
+
+
+def reconcile_completed_job(job):
+    """Recover a private completion after a post-turn crash; no CLI/model call.
+
+    This is output custody validation only. Article factual/editorial/security
+    gates still run. Legacy uncertain turns without a completion checkpoint hold.
+    """
+    job=Path(job).resolve()
+    if (job/'receipt.json').exists():
+        from model_job_evidence import completed_receipt
+        return completed_receipt(job)
+    manifest=load_json(job/'job.json');execution=load_json(job/'execution.json')
+    before=load_json(job/'usage-before.json')
+    if (manifest.get('provider')!='openai' or manifest.get('publish') is not False or
+            manifest.get('model') not in SUPPORTED_MODELS or execution.get('returncode')!=0 or
+            execution.get('job_id')!=manifest.get('job_id') or manifest.get('job_id')!=job.name or
+            execution.get('job_sha256')!=sha256((job/'job.json').read_bytes()) or
+            execution.get('input_hashes')!=manifest.get('input_hashes') or
+            execution.get('evidence_sha256')!=manifest.get('evidence_sha256') or
+            before.get('auth_type')!='chatgpt' or before.get('probe_generated_model_turns')!=0):
+        raise ValueError('Private completion provenance is missing or changed')
+    for name,expected in manifest['input_hashes'].items():
+        path=job/name
+        if path.is_symlink() or job not in path.resolve().parents or sha256(path.read_bytes())!=expected:
+            raise ValueError('Private completion inputs changed')
+    if not {'prompt.txt','schema.json'}<=set(manifest['input_hashes']):
+        raise ValueError('Private completion inputs unavailable')
+    for name,key in (('output.json','output_sha256'),('events.jsonl','events_sha256'),('invocation.json','invocation_sha256')):
+        path=job/name
+        if path.is_symlink() or execution.get(key)!=sha256(path.read_bytes()):
+            raise ValueError('Private completion checkpoint bytes changed')
+    finish=datetime.fromisoformat(execution['finished_utc'].replace('Z','+00:00'))
+    start=datetime.fromisoformat(before['utc'].replace('Z','+00:00'))
+    until=datetime.fromisoformat(manifest['valid_until'].replace('Z','+00:00'))
+    if any(stamp.tzinfo is None for stamp in (finish,start,until)) or not start<=finish<=until:
+        raise ValueError('Private completion timestamp is not within its assignment')
+    invocation=load_json(job/'invocation.json');argv=invocation.get('argv',[])
+    matching=[m for m in before.get('model_catalog',[]) if m.get('model')==manifest['model'] or m.get('id')==manifest['model']]
+    efforts={e['reasoningEffort'] for m in matching for e in m.get('supportedReasoningEfforts',[])}
+    if ('--model' not in argv or argv[argv.index('--model')+1]!=manifest['model'] or
+            '--sandbox' not in argv or argv[argv.index('--sandbox')+1]!='read-only' or
+            '--ephemeral' not in argv or manifest['effort'] not in efforts or
+            'model_reasoning_effort="'+manifest['effort']+'"' not in argv):
+        raise ValueError('Private completion invocation differs')
+    events=[json.loads(line) for line in (job/'events.jsonl').read_text().splitlines() if line.strip()]
+    completed=[e for e in events if e.get('type')=='turn.completed']
+    tools=[e.get('item',{}).get('type') for e in events if e.get('type')=='item.completed' and
+           e.get('item',{}).get('type') not in {'agent_message','reasoning'}]
+    models={e.get('model') for e in events if isinstance(e.get('model'),str)}
+    if (len(completed)!=1 or any(t not in {'web_search','web_search_call'} or not manifest.get('web_search') for t in tools) or
+            models and models!={manifest['model']}):
+        raise ValueError('Private completion event/model/tool evidence is not safe')
+    validate_schema(load_json(job/'output.json'),load_json(job/'schema.json'))
+    receipt={'job_id':manifest['job_id'],'stage':manifest['stage'],'status':'output_ready_for_smn_validation',
+             'started_utc':before['utc'],'finished_utc':execution['finished_utc'],'seconds':execution['seconds'],
+             'model_requested':manifest['model'],'effort_requested':manifest['effort'],
+             'provider':'openai','billing_source':'subscription','model_used':sorted(models) if models else None,
+             'auth_type':before['auth_type'],'plan_type':before.get('plan_type'),
+             'usage':completed[0].get('usage',{}),'tool_calls':tools,'api_fallback':False,
+             'new_external_provider_calls':0,'output_sha256':execution['output_sha256'],
+             'input_hashes':manifest['input_hashes'],'evidence_sha256':manifest['evidence_sha256'],'publish':False,
+             'recovered_from_execution_sha256':sha256((job/'execution.json').read_bytes()),
+             'recovery_policy':'continuity-recovery-v1','usage_after_available':(job/'usage-after.json').is_file()}
+    save_json(job/'receipt.json',receipt)
+    save_json(job/'state.json',{'status':receipt['status'],'utc':utc_now(),'reconciled_without_dispatch':True})
+    from model_job_evidence import completed_receipt
+    completed_receipt(job)
+    return receipt
 
 
 if __name__ == '__main__':

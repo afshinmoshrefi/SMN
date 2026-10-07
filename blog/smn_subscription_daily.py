@@ -147,8 +147,11 @@ def release_login_holds(day):
             if not (job/'receipt.json').exists() and (job/'state.json').exists():
                 status = load_json(job/'state.json')
                 if status.get('status') == 'failed_needs_review':
-                    day._archive(job, reason, 'authentication-retry')
-        del state['held']
+                    try:day._archive(job, reason, 'authentication-retry')
+                    except Hold:break
+        else:
+            del state['held']
+            continue
     day.save()
 
 
@@ -161,7 +164,7 @@ def run_profile(root, date, profile, canonical, publication_origin=ORIGIN, conti
     day.symbols = [p['symbol'] for p in load_json(root/'production/posts.json')]
     if continuity:
         if profile != 'chatgpt' or publication_origin != ORIGIN:
-            raise ValueError('Continuity progression is Dev ChatGPT only')
+            raise ValueError('Continuity progression requires the production ChatGPT origin')
         day.continuity = True
     release_login_holds(day)
     day.release_transient_holds()
@@ -171,11 +174,21 @@ def run_profile(root, date, profile, canonical, publication_origin=ORIGIN, conti
             for symbol in symbols:
                 day.symbols = [symbol]
                 try:
+                    from smn_recovery import checkpoint
+                    checkpoint(day,symbol,'research','running')
                     day.research()
+                    checkpoint(day,symbol,'research','completed')
+                    checkpoint(day,symbol,'article','running')
                     day.articles()
+                    checkpoint(day,symbol,'article','completed' if not day.state['articles'].get(symbol,{}).get('held') else 'held')
+                    checkpoint(day,symbol,'visual','running')
                     day.visual()
-                except Hold:
+                    checkpoint(day,symbol,'visual','completed' if day.state['articles'].get(symbol,{}).get('finalized') else 'pending')
+                except Exception as exc:
                     # An article hold does not prevent later subjects progressing.
+                    article=day.state['articles'].setdefault(symbol,{})
+                    if not article.get('held'):article['held']={'utc':now(),'reason':str(exc)[:500]}
+                    day.save();checkpoint(day,symbol,'pipeline','held',article['held']['reason'])
                     continue
         finally:
             day.symbols = symbols
@@ -231,7 +244,10 @@ def run(root, date, publish=False, target='production', scheduled=False, continu
         engine(canonical, date, 'engine')
         if target == 'dev' and not (canonical/'input-heroes.json').exists():
             raise ValueError('Dev qualification requires explicitly staged hero assets; no production hero API call')
-        prepare_heroes(canonical, date)
+        if continuity:
+            prepare_heroes(canonical,date,nonessential_fallback=True)
+        else:
+            prepare_heroes(canonical,date)
         outcomes = {}
         for profile in profiles:
             edition = root/date/profile
@@ -259,7 +275,8 @@ def run(root, date, publish=False, target='production', scheduled=False, continu
                   'publication_requested': publish,
                   'comparison_status': ('passed' if outcomes.get('claude',{}).get('passed') is True else
                                         'held' if compare else 'not_requested'),
-                  'external_costs': 'Shared hero generation/checking uses configured paid APIs; see inputs/input-heroes.json',
+                  'external_costs': ('Continuity uses retained heroes or deterministic neutral placeholders; no paid hero retry' if continuity else
+                                     'Shared hero generation/checking uses configured paid APIs; see inputs/input-heroes.json'),
                   'providers': outcomes}
         save_json(root/date/'comparison.json', record)
         return record
