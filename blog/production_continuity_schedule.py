@@ -77,8 +77,24 @@ def _fingerprint(root, day):
     rows = {sym: {key: article.get(key) for key in ('draft', 'mechanical_ok',
             'review_stage', 'editorially_finalized', 'finalized')}
             for sym, article in articles.items()}
-    used = len(job_rows) + sum(row[2] for row in job_rows)
-    return hashlib.sha256(json.dumps([selection_hash, rows, job_rows],
+    from model_job_evidence import jobs_used
+    # A repaired review, released hold or added subject must wake terminal recovery.
+    # Ignore timestamps and changing event logs; hash the actual durable evidence.
+    evidence = {}
+    for pattern in ('sources.json', 'input-selection.json', 'primary/*.receipt.json',
+                    'research/*.json', 'jobs/*/job.json', 'jobs/*/receipt.json',
+                    'jobs/*/output.json', 'results/*/article.json',
+                    'results/*/article.html', 'results/*/review-binding*.json',
+                    'results/*/bundle.json', 'results/*/commission.json',
+                    'results/*/generation.json', 'results/*/hero-asset.json',
+                    'results/*/mechanical-checks.json', 'results/*/visual-checks.json'):
+        for path in sorted(edition.glob(pattern)):
+            if path.is_file():
+                evidence[path.relative_to(edition).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for sym, article in articles.items():
+        rows[sym]['held'] = bool(article.get('held'))
+    used = jobs_used(edition)
+    return hashlib.sha256(json.dumps([selection_hash, rows, job_rows, evidence, used],
                                      sort_keys=True).encode()).hexdigest(), used
 
 
@@ -94,8 +110,6 @@ def progress(root, day, current=None):
         if not acquired:
             return {'status': 'in_progress'}
         prior = load_json(path) if path.is_file() else {}
-        if prior.get('status') in {'generation_complete', 'needs_attention'}:
-            return prior
         edition = root/day/'chatgpt'
         for name in ('production-publication-receipt.json', 'dev-publication-receipt.json'):
             receipt_path = edition/name
@@ -108,23 +122,36 @@ def progress(root, day, current=None):
                     save_json(path, record)
                     return record
         before, used = _fingerprint(root, day)
+        if prior.get('status') in {'generation_complete', 'needs_attention'}:
+            if prior.get('fingerprint') == before:
+                return prior
+            # Retain the terminal diagnostic while allowing repaired saved work to
+            # resume. A changed artifact is not an accuracy approval or a cap raise.
+            prior = {**prior, 'unchanged_attempts': 0, 'next_attempt_utc': None,
+                     'recovered_from': {key: prior.get(key) for key in
+                         ('status', 'reason', 'fingerprint', 'updated_utc', 'attempts')}}
         if used >= MAX_JOBS:
             record = {'date': day, 'status': 'needs_attention', 'jobs_used': used,
-                      'max_jobs': MAX_JOBS,
+                      'max_jobs': MAX_JOBS, 'fingerprint': before,
                       'reason': 'Cumulative model-job budget exhausted; saved approvals remain available for delivery',
                       'updated_utc': current.isoformat()}
+            if prior.get('recovered_from'):
+                record['recovered_from'] = prior['recovered_from']
             save_json(path, record)
             return record
         retry_at = prior.get('next_attempt_utc')
         if retry_at and current < datetime.fromisoformat(retry_at):
             return prior
         # Write before running so an interrupted process waits before restarting.
-        save_json(path, {'date': day, 'status': 'running',
+        running = {'date': day, 'status': 'running',
                          'updated_utc': current.isoformat(),
                          'next_attempt_utc': (current + timedelta(minutes=15)).isoformat(),
                          'attempts': prior.get('attempts', 0) + 1,
                          'unchanged_attempts': prior.get('unchanged_attempts', 0),
-                         'fingerprint': before})
+                         'fingerprint': before}
+        if prior.get('recovered_from'):
+            running['recovered_from'] = prior['recovered_from']
+        save_json(path, running)
         try:
             result = run(root, day, publish=False, target='production', scheduled=True, continuity=True)
             reader = (result.get('providers') or {}).get('chatgpt') or {}
@@ -148,6 +175,8 @@ def progress(root, day, current=None):
                   'updated_utc': datetime.now(timezone.utc).isoformat(),
                   'next_attempt_utc': None if status in {'generation_complete', 'needs_attention'} else
                       (current + timedelta(minutes=minutes)).isoformat()}
+        if prior.get('recovered_from'):
+            record['recovered_from'] = prior['recovered_from']
         save_json(path, record)
         return record
 
@@ -171,9 +200,11 @@ def deliver(root, day, current=None, repo=None):
         if prior.get('fingerprint') == fingerprint:
             result = prior.get('result') or {}
             retry_at = prior.get('next_attempt_utc')
-            if (result.get('complete') is True and result.get('status') == 'live_verified') or (
-                    retry_at and current < datetime.fromisoformat(retry_at)):
-                return result
+            # A complete receipt still needs byte/custody verification by the
+            # publisher. Evidence fingerprints do not include public web files.
+            if retry_at and current < datetime.fromisoformat(retry_at):
+                return result or {'status': prior.get('status', 'held'),
+                                  'reason': prior.get('reason', 'Delivery is unverified')}
         from production_continuity import publish_available
         try:
             result = publish_available(root/day/'chatgpt', day, 'production',

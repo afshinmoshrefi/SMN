@@ -132,14 +132,28 @@ def reconcile_legacy(root,date):
     urls={'https://seasonalmarketnews.com/editions/'+date+'/'+s+'/article.html' for s in expected}
     if receipt.get('status')!='live_verified' or receipt.get('edition_date')!=date or set(receipt.get('urls',[]))!=urls:
         raise ValueError('Legacy completed edition receipt differs from frozen selection')
-    from urllib.parse import urlsplit
-    import install_smn_primary_edition as installer
-    for rel,digest in receipt.get('files',{}).items():
-        if rel.startswith('editions/'+date+'/') and _sha(installer.WEB/rel)!=digest:
-            raise ValueError('Legacy published article changed')
-    if not any(rel.endswith('/article.html') for rel in receipt.get('files',{})):
-        raise ValueError('Legacy receipt lacks public article hashes')
+    verify_public_receipt(receipt,date,expected)
     return {**receipt,'complete':True,'reused_legacy':True}
+
+
+def verify_public_receipt(receipt,date,published):
+    """Idempotency reuses verified bytes, never just a saved status string."""
+    import install_smn_primary_edition as installer
+    web=Path(installer.WEB).resolve()
+    files=receipt.get('files')
+    if (receipt.get('status')!='live_verified' or receipt.get('edition_date')!=date or
+            receipt.get('production_written') is not True):
+        raise ValueError('Publication receipt is not verified for this production edition')
+    required={'editions/'+date+'/index.html'} | {'editions/'+date+'/'+symbol+'/article.html' for symbol in published}
+    if not isinstance(files,dict) or not required<=set(files):
+        raise ValueError('Publication receipt lacks public article hashes')
+    for rel,digest in files.items():
+        if not isinstance(rel,str) or not rel.startswith('editions/'+date+'/'):
+            continue  # Home market quotes are intentionally refreshed after publication.
+        file=web/rel
+        if (file.is_symlink() or web not in file.resolve().parents or
+                not file.is_file() or _sha(file)!=digest):
+            raise ValueError('Previously published content changed')
 
 
 def _remote_status(stage):
@@ -152,8 +166,11 @@ def _resume_or_publish(tx,repo,node,playwright):
     current=_remote_status(stage)
     if current.get('transaction_id')!=stage['transaction_id']:
         raise ValueError('Local transaction identity changed')
-    if current['status']=='live_verified': return current
+    if current['status']=='live_verified':
+        verify_public_receipt(current,current['edition_date'],current.get('published_symbols',[]))
+        return current
     require_policy(current['source_commit'])
+    source_commit=current['source_commit']
     if current['status']=='activating':
         installer.rollback(record)
         raise ValueError('Interrupted activation rolled back')
@@ -161,11 +178,13 @@ def _resume_or_publish(tx,repo,node,playwright):
     try:
         if current['status']=='prepared': current=installer.activate(record)
         if current['status']!='active_pending_live_verification': raise ValueError('Unexpected publication state')
+        if current.get('transaction_id')!=stage['transaction_id'] or current.get('source_commit')!=source_commit:
+            raise ValueError('Activated publication identity changed')
         _write(tx/'primary-activation.json',current)
         env={**os.environ,'SMN_PLAYWRIGHT':str(playwright)} if playwright else None
         subprocess.run([str(node),str(repo/'blog/subscription_primary_live.cjs'),str(tx)],check=True,env=env)
         proof=read(tx/'live-verification.json')
-        if proof.get('origin')!='https://seasonalmarketnews.com' or not proof.get('deterministic_landing'):
+        if proof.get('passed') is not True or proof.get('origin')!='https://seasonalmarketnews.com' or not proof.get('deterministic_landing'):
             raise ValueError('Production deterministic browser proof missing')
         _write(record/'live-verification.json',proof)
         return installer.finish(record)
@@ -199,6 +218,16 @@ def publish_available(root: Path, date: str, target: str, *, repo: Path | None =
             return reconcile_legacy(root,date)
         if prior and prior.get('status')!='live_verified':
             raise ValueError('Prior publication is unverified')
+        if prior:
+            published=prior.get('published_symbols',[])
+            pending=prior.get('pending_symbols',[])
+            if (prior.get('edition_date')!=date or not isinstance(published,list) or
+                    not isinstance(pending,list) or len(set(published+pending))!=len(published+pending) or
+                    published!=[s for s in expected if s in published] or
+                    pending!=[s for s in expected if s not in published] or
+                    prior.get('complete') is not (bool(expected) and not pending)):
+                raise ValueError('Prior receipt date or coverage partition changed')
+            verify_public_receipt(prior,date,published)
         if prior and prior.get('expected_symbols') and expected!=prior['expected_symbols']:
             raise ValueError('Frozen selected lineup changed after publication')
         if prior and prior.get('selection_status')=='frozen' and (

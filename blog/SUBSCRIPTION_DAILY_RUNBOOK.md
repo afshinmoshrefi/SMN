@@ -195,3 +195,85 @@ After recovery, write a recovery resolution beside the original hold, and a
 live_verified completion receipt in the canonical date directory referencing
 the verified recovery artifact. Keep original hold/failed attempt evidence.
 The next heartbeat checks completion first and must not regenerate that date.
+
+## October 7 Local Reliability Candidate
+
+This section describes the isolated `codex/smn-reliability-20261007` candidate,
+based on prepared production candidate `32bd869`. It is not an activation or
+permission to run model jobs. It continues the existing source-bound,
+operator-enabled `continuity-v1` workflow. The earlier complete-lineup Dev
+procedure remains the default outside that explicit opt-in.
+
+The continuity publisher independently validates each selected article. Essential
+facts, primary sources, study identity, engine metrics, evidence custody and
+security remain required. Existing opening, framing and brevity warnings are
+advisory only when they contain no factual defect. Original AI findings remain
+unchanged. Saved approvals and article trees are reused; no passing review is
+manufactured. Native publication labels missing subjects as pending and preserves
+earlier dates. Its delivery tick remains independent of the research controller.
+
+Normal production continuity reserves at most 40 cumulative model attempts.
+Each prepared job reserves one slot; every archived retry, including transient
+or authentication retries, reserves another. This is conservative dispatch
+accounting, not measured billing. Successful receipts are reused only after
+input/output/model/schema/time binding checks. Running jobs, unresolved claims
+and uncertain completions are preserved for explicit recovery. No lock is stolen.
+Exhaustion stops generation but does not block publication of saved approvals.
+
+Unchanged terminal holds remain quiet. Repaired durable evidence can reopen the
+same day while retaining the terminal diagnostic and the existing retry cap.
+Publication retries inspect native receipts before activation, preserve failed
+transactions, verify published article bytes, and retain the three-attempt bound.
+The native `primary-activation.json` handoff must exist before browser verification.
+An unchanged complete edition is verified without creating another transaction.
+
+The independent observer treats the saved target time as a deadline only with
+the production `continuity-v1` opt-in. No-start and stall preferences retain their
+existing semantics otherwise. Alert POST attempts are journaled first, bounded
+to three per incident/recipient with five-minute backoff, and stopped before the
+provider's idempotency retention expires. Acceptance is not delivery. Known email
+IDs receive up to 48 GET polls, at least 30 minutes apart; exact ID, recipient,
+subject and `last_event=delivered` evidence is required. Failed or uncertain
+delivery never triggers a duplicate accepted email. Existing recipient, sender,
+credential, enabled preference and timer setup must be verified separately.
+
+Provider contracts: [Resend idempotency keys](https://resend.com/docs/dashboard/emails/idempotency-keys)
+and [retrieve sent email](https://resend.com/docs/api-reference/emails/retrieve-email).
+The former documents 24-hour key retention; this implementation stops uncertain
+POST retries at 23 hours. GET authorization may be unavailable with an existing
+send-only key; record unconfirmed delivery rather than creating credentials.
+
+Offline qualification, with network and unmocked model dispatch blocked:
+
+```text
+python -B blog/tests/run_reliability_qualification.py --output <new-local-proof-directory>
+```
+
+Windows cannot qualify Linux file locks, Unix permissions or process-death
+recovery. Replay the same tests on Linux and rerun the existing guarded native
+transaction/browser/crash qualification for the new commit before any activation.
+The prepared operator package remains bound to `32bd869`; a changed application
+needs rebuilt proof bindings and new exact approval. The current-day snapshot
+gate belongs to actual SMN `seasonalmarketnews`, `209.182.216.112`.
+
+Do not reopen October 7 automatically: its five-article transaction lives in a
+separate reader namespace and the canonical six-article controller remains held.
+An integration owner must explicitly preserve/reconcile its verified receipt and
+resolution, frozen selection, cumulative allowance and untouched mail journal.
+
+Consequential workflow decisions remain explicit: whether a partial edition can
+release one daily newsletter; the proposed optional one-hour morning human review
+window; and authenticated reviewer identity/override controls. No such workflow
+is silently enabled here. Any later editorial-only human decision must record
+actor identity, UTC timestamp, exact content/evidence hashes, decision and reason,
+and retain AI warnings. Factual/source/metric/security failure cannot be turned
+into a fake passing factcheck. No human badge may appear without an actual review.
+
+After a separately authorized release, verify at least three consecutive weekday
+scheduled runs from saved schedule snapshots: independent deadline delivery,
+truthful coverage and public receipt hashes, bounded cumulative attempts, reuse
+on repeated ticks, one campaign at most per date, and provider delivery evidence.
+Rehearse one/multiple held articles, cap exhaustion, provider failure, interruption,
+stale receipts and relay failure with synthetic evidence first. A delivered alert
+from an approved exercise and normal campaign evidence are needed before claiming
+working unattended monitoring. Offline mocks do not establish that result.

@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote
 from zoneinfo import ZoneInfo
 
 DEFAULT_FROM = 'TradeWave <help@tradewave.ai>'
@@ -22,6 +22,9 @@ CF_BEACON = b'''<script type="module" src="https://static.cloudflareinsights.com
 ORIGINS = {'production':'https://seasonalmarketnews.com', 'dev':'https://smn-dev.trxstat.com'}
 LEDGER_DIR = Path('/var/lib/smn-dashboard/schedule-runs')
 CAMPAIGN_STATE = Path('/home/flask/blog/logs/sent_smn_emails.json')
+CONTINUITY_ACTIVATION = Path('/etc/SMN/subscription-primary.json')
+MAX_ALERT_SEND_ATTEMPTS = 3
+MAX_ALERT_DELIVERY_POLLS = 48
 TRANSIENT = re.compile(r'OAuth token|rate.?limit|overloaded|\b(?:429|500|502|503|529)\b|'
                        r'temporarily|ECONNRESET|ETIMEDOUT|timed? ?out', re.I)
 
@@ -356,6 +359,15 @@ def _inspect_reader(root, now, settings, public_probe, target, ledger_dir):
         return [_incident(date, 'run-unsuccessful', detail,
                           f'SMN morning run unsuccessful ({date})')]
     schedule = settings['daily_generation']
+    # Only the explicit continuity opt-in makes target_time a delivery deadline.
+    # Legacy target settings retain their existing no-start/stall semantics.
+    policy = _json(CONTINUITY_ACTIVATION) or {}
+    if (target == 'production' and policy.get('reader_provider') == 'chatgpt' and
+            policy.get('publication_policy') == 'continuity-v1' and
+            local.strftime('%H:%M') >= schedule['target_time']):
+        return [_incident(date, 'deadline-missed',
+                          'Continuity delivery deadline reached without verified current coverage',
+                          f'SMN publication deadline needs attention ({date})')]
     grace = schedule.get('no_start_grace_minutes')
     active_child = any(r.get('status') == 'running' for r in ledgers)
     waiting = current and current.get('status') == 'waiting_for_selection'
@@ -414,8 +426,60 @@ def send_resend(recipient, incident, sender=DEFAULT_FROM):
         return False
 
 
+def retrieve_resend(provider_id):
+    """GET-only evidence for a known accepted email; returns no message body."""
+    key = os.environ.get('RESEND_API_KEY', '')
+    if not key or key.upper() == 'PLACEHOLDER':
+        return None
+    request = Request('https://api.resend.com/emails/'+quote(provider_id, safe=''),
+                      headers={'Authorization': 'Bearer '+key})
+    with urlopen(request, timeout=10) as response:
+        data = json.load(response)
+    return {name: data.get(name) for name in ('id', 'to', 'subject', 'last_event')}
+
+
+def reconcile_alert_delivery(state, now, fetcher):
+    """Record explicit provider delivery, never reinterpret acceptance as delivery."""
+    delivered = 0
+    errors = []
+    for key, record in state.get('accepted', {}).items():
+        if key in state.get('delivered', {}):
+            continue
+        if record.get('delivery_poll_count', 0) >= MAX_ALERT_DELIVERY_POLLS:
+            errors.append('Alert delivery polling exhausted; inspect known provider ID')
+            continue
+        retry = record.get('next_delivery_poll_utc')
+        if retry and now < datetime.fromisoformat(retry):
+            continue
+        record['delivery_poll_count'] = record.get('delivery_poll_count', 0)+1
+        record['next_delivery_poll_utc'] = (now+timedelta(minutes=30)).isoformat()
+        try:
+            data = fetcher(record['provider_id'])
+            if (not isinstance(data, dict) or data.get('id') != record['provider_id'] or
+                    data.get('to') != [record.get('recipient')] or
+                    not record.get('subject') or data.get('subject') != record['subject']):
+                raise ValueError('Alert delivery identity is unconfirmed')
+            event = data.get('last_event')
+            record['last_event'] = event
+            record['last_delivery_check_utc'] = now.isoformat()
+            if event == 'delivered':
+                state.setdefault('delivered', {})[key] = {
+                    'provider_id': record['provider_id'], 'status': 'delivered',
+                    'evidence': data, 'observed_delivered_utc': now.isoformat()}
+                delivered += 1
+            elif event in {'bounced', 'failed', 'canceled', 'suppressed', 'complained'}:
+                record['delivery_poll_count'] = MAX_ALERT_DELIVERY_POLLS
+                errors.append('Provider reports alert '+event+'; no duplicate send')
+            else:
+                errors.append('Accepted alert delivery remains unconfirmed')
+        except Exception:
+            # Do not store raw relay errors, which may expose request credentials.
+            errors.append('Alert delivery evidence unavailable')
+    return delivered, errors
+
+
 def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_resend,
-        baseline=False, target='production', ledger_dir=LEDGER_DIR):
+        baseline=False, target='production', ledger_dir=LEDGER_DIR, delivery_fetcher=None):
     root = Path(root)
     status_path = Path(os.environ.get('SMN_DASHBOARD_STATE', '/var/lib/smn-dashboard'))/'operational-alerts-status.json'
     now = now or datetime.now(timezone.utc)
@@ -479,6 +543,12 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
         return {'observed': len(incidents), 'sent': 0, 'accepted':0, 'delivered':0, 'baseline': baseline}
     accepted = 0
     state.setdefault('accepted', {})
+    state.setdefault('send_attempts', {})
+    delivered, errors = reconcile_alert_delivery(state, now, delivery_fetcher or retrieve_resend)
+    _save(path, state)
+    if errors:
+        status['last_delivery_error'] = errors[-1]
+        status['delivery_state'] = 'needs_attention'
     for item in incidents:
         if item['key'] in acknowledged:
             continue
@@ -487,16 +557,36 @@ def run(root, now=None, settings=None, public_probe=_public_probe, sender=send_r
             # Preserve old dedupe records without reclassifying them as actual delivery.
             if state.get('delivered', {}).get(receipt) or state['accepted'].get(receipt):
                 continue
-            result = sender(recipient, item, os.environ.get('SMN_ALERT_FROM') or DEFAULT_FROM)
+            attempt = state['send_attempts'].setdefault(receipt, {'count': 0, 'first_utc': now.isoformat()})
+            # A stable provider idempotency key has a bounded lifetime. Never
+            # repeat an uncertain POST on a later day as though it were new.
+            age = (now-datetime.fromisoformat(attempt['first_utc'])).total_seconds()
+            if attempt['count'] >= MAX_ALERT_SEND_ATTEMPTS or age >= 23*60*60:
+                status['last_delivery_error'] = 'Alert acceptance retry limit reached; inspect provider before retry'
+                status['delivery_state'] = 'needs_attention'
+                continue
+            retry = attempt.get('next_attempt_utc')
+            if retry and now < datetime.fromisoformat(retry):
+                continue
+            attempt['count'] += 1
+            attempt['next_attempt_utc'] = (now+timedelta(minutes=5)).isoformat()
+            _save(path, state)  # Journal the attempt before calling the relay.
+            try:
+                result = sender(recipient, item, os.environ.get('SMN_ALERT_FROM') or DEFAULT_FROM)
+            except Exception:
+                result = None
             if isinstance(result, dict) and result.get('status') == 'accepted' and result.get('provider_id'):
-                state['accepted'][receipt] = {**result, 'accepted_utc':now.isoformat()}
+                state['accepted'][receipt] = {**result, 'accepted_utc':now.isoformat(),
+                                             'recipient':recipient, 'subject':item['subject']}
                 _save(path, state)
                 accepted += 1
             else:
                 status['last_delivery_error'] = 'Resend acceptance not confirmed'
+                status['delivery_state'] = 'needs_attention'
     status['accepted'] = accepted
+    status['delivered'] = delivered
     _save(status_path, status)
-    return {'observed': len(incidents), 'sent': 0, 'accepted': accepted, 'delivered':0, 'baseline': False}
+    return {'observed': len(incidents), 'sent': 0, 'accepted': accepted, 'delivered':delivered, 'baseline': False}
 
 
 def main():

@@ -1,5 +1,6 @@
 """Publication transaction tests with temporary roots; never touch a server site."""
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -41,6 +42,27 @@ class PrimaryPublicationTest(unittest.TestCase):
         p.write(candidate/'search_index.json',[])
     def prepared(self):
         return Path(p.prepare(self.package)['record'])
+    def test_native_partial_notice_names_pending_without_relabeling_archive(self):
+        entries = p.read(self.package/'entries.json')[:5]
+        p.write(self.package/'entries.json', entries)
+        manifest = p.read(self.package/'manifest.json')
+        manifest['files'].pop('editions/2026-09-24/F/article.html')
+        manifest['files']['entries.json'] = p.sha(self.package/'entries.json')
+        manifest.update(continuity_policy=1, publication_policy='continuity-v1',
+                        expected_symbols=list('ABCDEF'), published_symbols=list('ABCDE'),
+                        pending_symbols=['F'], complete=False, coverage_status='partial',
+                        revision=1, revision_id='b'*64, transaction_id='c'*64,
+                        selection_status='frozen', selection_sha256='d'*64)
+        p.write(self.package/'manifest.json', manifest)
+        record = self.prepared()
+        notice = (record/'candidate/index.html').read_text()
+        self.assertIn('5 of 6 articles available', notice)
+        self.assertIn('Pending: F.', notice)
+        self.assertEqual(p.read(record/'candidate/coverage-status.json')['pending_symbols'], ['F'])
+        self.assertFalse((record/'candidate/editions/2026-09-24/F/article.html').exists())
+        archived = next(row for row in p.read(record/'candidate/posts.json') if row['title']=='old')
+        self.assertEqual(archived['published_date'], '2026-09-23')
+        self.assertEqual((self.web/'old.html').read_text(), 'approved original')
     def test_index_and_search_noindex_preserve_native_content(self):
         record=self.prepared()
         for name in ('index.html','search.html'):
@@ -49,7 +71,8 @@ class PrimaryPublicationTest(unittest.TestCase):
             self.assertNotIn('index, follow',text)
         self.assertIn('native search',(record/'candidate/search.html').read_text())
         p.activate(record)
-        self.assertEqual((self.web/'posts.json').stat().st_mode & 0o777,0o644)
+        if os.name != 'nt':  # Windows reports ACL-backed writable files as 0666.
+            self.assertEqual((self.web/'posts.json').stat().st_mode & 0o777,0o644)
         p.rollback(record)
         self.assertIn('index, follow',(self.web/'search.html').read_text())
     def test_merge_preserves_arbitrary_dashboard_metadata(self):

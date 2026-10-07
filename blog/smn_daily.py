@@ -33,7 +33,7 @@ CLIS = {'claude': os.environ.get('SMN_CLAUDE', '/root/.local/bin/claude'), 'code
 PLAYWRIGHT = os.environ.setdefault('SMN_PLAYWRIGHT', '/opt/smn-playwright/node_modules/playwright')
 os.environ.setdefault('SMN_BROWSER_CHANNEL', 'bundled')
 # Passing faults: a login-token refresh race, rate limits, provider overload, network drops.
-# They clear within minutes, so they are waited out and never count as a failed attempt.
+# They clear within minutes, but every retry still consumes an attempt reservation.
 TRANSIENT = re.compile(r'OAuth token|rate.?limit|overloaded|\b(429|500|502|503|529)\b|temporarily|'
                        r'ECONNRESET|ETIMEDOUT|timed? ?out', re.I)
 TRANSIENT_WAITS = (60, 180, 420)
@@ -88,9 +88,8 @@ class Day:
 
     # ---- model jobs -------------------------------------------------
     def jobs_used(self):
-        jobs = self.root/'jobs'
-        return sum(1 for j in jobs.iterdir() if j.is_dir()) + sum(
-            1 for j in jobs.glob('*/failed-attempt-*')) if jobs.exists() else 0
+        from model_job_evidence import jobs_used
+        return jobs_used(self.root)
 
     def _archive(self, job, exc, kind):
         """Move a failed attempt aside and mark the job ready to run again."""
@@ -108,9 +107,24 @@ class Day:
         other failure gets one requeue, and a second one holds the article."""
         job = Path(job)
         if (job/'receipt.json').exists():
-            return load_json(job/'receipt.json')
+            from model_job_evidence import completed_receipt
+            try:
+                return completed_receipt(job)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                raise Hold('Saved model receipt needs investigation: '+str(exc)) from exc
         waits = list(TRANSIENT_WAITS)
         while True:
+            # A scheduler retry must not archive another worker's running job,
+            # or turn an uncertain completion into a second provider dispatch.
+            if (job/'.claim').exists():
+                raise Hold('model job %s has an active or unresolved claim; preserve it for explicit recovery' % job.name)
+            if (job/'state.json').exists():
+                try:
+                    state = load_json(job/'state.json')
+                    if state.get('status') != 'ready':
+                        raise Hold('model job %s is not ready; preserve it for explicit recovery' % job.name)
+                except (OSError, ValueError, TypeError, AttributeError) as exc:
+                    raise Hold('model job state needs investigation: '+str(exc)) from exc
             if self.jobs_used() > self.max_jobs:
                 raise Hold('model-job budget of %d exhausted' % self.max_jobs)
             try:

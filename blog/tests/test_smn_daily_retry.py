@@ -33,11 +33,11 @@ class RetryTests(unittest.TestCase):
              patch.object(smn_daily.time, 'sleep') as sleep:
             return self.day.run_job(self.job), sleep
 
-    def test_oauth_race_is_waited_out_and_not_counted(self):
+    def test_oauth_race_is_waited_out_and_counted(self):
         result, sleep = self.run_with([RuntimeError(OAUTH), RuntimeError(OAUTH), {'ok': 1}])
         self.assertEqual(result, {'ok': 1})
         self.assertEqual([c.args[0] for c in sleep.call_args_list], [60, 180])
-        self.assertEqual(self.day.jobs_used(), 1)
+        self.assertEqual(self.day.jobs_used(), 3)
         self.assertEqual(len(list(self.job.glob('transient-attempt-*'))), 2)
 
     def test_other_failures_still_hold_after_two(self):

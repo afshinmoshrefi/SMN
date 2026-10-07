@@ -45,6 +45,9 @@ class OperationalAlertTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        relay = patch.object(alerts, 'retrieve_resend', return_value=None)
+        relay.start()
+        self.addCleanup(relay.stop)
         state_env = patch.dict(os.environ, {'SMN_DASHBOARD_STATE':str(self.root/'dashboard')})
         state_env.start()
         self.addCleanup(state_env.stop)
@@ -77,6 +80,20 @@ class OperationalAlertTests(unittest.TestCase):
             alerts.run(self.root, self.seven, configured, sender=sender)
             alerts.run(self.root, self.seven, configured, sender=sender)
         self.assertEqual(sent, [(recipient, 'no-start') for recipient in SETTINGS['alert_recipients']])
+
+    def test_continuity_optin_deadline_detects_no_start_and_running_worker(self):
+        policy = self.root/'activation.json'
+        self.write(policy, {'reader_provider': 'chatgpt', 'publication_policy': 'continuity-v1'})
+        with patch.object(alerts, 'CONTINUITY_ACTIVATION', policy):
+            self.assertEqual(alerts.inspect(self.root, self.seven-timedelta(minutes=1), SETTINGS), [])
+            self.assertEqual(alerts.inspect(self.root, self.seven, SETTINGS)[0]['kind'], 'deadline-missed')
+            self.write(self.root/'last-run.json', {'date': '2026-10-02', 'status': 'running'})
+            self.assertEqual(alerts.inspect(self.root, self.seven, SETTINGS)[0]['kind'], 'deadline-missed')
+            posts = self.frozen()
+            self.write(self.day/'chatgpt/production-publication-receipt.json',
+                       {'status': 'live_verified', 'production_written': True})
+            probe = lambda origin, urls: (posts, {url: 'available' for url in urls.values()})
+            self.assertEqual(alerts.inspect(self.root, self.seven, SETTINGS, public_probe=probe), [])
 
     def test_confirmed_hold_alerts_during_run_but_transient_retry_does_not(self):
         self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'running'})
@@ -154,7 +171,7 @@ class OperationalAlertTests(unittest.TestCase):
             return {'status':'accepted','provider_id':'test-id'} if recipient != 'two@example.com' or attempts.count(recipient) > 1 else False
         with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
             alerts.run(self.root, self.six, SETTINGS, sender=sender)
-            alerts.run(self.root, self.six, SETTINGS, sender=sender)
+            alerts.run(self.root, self.six+timedelta(minutes=5), SETTINGS, sender=sender)
         self.assertEqual(attempts, ['one@example.com', 'two@example.com', 'two@example.com'])
 
     def test_weekend_has_no_generation_alert(self):
@@ -303,9 +320,9 @@ class OperationalAlertTests(unittest.TestCase):
         with patch.dict(os.environ, {'RESEND_API_KEY':'test-only'}):
             no_id = alerts.run(self.root, self.six, SETTINGS, sender=lambda *a: True)
             self.assertEqual(no_id['accepted'], 0)
-            accepted = alerts.run(self.root, self.six, SETTINGS,
+            accepted = alerts.run(self.root, self.six+timedelta(minutes=5), SETTINGS,
                 sender=lambda *a: {'status':'accepted','provider_id':'provider-123'})
-            again = alerts.run(self.root, self.six, SETTINGS,
+            again = alerts.run(self.root, self.six+timedelta(minutes=6), SETTINGS,
                 sender=lambda *a: self.fail('Accepted message must not be resent'))
         self.assertEqual(accepted['accepted'], 2)
         self.assertEqual(accepted['delivered'], 0)
