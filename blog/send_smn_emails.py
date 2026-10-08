@@ -289,6 +289,22 @@ def _generate_daily_narrative(articles, prev_narrative=None):
     return _parse_gpt_json(raw, raw)
 
 
+def _verified_daily_narrative(articles, edition_date):
+    """Render the verified lineup without spending article or provider model capacity."""
+    symbols = [str(article.get('symbol', '')).strip() for article in articles]
+    if not symbols or any(not re.fullmatch(r'[A-Z0-9]{1,12}', symbol) for symbol in symbols):
+        raise ValueError('Verified daily digest requires the exact article symbols')
+    if len(symbols) != len(set(symbols)):
+        raise ValueError('Verified daily digest symbols must be unique')
+    subject = f"Seasonal Market News for {edition_date.strftime('%B %d, %Y')}"
+    lineup = ', '.join(symbols[:-1]) + ' and ' + symbols[-1] if len(symbols) > 1 else symbols[0]
+    count = {1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six'}.get(len(symbols), str(len(symbols)))
+    noun = 'article' if len(symbols) == 1 else 'articles'
+    narrative = (f"The {edition_date.strftime('%B')} {edition_date.day} edition is complete. "
+                 f"Read today's {count} {noun} below: {lineup}.")
+    return subject, narrative
+
+
 def _generate_weekly_narrative(articles, prev_narrative=None):
     """Returns (subject, narrative)."""
     today      = date.today()
@@ -766,8 +782,13 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
         print('Error: SMN-DAILY group not found.')
         return
 
-    print(f'Generating daily narrative for {len(articles)} article(s)...')
-    subject, narrative = _generate_daily_narrative(articles, prev_narrative=state.get('last_daily_narrative'))
+    if verified_urls is not None:
+        # Publication and its daily digest require zero model starts. Optional
+        # article checks cannot consume their capacity or force paid API fallback.
+        subject, narrative = _verified_daily_narrative(articles, today)
+    else:
+        print(f'Generating daily narrative for {len(articles)} article(s)...')
+        subject, narrative = _generate_daily_narrative(articles, prev_narrative=state.get('last_daily_narrative'))
 
     if not subject:
         subject = f"Today's Seasonal Market Briefing — {today.strftime('%B %d, %Y')}"

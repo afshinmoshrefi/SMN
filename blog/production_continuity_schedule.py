@@ -19,6 +19,7 @@ from smn_recovery import verify_generation
 from subscription_writer import load_json, save_json
 
 DEFAULT_ROOT = Path('/var/lib/tradewave/smn-daily/subscription-primary')
+ACTIVATION = Path('/etc/SMN/subscription-primary.json')
 MAX_JOBS = 40
 MAX_UNCHANGED_ATTEMPTS = 6
 ZONE = ZoneInfo('America/New_York')
@@ -27,6 +28,21 @@ ZONE = ZoneInfo('America/New_York')
 def require_production_host():
     from production_continuity import require_policy
     require_policy()
+
+
+def preserved_release_day(day):
+    """Leave pre-release recovered editions untouched by newly activated workers."""
+    if not ACTIVATION.is_file():
+        return False
+    activation = load_json(ACTIVATION)
+    if activation.get('publication_policy') != 'continuity-v1':
+        return False
+    first = activation.get('continuity_first_edition_date')
+    if first is None:
+        return False  # Existing releases retain their prior schedule semantics.
+    if not isinstance(first, str) or datetime.strptime(first, '%Y-%m-%d').strftime('%Y-%m-%d') != first:
+        raise ValueError('Invalid release first edition date')
+    return day < first
 
 
 @contextmanager
@@ -105,6 +121,8 @@ def progress(root, day, current=None):
     from smn_subscription_daily import run
     root = Path(root).resolve()
     current = current or datetime.now(timezone.utc)
+    if preserved_release_day(day):
+        return {'status': 'preserved_release_day', 'date': day}
     if not _eligible(root, day, current, 'start_time'):
         return {'status': 'before_generation_window'}
     path = root/day/'continuity-progress.json'
@@ -189,6 +207,8 @@ def deliver(root, day, current=None, repo=None):
     """Deadline/revision delivery; independent of a running research worker."""
     root = Path(root).resolve()
     current = current or datetime.now(timezone.utc)
+    if preserved_release_day(day):
+        return {'status': 'preserved_release_day', 'date': day}
     if not _eligible(root, day, current, 'target_time'):
         progress_path = root/day/'continuity-progress.json'
         ready = load_json(progress_path) if progress_path.is_file() else {}
@@ -240,6 +260,9 @@ def main():
     day = args.date or current.astimezone(ZONE).date().isoformat()
     try:
         require_production_host()
+        if preserved_release_day(day):
+            print(json.dumps({'status': 'preserved_release_day', 'date': day}))
+            return 0
         from smn_recovery import worker_start,worker_finish,watch_workers,supervise
         watch_workers(args.root,day,current)
         worker=worker_start(args.root,day,args.phase,current)

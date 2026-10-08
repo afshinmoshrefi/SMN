@@ -38,15 +38,20 @@ class VerifiedNewsletterTest(unittest.TestCase):
             selected = 'https://seasonalmarketnews.com/editions/'+day+'/AAA/article.html'
             extra = 'https://seasonalmarketnews.com/articles/other.html'
             module.POSTS_JSON.write_text(json.dumps([
-                {'url': selected, 'slug': 'aaa', 'published_date': day+'T12:00:00Z'},
-                {'url': extra, 'slug': 'other', 'published_date': day+'T12:00:00Z'}]))
+                {'url': selected, 'slug': 'aaa', 'symbol': 'AAA', 'published_date': day+'T12:00:00Z'},
+                {'url': extra, 'slug': 'other', 'symbol': 'BBB', 'published_date': day+'T12:00:00Z'}]))
             with patch.object(module, 'get_email_groups', return_value={'SMN-DAILY': 'group'}), \
-                    patch.object(module, '_generate_daily_narrative', return_value=('Subject', 'Narrative')), \
+                    patch.object(module, '_generate_daily_narrative', side_effect=AssertionError('Article model budget exhausted')) as narrative_model, \
                     patch.object(module, '_build_email_html', return_value='<html/>'), \
                     patch.object(module, 'create_campaign', return_value=('campaign', 'now')) as send, \
                     patch.object(module, '_schedule_campaign_explicit', return_value={'data': {'id': 'campaign', 'status': 'ready'}}):
                 module.daily_send(verified_urls={selected})
                 self.assertEqual(send.call_count, 1)
+                narrative_model.assert_not_called()
+                subject, narrative = module._verified_daily_narrative([
+                    {'symbol': symbol} for symbol in ('OMC', 'MRK', 'VIX', 'WMT', 'NG', 'HPQ')], module.date(2026, 10, 8))
+                self.assertNotIn('\u2014', subject + narrative)
+                self.assertIn('six articles below: OMC, MRK, VIX, WMT, NG and HPQ.', narrative)
                 state = json.loads(module.STATE_FILE.read_text())
                 self.assertEqual(state['daily_sent'], [])
                 self.assertEqual(state['campaigns']['daily:'+day]['phase'], 'scheduled')

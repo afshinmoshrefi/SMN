@@ -19,6 +19,46 @@ AT_SEVEN = datetime(2026, 10, 5, 11, 0, tzinfo=timezone.utc)
 
 
 class ContinuityScheduleTests(unittest.TestCase):
+    def test_release_floor_preserves_recovered_day_without_worker_or_publication(self):
+        activation = self.root/'activation.json'
+        activation.write_text(json.dumps({'publication_policy': 'continuity-v1',
+            'continuity_first_edition_date': '2026-10-06'}))
+        before = {p.relative_to(self.root).as_posix(): p.read_bytes()
+                  for p in self.root.rglob('*') if p.is_file()}
+        with patch.object(schedule, 'ACTIVATION', activation), \
+                patch.object(smn_subscription_daily, 'run') as generation, \
+                patch('production_continuity.publish_available') as publication, \
+                patch('smn_recovery.watch_workers') as watch, \
+                patch('smn_recovery.worker_start') as worker, \
+                patch.object(sys, 'argv', ['schedule', 'reconcile', '--enable-production-continuity',
+                    '--root', str(self.root), '--date', DAY]), patch('builtins.print'):
+            self.assertEqual(schedule.progress(self.root, DAY, AT_SEVEN)['status'], 'preserved_release_day')
+            self.assertEqual(schedule.deliver(self.root, DAY, AT_SEVEN)['status'], 'preserved_release_day')
+            self.assertEqual(schedule.main(), 0)
+            generation.assert_not_called(); publication.assert_not_called()
+            watch.assert_not_called(); worker.assert_not_called()
+            self.assertFalse(schedule.preserved_release_day('2026-10-06'))
+        self.assertEqual(before, {p.relative_to(self.root).as_posix(): p.read_bytes()
+                                 for p in self.root.rglob('*') if p.is_file()})
+
+    def test_malformed_release_floor_cannot_start_generation(self):
+        activation = self.root/'activation.json'
+        activation.write_text(json.dumps({'publication_policy': 'continuity-v1',
+            'continuity_first_edition_date': '2026-10-6'}))
+        with patch.object(schedule, 'ACTIVATION', activation), \
+                patch.object(smn_subscription_daily, 'run') as generation:
+            with self.assertRaises(ValueError): schedule.progress(self.root, DAY, AT_SEVEN)
+            generation.assert_not_called()
+
+    def test_budget_exhaustion_does_not_consume_deadline_publication_capacity(self):
+        with patch.object(schedule, '_fingerprint', return_value=('exhausted', 40)), \
+                patch.object(smn_subscription_daily, 'run') as generation, \
+                patch('production_continuity.publish_available', return_value={
+                    'status': 'live_verified', 'complete': False, 'published_symbols': ['AAA']}) as publication:
+            self.assertEqual(schedule.progress(self.root, DAY, AT_SEVEN)['status'], 'needs_attention')
+            self.assertEqual(schedule.deliver(self.root, DAY, AT_SEVEN)['published_symbols'], ['AAA'])
+            generation.assert_not_called(); publication.assert_called_once()
+
     def test_completed_legacy_day_reconciles_without_new_generation(self):
         receipt=self.root/DAY/'chatgpt/production-publication-receipt.json'
         receipt.parent.mkdir(parents=True)
