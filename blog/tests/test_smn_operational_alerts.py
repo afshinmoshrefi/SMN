@@ -309,6 +309,20 @@ class OperationalAlertTests(unittest.TestCase):
                 public_probe=lambda origin, urls: (invalid, {url:'available' for url in urls.values()}))
             self.assertEqual(result[0]['kind'], 'edition-incomplete')
 
+    def test_exact_observed_v4_beacon_only_preserves_receipt_identity(self):
+        body=b'<html>Retained article</html>'
+        url='https://seasonalmarketnews.com/editions/2026-10-08/OMC/article.html'
+        receipt={'files':{url.split('/',3)[-1]:hashlib.sha256(body).hexdigest()}}
+        beacon=alerts.CF_OBSERVED_V4_BEACON
+        cases=[(body,'available'),(body+beacon,'available'),(body+beacon+b'\n','available'),
+               (body+beacon*2,'changed'),(body+beacon+b'\n\n','changed'),
+               (body+b'changed'+beacon,'changed'),(body+b'<script>x</script>','changed'),
+               (body+beacon.replace(b'4bc70e2c',b'4bc70e2d'),'changed'),
+               (body+alerts.CF_BEACON+beacon,'changed')]
+        for value,expected in cases:
+            with self.subTest(expected=expected,body=value):
+                self.assertEqual(alerts._matches_content(value,'OMC',url,receipt),expected)
+
     def test_empty_provider_ack_is_not_delivery_and_acceptance_dedupes(self):
         self.write(self.root/'last-run.json', {'date':'2026-10-02','status':'held','reason':'source hold'})
         class Response(io.BytesIO):

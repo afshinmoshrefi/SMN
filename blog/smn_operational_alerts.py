@@ -19,6 +19,7 @@ PUBLIC_CHECK_TTL_SECONDS = 300
 MAX_PUBLIC_BYTES = 2 * 1024 * 1024
 # Exact observed edge addition; no arbitrary script stripping is permitted.
 CF_BEACON = b'''<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"6c5153e7bcd94cb993504acb03b8923e","r":1,"spa":2}' crossorigin="anonymous"></script>'''
+CF_OBSERVED_V4_BEACON = b'<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c01a94c73b74392e4234840661791215815920" integrity="sha512-L0ha0OXavK/8okipN9F8BtP84dg9DUhPERbBXzwI6dgTA55d2+yweo3pn5CSFYs45/r8md2+xvUPtTdvTNRfjA==" data-cf-beacon=\'{"version":"2024.11.0","token":"6c5153e7bcd94cb993504acb03b8923e","r":1,"spa":2}\' crossorigin="anonymous"></script>'
 ORIGINS = {'production':'https://seasonalmarketnews.com', 'dev':'https://smn-dev.trxstat.com'}
 LEDGER_DIR = Path('/var/lib/smn-dashboard/schedule-runs')
 CAMPAIGN_STATE = Path('/home/flask/blog/logs/sent_smn_emails.json')
@@ -113,10 +114,11 @@ def _matches_content(body, symbol, url, receipt):
     digest = (receipt or {}).get('files', {}).get(url.split('/', 3)[-1])
     if not digest: return 'unknown'
     if hashlib.sha256(body).hexdigest() == digest: return 'available'
-    if body.count(CF_BEACON) == 1:
-        for addition in (CF_BEACON, CF_BEACON + b'\n'):
-            if addition in body and hashlib.sha256(body.replace(addition, b'', 1)).hexdigest() == digest:
-                return 'available'
+    for beacon in (CF_BEACON, CF_OBSERVED_V4_BEACON):
+        if body.count(beacon) == 1:
+            for addition in (beacon, beacon + b'\n'):
+                if addition in body and hashlib.sha256(body.replace(addition, b'', 1)).hexdigest() == digest:
+                    return 'available'
     return 'changed'
 
 
@@ -208,6 +210,13 @@ def _recovery_incidents(root,now,settings,target):
     if target!='production':return []
     date=now.astimezone(ZoneInfo(settings['daily_generation']['timezone'])).date().isoformat()
     edition=Path(root)/date;incidents=[]
+    guard=_json(edition/'reconcile-tick-guard.json') or {}
+    if (guard.get('policy')=='failure-only-reconcile-v1' and guard.get('date')==date and
+            guard.get('status')=='failure_budget_exhausted'):
+        incidents.append(_incident(date,'recovery-failure-budget',
+            'Independent reconciliation recorded three failed child attempts in a rolling hour; next safe attempt '+
+            str(guard.get('next_attempt_utc') or 'requires inspection'),
+            f'SMN recovery retries exhausted ({date})'))
     repairs=_json(edition/'chatgpt/automatic-recovery.json') or {}
     for symbol,row in repairs.get('articles',{}).items():
         if row.get('status') in {'safe_paths_exhausted','authorization_or_evidence_required'}:

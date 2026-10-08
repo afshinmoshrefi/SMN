@@ -34,8 +34,17 @@ layout failure. Essential chart/source custody failures remain blocking for
 that subject. Passed subjects and warnings are retained.
 
 Progress and delivery ticks independently observe the recovery worker lease.
-The reconcile-only systemd drop-in bounds a hung worker to 90 seconds, with
-three restart attempts per hour. Exhausted safe paths, malformed/stalled
+The reconcile-only systemd drop-in bounds a hung worker to 90 seconds. Its
+minute timer is the sole restart source; systemd start limiting is disabled
+because it also counts successful starts. The private `reconcile-tick-guard.json`
+counts only failed child attempts, at most three in a rolling hour, with a
+60-second failure backoff. Successful ticks retain failure history and consume
+no failure slots. Process death leaves a birth-bound reservation; a later tick
+counts a proven dead reservation once and waits before another child. Foreign,
+live, reused or uncertain process identities remain held without signalling.
+This guard's successful service exit proves observation, not article completion.
+Its child timeout is 85 seconds and systemd kills the unit's control group.
+Exhausted safe paths, malformed/stalled
 supervisor evidence or three consecutive recovery failures feed the existing
 opt-in alert journal. Alert acceptance is distinct from verified delivery;
 uncertain POSTs and newsletter IDs reconcile before retry. No new credentials
@@ -68,4 +77,10 @@ Base: working production 2d1de1a9c9f200fa29a2db7f9660f3527727b660. No membership
 
 Stop/disable the three `smn-continuity@{progress,deliver,reconcile}.timer` units and stop their services. Inspect active installer receipts/locks; finish a verified transaction or execute the targeted installer rollback for an active pending transaction before reverting code. Restore the exact saved activation file and current release pointer, restore original unit files/drop-ins and timer enabled/active states, daemon-reload, then verify original source/config hashes, catalog/article hashes, old effective service paths and October 5 campaign state. Do not rerun generation or send a newsletter as a rollback verification.
 
-Remaining qualification: Linux installer/import/test checks; native production renderer replay; immutable failed/restarted/three-attempt fixtures; browser screenshot/layout inspection; exact cutover drift audit and rollback rehearsal. These templates and sequence are reviewable preparation, not a claimed executable installer transaction or production approval.
+October 8 correction: real isolated systemd reproduced the previous fourth
+successful minute tick's `start-limit-hit`; that attempted release was rolled
+back with exact October 7/8 content and mail preservation. The correction must
+qualify an actual rolling hour of healthy scheduled starts, failed child
+backoff/exhaustion/expiry and interrupted-worker custody before activation.
+Source, operator, snapshot, rollback and browser evidence must bind this amended
+candidate. Do not reuse a prior release's proof as if it tested this source.
