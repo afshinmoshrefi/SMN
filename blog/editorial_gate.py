@@ -14,6 +14,7 @@ from visual_evidence import digest
 
 VERSION = 1
 STYLE_ADVISORY_POLICY = 2
+ESSENTIAL_ADVISORY_POLICY = 3
 MARKER = 'EDITORIAL_CONTEXT_SHA256: '
 
 
@@ -141,23 +142,154 @@ def quote_in_verified_units(quote, rows, source_order=(), *, ordered=True):
     return True
 
 
-def blocking_issue(issue):
-    if issue.get('category') != 'style': return True
+def factual_issue(issue):
     return bool(re.search(r'\b(incorrect|inaccurate|unsupported|misstates|contradicts)\b',
                           issue.get('problem',''),re.I))
 
 
-def hard_review_passed(review):
+def blocking_issue(issue):
+    return issue.get('category') != 'style' or factual_issue(issue)
+
+
+def advisory_coverage(issue,index,indices):
+    return issue.get('category') == 'coverage' and index in indices and not factual_issue(issue)
+
+
+def hard_review_passed(review, *, advisory_issue_ids=(), identity_verified=False):
     from subscription_publication import CHECKS
     advisory = {'why_now_and_opening','reader_value','michael_brevity_and_clarity'}
+    if identity_verified:
+        advisory.add('smn_identity_and_visuals')
     hard = CHECKS - advisory
     advisory_findings = (any(review.get('checks',{}).get(name,{}).get('passed') is False for name in advisory) or
+                         bool(advisory_issue_ids) or
                          any(item.get('category') == 'style' and not blocking_issue(item)
                              for item in review.get('issues',[])))
     return (set(review.get('checks',{})) == CHECKS and
             all(review['checks'][name].get('passed') is True for name in hard) and
-            not any(blocking_issue(item) for item in review.get('issues',[])) and
+            not any(blocking_issue(item) and not advisory_coverage(item,i,advisory_issue_ids)
+                    for i,item in enumerate(review.get('issues',[]))) and
             (review.get('passed') is True or advisory_findings))
+
+
+def review_render_sha256(result, article):
+    """Stable, exact held render from the immutable reviewer-context inputs."""
+    from visual_editorial import render_edition
+    result = Path(result)
+    rendered = render_edition(article,load_json(result/'bundle.json'),
+        load_json(result/'chart-manifest.json'),load_json(result/'hero-asset.json'),
+        held=True,seasonal=load_json(result/'seasonal-manifest.json'))
+    return sha256(rendered.encode('utf-8'))
+
+
+def advisory_disposition(result, article, ctx, review, review_path):
+    """Read an explicit AI review of legacy coverage classifications, never an override.
+
+    Unknown coverage remains blocking. All source/claim ledgers are still checked
+    by problems(), and factual/temporal/numeric/instrument findings cannot be
+    reclassified here. The original model output and receipt remain unchanged.
+    """
+    path = Path(result)/'editorial-advisory-disposition.json'
+    if not path.exists():
+        return {}, ()
+    if path.is_symlink():
+        raise ValueError('Advisory disposition must be a local regular file')
+    record = load_json(path)
+    fields = {'version','actor','utc','human_reviewed','is_model_receipt',
+              'article_sha256','review_render_sha256','context_sha256','review_sha256','issues'}
+    if (set(record) != fields or record['version'] != 1 or
+            not isinstance(record['actor'],str) or not re.fullmatch(r'/root(?:/[a-z0-9_]+)+',record['actor']) or
+            record['human_reviewed'] is not False or record['is_model_receipt'] is not False or
+            record['article_sha256'] != digest(article) or record['context_sha256'] != digest(ctx) or
+            record['review_sha256'] != sha256(Path(review_path).read_bytes()) or
+            record['review_render_sha256'] != review_render_sha256(result,article)):
+        raise ValueError('Advisory disposition identity or exact input binding invalid')
+    try:
+        stamp = datetime.fromisoformat(record['utc'].replace('Z','+00:00'))
+        if stamp.utcoffset() is None or stamp.utcoffset().total_seconds() != 0:
+            raise ValueError()
+    except (ValueError,TypeError,AttributeError):
+        raise ValueError('Advisory disposition needs an explicit UTC timestamp')
+    items = {item['id']:item for item in ctx['material_context']}
+    coverage = (review.get('editorial_audit') or {}).get('coverage',[])
+    rows = {row.get('item_id'):row for row in coverage}
+    if (len(rows) != len(coverage) or set(rows) != set(items) or
+            any(row.get('status') not in {'covered','missing','uncertain'} for row in coverage)):
+        raise ValueError('Advisory disposition requires the complete material ledger')
+    if not isinstance(record['issues'],list) or not record['issues']:
+        raise ValueError('Advisory disposition must identify exact coverage findings')
+    indices = []
+    for row in record['issues']:
+        if (set(row) != {'index','issue_sha256','kind','material_item_ids','reason'} or
+                type(row['index']) is not int or not 0 <= row['index'] < len(review['issues']) or
+                row['index'] in indices or not isinstance(row['reason'],str) or len(row['reason'].strip()) < 25):
+            raise ValueError('Advisory disposition issue binding invalid')
+        issue = review['issues'][row['index']]
+        if issue.get('category') != 'coverage' or digest(issue) != row['issue_sha256'] or factual_issue(issue):
+            raise ValueError('Only exact coverage classifications can be advisory')
+        ids = row['material_item_ids']
+        if not isinstance(ids,list) or any(not isinstance(i,str) for i in ids) or len(set(ids)) != len(ids):
+            raise ValueError('Advisory disposition material identities invalid')
+        if row['kind'] == 'optional_omission':
+            if not ids or any(i not in items or items[i].get('required') is not False or
+                              rows[i].get('status') != 'missing' for i in ids):
+                raise ValueError('Optional omission must bind verified optional missing ledger items')
+        elif row['kind'] == 'presentation_only':
+            if ids or any(item.get('required') is not False and rows[i].get('status') != 'covered'
+                          for i,item in items.items()):
+                raise ValueError('Presentation disposition cannot excuse missing material facts')
+        else:
+            raise ValueError('Unknown coverage disposition remains blocking')
+        indices.append(row['index'])
+    return {'sha256':sha256(path.read_bytes()),'record':record}, tuple(indices)
+
+
+class _IdentityText(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.depth = 0; self.logo = []; self.valid_logo = False
+    def handle_starttag(self,tag,attrs):
+        attrs = dict(attrs)
+        classes = attrs.get('class','').split()
+        if self.depth:
+            self.depth += 1
+        elif (tag == 'div' and 'brand' in classes or tag == 'a' and 'logo' in classes):
+            self.depth = 1; self.valid_logo = tag == 'div' or attrs.get('href') == '/'
+    def handle_endtag(self,tag):
+        if self.depth: self.depth -= 1
+    def handle_data(self,text):
+        if self.depth: self.logo.append(text)
+
+
+def essential_identity(result, bundle):
+    """Reuse native validators/render fragments; placement taste is not identity."""
+    from urllib.parse import urlsplit
+    from engine_seasonal import verify_assets, stats_html, figure_html
+    from seasonal_edition import study_link, links_html
+    result = Path(result); native = load_json(result/'seasonal-manifest.json')
+    verify_assets(native,result)
+    rendered = (result/'article.html').read_text(encoding='utf-8')
+    parser = _IdentityText(); parser.feed(rendered)
+    if not parser.valid_logo or re.sub(r'\s+','',''.join(parser.logo)) != 'SeasonalMarketNews':
+        raise ValueError('Essential SMN brand identity missing')
+    url = urlsplit(native['study_url'])
+    if (url.scheme != 'https' or url.hostname != 'tradewave.ai' or url.username or url.password or
+            native['study_url'] != study_link(native['card'],url._replace(query='',fragment='').geturl())):
+        raise ValueError('Essential exact TradeWave study link changed')
+    fragments = [stats_html(native),links_html(native)]
+    variants = ['bars','bars_mae_mfe']
+    if bundle.get('seasonal_contract',{}).get('price_path_required'):
+        variants.append('price_projection')
+    fragments += [figure_html(native,variant) for variant in variants]
+    if any(fragment not in rendered for fragment in fragments):
+        raise ValueError('Essential native statistics, link, figure or explanation missing')
+    article = load_json(result/'article.json')
+    displayed = _DisplayedText(); displayed.feed(rendered)
+    text = spaced(' '.join(displayed.parts))
+    if any(spaced(unit['text']) not in text for unit in units(article)):
+        raise ValueError('Essential reviewed article text missing or changed in HTML')
+    return {'passed':True,'kind':'deterministic_essential_identity',
+            'review_render_sha256':review_render_sha256(result,article),
+            'seasonal_manifest_sha256':sha256((result/'seasonal-manifest.json').read_bytes())}
 
 
 def asserts_future_event(text):
@@ -208,6 +340,8 @@ def context(root, symbol, edition):
     sources = {s['id']: s for s in bundle['sources']}
     ids = set()
     for item in contract:
+        if type(item.get('required')) is not bool:
+            raise ValueError('Material-source contract must explicitly mark required versus optional')
         source = sources.get(item['source_id'], {})
         doc = docs.get(source.get('url'))
         if item['id'] in ids or not doc or len(spaced(item['quote'])) < 12 or spaced(item['quote']) not in spaced(doc['text']):
@@ -271,12 +405,13 @@ Otherwise, if evidence is unavailable, request removal or hold.
 For each required cohort sample list ALL shared observed year identities from the supplied lists. Never compute
 financial returns/statistics. An overlap assertion covering both samples must be true separately for both.
 Use empty strings/lists for unavailable fields, report unsupported/uncertain, and fail the relevant check.
-Classify each issue: style alone may be nonblocking; factual, temporal, instrument, coverage and numeric
-corrections block regardless of severity. Do not mark a factual correction minor to allow completion.
+Classify each issue: wording, framing and chart-placement preferences are style advice. Required material
+omissions, unknown coverage, factual, temporal, instrument and numeric corrections block regardless of
+severity. Optional omissions are not factual defects. Do not mark a factual correction minor to allow completion.
 This audit does not authorize guessing missing facts or declaring unverified claims safe.'''
 
 
-def problems(article, bundle, ctx, review, result=None):
+def problems(article, bundle, ctx, review, result=None, *, advisory_issue_ids=()):
     from seasonal_edition import check_temporal_instrument_copy
     issues = []
     for unit in units(article):
@@ -284,13 +419,15 @@ def problems(article, bundle, ctx, review, result=None):
         except ValueError as exc: issues.append(unit['id']+': '+str(exc))
         if future_actual_price_claim(unit['text']):
             issues.append(unit['id']+': future illustration described as recorded price; date the price history and label the seasonal overlay')
-    for item in review.get('issues', []):
-        if blocking_issue(item):
+    for i,item in enumerate(review.get('issues', [])):
+        if blocking_issue(item) and not advisory_coverage(item,i,advisory_issue_ids):
             issues.append('Unresolved '+item.get('category','unclassified')+' correction: '+item.get('problem',''))
     audit = review.get('editorial_audit') or {}
     coverage = audit.get('coverage', [])
     if len({r.get('item_id') for r in coverage}) != len(coverage) or {r.get('item_id') for r in coverage} != {r['id'] for r in ctx['material_context']}:
         issues.append('Material-source coverage ledger missing or incomplete')
+    if any(row.get('status') not in {'covered','missing','uncertain'} for row in coverage):
+        issues.append('Material-source coverage status unknown')
     displayed = units(article) + (evidence_units(result,bundle) if result is not None else [])
     by_id = {r.get('item_id'):r for r in coverage}
     for item in ctx['material_context']:
@@ -401,17 +538,21 @@ def verify_review(result, review_path):
     if MARKER+digest(ctx)+'\n' not in (job/'prompt.txt').read_text(encoding='utf-8'):
         raise ValueError('Editorial context is not bound to the immutable reviewer prompt')
     from subscription_publication import CHECKS
-    errors = problems(article,bundle,ctx,review,result)
-    if not hard_review_passed(review):
+    disposition, advisory_ids = advisory_disposition(result,article,ctx,review,review_path)
+    identity = (essential_identity(result,bundle)
+                if review['checks']['smn_identity_and_visuals'].get('passed') is False else {})
+    qualified = hard_review_passed(review,advisory_issue_ids=advisory_ids,identity_verified=bool(identity))
+    errors = problems(article,bundle,ctx,review,result,advisory_issue_ids=advisory_ids)
+    if not qualified:
         errors.append('Independent reviewer did not pass every hard check')
     if errors:
         binding_errors = review_quote_binding_errors(article,bundle,ctx,review,result)
-        if review.get('passed') is True and hard_review_passed(review) and binding_errors and errors == binding_errors:
+        if review.get('passed') is True and qualified and binding_errors and errors == binding_errors:
             raise ReviewEvidenceError('; '.join(errors))
         raise ValueError('; '.join(errors))
     proof = {'version':VERSION,'article_sha256':digest(article),'context_sha256':digest(ctx),
              'review_sha256':sha256(Path(review_path).read_bytes()),'passed':True}
-    advisory_used = (review.get('passed') is not True or
+    advisory_used = (bool(disposition) or bool(identity) or review.get('passed') is not True or
                      any(review['checks'][name].get('passed') is not True for name in
                          ('why_now_and_opening','reader_value','michael_brevity_and_clarity')) or
                      any(item.get('category') == 'style' and item.get('severity') in {'major','blocker'}
@@ -422,6 +563,15 @@ def verify_review(result, review_path):
         proof['advisory_checks'] = [name for name in ('why_now_and_opening','reader_value','michael_brevity_and_clarity')
                                     if review['checks'][name].get('passed') is not True]
         proof['advisory_issue_count'] = sum(item.get('category') == 'style' for item in review.get('issues',[]))
+        if disposition or identity:
+            proof['acceptance_policy_version'] = ESSENTIAL_ADVISORY_POLICY
+            proof['advisory_findings'] = {'checks':review['checks'],'issues':review.get('issues',[])}
+        if disposition:
+            proof['advisory_disposition'] = disposition
+            proof['advisory_issue_ids'] = list(advisory_ids)
+        if identity:
+            proof['essential_identity'] = identity
+            proof['advisory_checks'].append('smn_identity_and_visuals')
     return proof
 
 

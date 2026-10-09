@@ -64,12 +64,13 @@ def complete_lineup(root,date,actual,required=False):
 
 def reviewed(result,review_path,*,require_visual=True):
     from editorial_gate import verify_complete, verify_content
-    if require_visual: verify_complete(result)
-    else: verify_content(result,allow_held_binding=True)
+    if require_visual: editorial_proof=verify_complete(result)
+    else: editorial_proof=verify_content(result,allow_held_binding=True)
     a=read(result/'article.json');m=read(result/'mechanical-checks.json');r=read(review_path)
     if not m.get('passed') or not sha256_equal(digest(a),m.get('article_sha256')):raise ValueError('Changed or mechanically held article')
     from editorial_gate import hard_review_passed
-    if not hard_review_passed(r):
+    if not hard_review_passed(r,advisory_issue_ids=editorial_proof.get('advisory_issue_ids',()),
+                              identity_verified=bool(editorial_proof.get('essential_identity'))):
         raise ValueError('Independent review has not passed hard checks')
     binding_path=result/'review-binding.json'
     if not require_visual and not binding_path.exists():binding_path=result/'review-binding.held.json'

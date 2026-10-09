@@ -424,7 +424,8 @@ class Edition:
         job=load_json(self.job(sym,stage)/'job.json');receipt=load_json(self.job(sym,stage)/'receipt.json')
         if receipt['output_sha256']!=sha256(review_path.read_bytes()) or job['evidence_sha256']!=b['evidence_sha256']:
             raise ValueError('Review custody changed')
-        if not hard_review_passed(r):
+        if not hard_review_passed(r,advisory_issue_ids=editorial_audit.get('advisory_issue_ids',()),
+                                  identity_verified=bool(editorial_audit.get('essential_identity'))):
             raise ValueError('Independent editorial review has not passed hard checks')
         m=load_json(out/'mechanical-checks.json')
         if m.get('passed') is not True or m['article_sha256']!=digest(a) or m['evidence_sha256']!=b['evidence_sha256']:raise ValueError('Mechanical review missing or stale')
@@ -448,7 +449,8 @@ class Edition:
         rendered,count=re.subn(r'</head\s*>',meta+'\n</head>',rendered,count=1,flags=re.I)
         if count!=1:raise ValueError('Rendered article has no head')
         save_json(out/'generation.json',generation)
-        (out/'article.html').write_text(rendered,encoding='utf-8')
+        # Hash and write the same UTF-8 bytes on Windows and Linux.
+        (out/'article.html').write_bytes(rendered.encode('utf-8'))
         save_json(out/'review-binding.json',{'article_sha256':digest(a),'review_sha256':sha256(review_path.read_bytes()),
             'editorial_audit':editorial_audit,'article_html_sha256':sha256(rendered.encode()),
             'price_path_sha256':n['price_path']['evidence_sha256'],
