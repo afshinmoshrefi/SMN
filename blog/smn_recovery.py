@@ -310,8 +310,9 @@ def supervise(root,day,current):
         if not state_path.is_file():return {'status':'waiting_for_reader','supervision':watch}
         state=load_json(state_path)
         from smn_daily import Day
+        from model_job_evidence import DAILY_JOB_LIMIT
         reader=Day(edition,day,profile='chatgpt',
-                   publication_origin=state.get('publication_origin'),max_jobs=40)
+                   publication_origin=state.get('publication_origin'),max_jobs=DAILY_JOB_LIMIT)
         reader.continuity=True
         observations=[]
         for job in sorted((edition/'jobs').glob('*')):

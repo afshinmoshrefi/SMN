@@ -62,7 +62,7 @@ class VisualRecoveryTests(unittest.TestCase):
              patch('smn_visual.article',return_value={'passed':True}) as fresh:
             self.day.visual()
         self.assertEqual(cached.call_count,5);fresh.assert_called_once()
-        self.assertEqual(fresh.call_args.args[2],'AMD');self.assertEqual(fresh.call_args.kwargs['max_jobs'],40)
+        self.assertEqual(fresh.call_args.args[2],'AMD');self.assertEqual(fresh.call_args.kwargs['max_jobs'],60)
         self.assertTrue(all(self.day.state['articles'][sym]['finalized'] for sym in self.day.symbols))
 
     def test_publication_exceptions_after_activation_roll_back(self):

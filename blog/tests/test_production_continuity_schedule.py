@@ -51,7 +51,7 @@ class ContinuityScheduleTests(unittest.TestCase):
             generation.assert_not_called()
 
     def test_budget_exhaustion_does_not_consume_deadline_publication_capacity(self):
-        with patch.object(schedule, '_fingerprint', return_value=('exhausted', 40)), \
+        with patch.object(schedule, '_fingerprint', return_value=('exhausted', 60)), \
                 patch.object(smn_subscription_daily, 'run') as generation, \
                 patch('production_continuity.publish_available', return_value={
                     'status': 'live_verified', 'complete': False, 'published_symbols': ['AAA']}) as publication:
@@ -104,7 +104,7 @@ class ContinuityScheduleTests(unittest.TestCase):
         self.assertEqual(result['coverage_status'], 'notice')
         self.assertEqual(json.loads(self.last.read_text())['status'], 'running')
         publish.assert_called_once_with(self.root.resolve()/DAY/'chatgpt', DAY, 'production',
-                                        repo=BLOG.parent, max_jobs=40)
+                                        repo=BLOG.parent, max_jobs=60)
 
     def test_notice_is_not_republished_each_minute_but_new_evidence_wakes_delivery(self):
         with patch('production_continuity.publish_available', return_value={
@@ -154,7 +154,7 @@ class ContinuityScheduleTests(unittest.TestCase):
             first = schedule.progress(self.root, DAY, AT_SEVEN)
             self.assertEqual(first['status'], 'pending')
             self.assertEqual(first['jobs_used'], 0)
-            self.assertEqual(first['max_jobs'], 40)
+            self.assertEqual(first['max_jobs'], 60)
             self.assertEqual(schedule.progress(self.root, DAY, AT_SEVEN+timedelta(minutes=5)), first)
             second = schedule.progress(self.root, DAY, AT_SEVEN+timedelta(minutes=10))
             self.assertEqual(second['status'], 'pending')
@@ -195,24 +195,24 @@ class ContinuityScheduleTests(unittest.TestCase):
         edition = self.root/DAY/'chatgpt'
         jobs = edition/'jobs'
         jobs.mkdir(parents=True)
-        for number in range(41):
+        for number in range(61):
             (jobs/f'job-{number}').mkdir()
         day = Day(edition, DAY, roles={}, profile='chatgpt')
         with patch('smn_models.run') as model:
             with self.assertRaisesRegex(Hold, 'budget'):
-                day.run_job(jobs/'job-40')
+                day.run_job(jobs/'job-60')
             model.assert_not_called()
 
     def test_progress_preflight_counts_failed_attempts_and_starts_no_job_at_cap(self):
         jobs = self.root/DAY/'chatgpt/jobs'
         jobs.mkdir(parents=True)
-        for number in range(39):
+        for number in range(59):
             (jobs/f'job-{number}').mkdir()
         (jobs/'job-0/failed-attempt-1').mkdir()
         with patch.object(smn_subscription_daily, 'run') as run:
             record = schedule.progress(self.root, DAY, AT_SEVEN)
             self.assertEqual(record['status'], 'needs_attention')
-            self.assertEqual(record['jobs_used'], 40)
+            self.assertEqual(record['jobs_used'], 60)
             run.assert_not_called()
 
     def test_continuity_finishes_subject_before_next_research(self):

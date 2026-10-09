@@ -17,10 +17,12 @@ from zoneinfo import ZoneInfo
 import operational_settings
 from smn_recovery import verify_generation
 from subscription_writer import load_json, save_json
+from model_job_evidence import DAILY_JOB_LIMIT
 
 DEFAULT_ROOT = Path('/var/lib/tradewave/smn-daily/subscription-primary')
 ACTIVATION = Path('/etc/SMN/subscription-primary.json')
-MAX_JOBS = 40
+MAX_JOBS = DAILY_JOB_LIMIT
+BUDGET_EXHAUSTED_REASON = 'Cumulative model-job budget exhausted; saved approvals remain available for delivery'
 MAX_UNCHANGED_ATTEMPTS = 6
 ZONE = ZoneInfo('America/New_York')
 
@@ -143,17 +145,24 @@ def progress(root, day, current=None):
                     return record
         before, used = _fingerprint(root, day)
         if prior.get('status') in {'generation_complete', 'needs_attention'}:
-            if prior.get('fingerprint') == before:
+            # The owner's raised allowance can reopen only an exhausted lower
+            # budget. Keep every attempt and the old terminal diagnostic.
+            prior_limit = prior.get('max_jobs')
+            raised_allowance = (prior.get('status') == 'needs_attention' and
+                prior.get('reason') == BUDGET_EXHAUSTED_REASON and
+                type(prior_limit) is int and 0 <= prior_limit <= used < MAX_JOBS and
+                prior_limit < MAX_JOBS)
+            if prior.get('fingerprint') == before and not raised_allowance:
                 return prior
             # Retain the terminal diagnostic while allowing repaired saved work to
-            # resume. A changed artifact is not an accuracy approval or a cap raise.
+            # resume. An allowance change is not an accuracy approval.
             prior = {**prior, 'unchanged_attempts': 0, 'next_attempt_utc': None,
                      'recovered_from': {key: prior.get(key) for key in
-                         ('status', 'reason', 'fingerprint', 'updated_utc', 'attempts')}}
+                         ('status', 'reason', 'fingerprint', 'updated_utc', 'attempts', 'jobs_used', 'max_jobs')}}
         if used >= MAX_JOBS:
             record = {'date': day, 'status': 'needs_attention', 'jobs_used': used,
                       'max_jobs': MAX_JOBS, 'fingerprint': before,
-                      'reason': 'Cumulative model-job budget exhausted; saved approvals remain available for delivery',
+                      'reason': BUDGET_EXHAUSTED_REASON,
                       'updated_utc': current.isoformat()}
             if prior.get('recovered_from'):
                 record['recovered_from'] = prior['recovered_from']

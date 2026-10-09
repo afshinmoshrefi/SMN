@@ -11,6 +11,7 @@ import hashlib
 
 import smn_models
 from subscription_writer import load_json, save_json, sha256, validate_schema
+from model_job_evidence import DAILY_JOB_LIMIT, jobs_used
 
 PAGE_SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['passed', 'defects'],
     'properties': {'passed': {'type': 'boolean'}, 'defects': {'type': 'array', 'items': {
@@ -153,7 +154,7 @@ def _article_record(answer,receipt,html_sha,images,seen,out):
             'defects':answer['defects']}
 
 
-def article(root, date, sym, roles, clis, run_job=None,max_jobs=40):
+def article(root, date, sym, roles, clis, run_job=None,max_jobs=DAILY_JOB_LIMIT):
     out = Path(root)/'results'/sym
     layout = _layout(out)
     images = sorted(out.glob('qa-*.png'))
@@ -168,8 +169,7 @@ def article(root, date, sym, roles, clis, run_job=None,max_jobs=40):
     if answer['passed'] is False and not any(d['severity']=='major' for d in answer['defects']):
         save_json(out/'visual-checks-failed.json',_article_record(answer,receipt,html_sha,images,seen,out))
         stage='visual-reinspect';fresh=Path(root)/'jobs'/(sym+'-'+date.replace('-','')+'-'+stage)
-        jobs=Path(root)/'jobs'
-        used=sum(p.is_dir() for p in jobs.iterdir())+sum(1 for p in jobs.glob('*/failed-attempt-*'))
+        used=jobs_used(root)
         if not fresh.exists() and used>=max_jobs:
             raise ValueError('Visual reinspection model-job budget of %d exhausted' % max_jobs)
         answer,receipt,job=_job(root,date,sym,stage,_page_prompt(fresh,stage,names),PAGE_SCHEMA,

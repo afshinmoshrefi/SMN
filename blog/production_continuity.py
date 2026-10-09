@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 
 from subscription_publication import read, selected_lineup, qualified_html, package, validate_staged_reviews
+from model_job_evidence import DAILY_JOB_LIMIT
 
 
 def _sha(path):
@@ -195,12 +196,12 @@ def _resume_or_publish(tx,repo,node,playwright):
 
 
 def publish_available(root: Path, date: str, target: str, *, repo: Path | None = None,
-                      max_jobs: int = 40, node: str = 'node', playwright: str | None = None,
+                      max_jobs: int = DAILY_JOB_LIMIT, node: str = 'node', playwright: str | None = None,
                       candidate_base: str | None = None) -> dict:
     """Publish the qualified subset or an honest notice; never creates model jobs."""
     if target!='production': raise ValueError('Production continuity target required')
     require_policy()
-    if not 0<=max_jobs<=40: raise ValueError('Normal daily job cap is 40')
+    if not 0<=max_jobs<=DAILY_JOB_LIMIT: raise ValueError('Normal daily job cap is %d' % DAILY_JOB_LIMIT)
     datetime.strptime(date,'%Y-%m-%d')
     root=Path(root).resolve();repo=Path(repo or Path(__file__).resolve().parent.parent).resolve()
     root.mkdir(parents=True,exist_ok=True)

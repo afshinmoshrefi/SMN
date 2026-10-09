@@ -8,6 +8,7 @@ from pathlib import Path
 from subscription_writer import load_json
 
 ATTEMPT_PREFIXES = ('failed-attempt-', 'transient-attempt-', 'authentication-retry-')
+DAILY_JOB_LIMIT = 60
 
 
 def jobs_used(root):

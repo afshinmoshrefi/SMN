@@ -27,6 +27,7 @@ import smn_visual
 import subscription_capture as capture
 from subscription_publication import CHECKS
 from subscription_writer import load_json, save_json, sha256
+from model_job_evidence import DAILY_JOB_LIMIT
 
 BLOG = Path(__file__).resolve().parent
 CLIS = {'claude': os.environ.get('SMN_CLAUDE', '/root/.local/bin/claude'), 'codex': os.environ.get('SMN_CODEX')}
@@ -66,8 +67,10 @@ def retry(step, fn, tries=3, wait=30):
 
 
 class Day:
-    def __init__(self, root, date, models=None, max_jobs=40, profile='claude', roles=None,
+    def __init__(self, root, date, models=None, max_jobs=DAILY_JOB_LIMIT, profile='claude', roles=None,
                  publication_origin=None):
+        if type(max_jobs) is not int or not 0 <= max_jobs <= DAILY_JOB_LIMIT:
+            raise Hold('Daily model-job cap is %d; use an integer allowance within it' % DAILY_JOB_LIMIT)
         self.root = Path(root).resolve()
         self.date = date
         self.models = models
@@ -648,7 +651,7 @@ def main():
     model_group.add_argument('--profile', choices=smn_models.PROFILES, default='claude',
                              help='subscription provider profile (default claude)')
     model_group.add_argument('--models', type=Path, help='custom role settings file')
-    ap.add_argument('--max-jobs', type=int, default=40, help='all model jobs for the day, retries included')
+    ap.add_argument('--max-jobs', type=int, default=DAILY_JOB_LIMIT, help='all model jobs for the day, retries included')
     ap.add_argument('--publish', action='store_true', help='publish to primary Dev after all checks pass')
     ap.add_argument('--repo', type=Path, default=BLOG.parent, help='clean SMN checkout at origin/main (publish)')
     ap.add_argument('--publish-only', action='store_true',

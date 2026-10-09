@@ -15,6 +15,7 @@ import operational_settings
 
 from subscription_writer import load_json, save_json
 from smn_daily import Day, Hold, CLIS, now
+from model_job_evidence import DAILY_JOB_LIMIT
 
 ORIGIN = 'https://seasonalmarketnews.com'
 AUTH_FAILURE = ('login', 'auth', 'quota', 'rate limit', 'rate_limit', 'usage limit')
@@ -159,7 +160,7 @@ def run_profile(root, date, profile, canonical, publication_origin=ORIGIN, conti
     root.mkdir(parents=True, exist_ok=True)
     authenticate(profile, root)
     freeze_inputs(canonical, root)
-    day = Day(root, date, profile=profile,
+    day = Day(root, date, profile=profile, max_jobs=DAILY_JOB_LIMIT,
               publication_origin=publication_origin if profile == 'chatgpt' else None)
     day.symbols = [p['symbol'] for p in load_json(root/'production/posts.json')]
     if continuity:

@@ -355,7 +355,7 @@ class SchedulerRecoveryFailures(unittest.TestCase):
     def test_budget_exhaustion_still_allows_deadline_delivery_from_saved_approvals(self):
         jobs = self.root/DAY/'chatgpt/jobs'
         jobs.mkdir(parents=True)
-        for i in range(40): (jobs/str(i)).mkdir()
+        for i in range(60): (jobs/str(i)).mkdir()
         with patch.object(smn_subscription_daily, 'run') as run:
             self.assertEqual(schedule.progress(self.root, DAY, AT_DEADLINE)['status'], 'needs_attention')
             run.assert_not_called()
