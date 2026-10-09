@@ -212,13 +212,20 @@ unchanged. Saved approvals and article trees are reused; no passing review is
 manufactured. Native publication labels missing subjects as pending and preserves
 earlier dates. Its delivery tick remains independent of the research controller.
 
-Normal production continuity reserves at most 40 cumulative model attempts.
+The owner raised the normal daily allowance to 60 on October 9, 2026. All
+scheduled reader, recovery, visual and publication defaults use the shared
+`model_job_evidence.DAILY_JOB_LIMIT`; an explicit smaller allowance remains valid.
+Normal production continuity reserves at most 60 cumulative model attempts.
 Each prepared job reserves one slot; every archived retry, including transient
 or authentication retries, reserves another. This is conservative dispatch
 accounting, not measured billing. Successful receipts are reused only after
 input/output/model/schema/time binding checks. Running jobs, unresolved claims
 and uncertain completions are preserved for explicit recovery. No lock is stolen.
 Exhaustion stops generation but does not block publication of saved approvals.
+An unchanged terminal budget hold from an exhausted lower allowance can resume
+under the new ceiling, retaining its old diagnostic and every saved attempt.
+Other unchanged terminal holds remain quiet. This changes no factual, primary
+source, receipt, mechanical or pixel approval gate and resets no daily ledger.
 
 Unchanged terminal holds remain quiet. Repaired durable evidence can reopen the
 same day while retaining the terminal diagnostic and the existing retry cap.

@@ -11,6 +11,7 @@ from pathlib import Path
 from smn_daily import Day, Hold, now
 from smn_subscription_daily import lock
 from subscription_publication import selected_lineup, read, write, digest_bytes
+from model_job_evidence import DAILY_JOB_LIMIT
 
 PUBLICATION_FILES={'publication-package','production-stage.json','production-publication-receipt.json',
     'primary-stage.json','primary-activation.json','primary-activation-attempt.json',
@@ -27,7 +28,7 @@ def hashes(root):
     return result
 
 
-def plan(root,retry_source=(),rereview=(),max_jobs=40):
+def plan(root,retry_source=(),rereview=(),max_jobs=DAILY_JOB_LIMIT):
     root=Path(root).resolve();state=read(root/'smn-daily-state.json');date=state['date']
     expected=selected_lineup(root,date,required=True)
     requested=list(retry_source)+list(rereview)
@@ -62,7 +63,7 @@ def plan(root,retry_source=(),rereview=(),max_jobs=40):
             'original_files':hashes(root)}
 
 
-def recover(root,destination,retry_source=(),rereview=(),max_jobs=40):
+def recover(root,destination,retry_source=(),rereview=(),max_jobs=DAILY_JOB_LIMIT):
     root=Path(root).resolve();destination=Path(destination).resolve()
     if destination.parent!=root.parent or destination==root:
         raise Hold('Recovery must use a separate sibling of the original edition')
@@ -118,7 +119,7 @@ def main():
     parser.add_argument('--destination',type=Path)
     parser.add_argument('--retry-source',nargs='*',default=[])
     parser.add_argument('--rereview',nargs='*',default=[])
-    parser.add_argument('--max-jobs',type=int,default=40)
+    parser.add_argument('--max-jobs',type=int,default=DAILY_JOB_LIMIT)
     parser.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if args.execute:

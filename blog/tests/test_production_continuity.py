@@ -38,7 +38,7 @@ class ProductionContinuityTests(unittest.TestCase):
     def test_wrong_target_and_increased_budget_rejected(self):
         with patch.object(rolling,'require_policy'):
             with self.assertRaises(ValueError):rolling.publish_available(Path('.'),DATE,'dev')
-            with self.assertRaisesRegex(ValueError,'cap'):rolling.publish_available(Path('.'),DATE,'production',max_jobs=41)
+            with self.assertRaisesRegex(ValueError,'cap'):rolling.publish_available(Path('.'),DATE,'production',max_jobs=61)
 
     def test_legacy_day_reuses_receipt_without_transaction(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import smn_models
 from subscription_writer import load_json, save_json, utc_now
+from model_job_evidence import DAILY_JOB_LIMIT
 
 DEFAULT_ROOT = Path('/var/lib/tradewave/smn-daily')
 
@@ -45,7 +46,7 @@ def edition_profile(root, date):
     return selection(root)['profile']
 
 
-def run(root, date, max_jobs=40, publish=True):
+def run(root, date, max_jobs=DAILY_JOB_LIMIT, publish=True):
     datetime.strptime(date, '%Y-%m-%d')
     root.mkdir(parents=True, exist_ok=True)
     lock = root / '.script-run.lock'
@@ -99,7 +100,7 @@ def main():
     profile.add_argument('provider', choices=tuple(smn_models.PROFILES), nargs='?')
     daily = sub.add_parser('run')
     daily.add_argument('--date', default=datetime.now(ZoneInfo('America/New_York')).date().isoformat())
-    daily.add_argument('--max-jobs', type=int, default=40)
+    daily.add_argument('--max-jobs', type=int, default=DAILY_JOB_LIMIT)
     daily.add_argument('--no-publish', action='store_true')
     args = ap.parse_args()
     try:

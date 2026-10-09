@@ -9,11 +9,12 @@ import sys
 
 from subscription_publication import package, read, write, complete_lineup
 import install_smn_primary_edition as installer
+from model_job_evidence import DAILY_JOB_LIMIT
 
 ORIGIN = 'https://seasonalmarketnews.com'
 
 
-def publish_edition(root, date, max_jobs=40):
+def publish_edition(root, date, max_jobs=DAILY_JOB_LIMIT):
     root = Path(root).resolve()
     installer.configure_production()
     installer.guard()
