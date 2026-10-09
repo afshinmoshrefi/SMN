@@ -147,7 +147,7 @@ class RecoveryTests(unittest.TestCase):
     def test_plan_counts_retained_jobs_and_required_checks_without_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=self.prepare(Path(tmp));before=recovery.hashes(root)
-            plan=recovery.plan(root,['SI'],['NVDA'])
+            plan=recovery.plan(root,['SI'],['NVDA'],max_jobs=40)
             self.assertEqual((plan['jobs_used'],plan['minimum_new_jobs'],plan['minimum_total_jobs']),(37,9,46))
             self.assertFalse(plan['budget_sufficient']);self.assertEqual(recovery.hashes(root),before)
             self.assertEqual(set(plan['approved_articles']),{'XLF','SPY','QQQ','AMZN'})
@@ -157,8 +157,38 @@ class RecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=self.prepare(Path(tmp)/'original');target=root.with_name('recovery')
             with patch.object(recovery,'lock',return_value=nullcontext()),patch.object(recovery.shutil,'copytree') as copy:
-                with self.assertRaisesRegex(Hold,'46 cumulative'):recovery.recover(root,target,['SI'],['NVDA'])
+                with self.assertRaisesRegex(Hold,'46 cumulative'):recovery.recover(root,target,['SI'],['NVDA'],max_jobs=40)
                 copy.assert_not_called();self.assertFalse(target.exists())
+
+    def test_default_60_plan_accepts_46_cumulative_without_writes_or_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.prepare(Path(tmp));before=recovery.hashes(root)
+            with patch('smn_models.run') as model,patch('smn_models.prepare') as prepare:
+                plan=recovery.plan(root,['SI'],['NVDA'])
+            self.assertEqual((plan['jobs_used'],plan['minimum_new_jobs'],plan['minimum_total_jobs']),(37,9,46))
+            self.assertEqual(plan['max_jobs'],60);self.assertTrue(plan['budget_sufficient'])
+            self.assertEqual(recovery.hashes(root),before)
+            model.assert_not_called();prepare.assert_not_called()
+
+    def test_default_60_plan_accepts_60_but_rejects_61_before_copy_or_model(self):
+        from contextlib import nullcontext
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.prepare(Path(tmp)/'original');target=root.with_name('recovery')
+            for number in range(37,51):(root/'jobs'/str(number)).mkdir()
+            before=recovery.hashes(root)
+            plan=recovery.plan(root,['SI'],['NVDA'])
+            self.assertEqual(plan['minimum_total_jobs'],60);self.assertTrue(plan['budget_sufficient'])
+            self.assertEqual(recovery.hashes(root),before)
+            (root/'jobs/51').mkdir();before=recovery.hashes(root)
+            plan=recovery.plan(root,['SI'],['NVDA'])
+            self.assertEqual(plan['minimum_total_jobs'],61);self.assertFalse(plan['budget_sufficient'])
+            with patch.object(recovery,'lock',return_value=nullcontext()), \
+                    patch.object(recovery.shutil,'copytree') as copy, \
+                    patch('smn_models.run') as model,patch('smn_models.prepare') as prepare:
+                with self.assertRaisesRegex(Hold,'61 cumulative'):
+                    recovery.recover(root,target,['SI'],['NVDA'])
+            self.assertEqual(recovery.hashes(root),before);self.assertFalse(target.exists())
+            copy.assert_not_called();model.assert_not_called();prepare.assert_not_called()
 
     def test_recovery_cannot_select_successes_or_omit_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
