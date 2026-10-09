@@ -11,13 +11,9 @@ ATTEMPT_PREFIXES = ('failed-attempt-', 'transient-attempt-', 'authentication-ret
 DAILY_JOB_LIMIT = 60
 
 
-def jobs_used(root):
-    jobs = Path(root)/'jobs'
-    if not jobs.is_dir():
-        return 0
-    return sum(1 + sum(child.is_dir() and child.name.startswith(ATTEMPT_PREFIXES)
-                       for child in job.iterdir())
-               for job in jobs.iterdir() if job.is_dir())
+def jobs_used(root, date=None):
+    from daily_budget import jobs_used as shared_jobs_used
+    return shared_jobs_used(root, date)
 
 
 def completed_receipt(job):

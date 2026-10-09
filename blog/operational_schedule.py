@@ -23,6 +23,8 @@ import operational_settings
 MARKERS = Path(os.environ.get('SMN_OPERATIONAL_SCHEDULE_STATE', '/var/lib/smn-dashboard/schedule-runs'))
 CONTROLLER_ROOT = Path('/var/lib/tradewave/smn-daily/subscription-primary')
 WEB_ROOT = Path('/var/www/smn')
+MAX_NEWSLETTER_ATTEMPTS = 3
+NEWSLETTER_RETRY_DELAY = timedelta(minutes=5)
 
 
 def verified_reader_urls(root, day, web_root=WEB_ROOT):
@@ -158,6 +160,66 @@ def command(target, phase, day):
     return [python, str(blog/script)]
 
 
+def _newsletter_retry(marker, target, phase, day, now):
+    """Retry only a finished pre-POST failure; preserve every old marker byte."""
+    if marker.is_symlink() or not marker.is_file():
+        return None
+    raw = marker.read_bytes()
+    prior = json.loads(raw)
+    if (not isinstance(prior, dict) or prior.get('target') != target or
+            prior.get('phase') != phase or prior.get('date') != day or
+            prior.get('status') not in {'failed', 'waiting'}):
+        return None
+    attempt = prior.get('attempt', 1)
+    code = prior.get('exit_code')
+    if (type(attempt) is not int or not 1 <= attempt < MAX_NEWSLETTER_ATTEMPTS or
+            type(code) is not int or code <= 0 or
+            (prior['status'] == 'waiting' and code != 75)):
+        return None
+    try:
+        finished = datetime.fromisoformat(prior['finished_at'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if finished.tzinfo is None or now < finished + NEWSLETTER_RETRY_DELAY:
+        return None
+    urls = verified_reader_urls(CONTROLLER_ROOT, day)
+    if urls is None:
+        return None
+    from send_smn_emails import verified_retry_evidence
+    proof = verified_retry_evidence(day, urls)
+    if proof is None:
+        return None  # Existing/uncertain campaign intent remains held, never resent.
+    history = prior.get('retry_history', [])
+    if not isinstance(history, list) or len(history) != attempt - 1:
+        raise ValueError('Newsletter retry history is malformed')
+    for entry in history:
+        if (not isinstance(entry, dict) or not isinstance(entry.get('archive'), str) or
+                Path(entry['archive']).name != entry['archive'] or
+                not re.fullmatch(r'[0-9a-f]{64}', str(entry.get('sha256', '')))):
+            raise ValueError('Newsletter retry history is malformed')
+        saved = marker.parent/entry['archive']
+        if saved.is_symlink() or not saved.is_file() or hashlib.sha256(saved.read_bytes()).hexdigest() != entry['sha256']:
+            raise ValueError('Newsletter retry history bytes changed')
+    digest = hashlib.sha256(raw).hexdigest()
+    archive = marker.with_name(marker.stem + f'.attempt-{attempt}-{digest}.json')
+    if marker.read_bytes() != raw:
+        raise ValueError('Newsletter marker changed before safe retry')
+    try:
+        with archive.open('xb') as output:
+            output.write(raw)
+            output.flush()
+            os.fsync(output.fileno())
+    except FileExistsError:
+        if archive.is_symlink() or not archive.is_file() or archive.read_bytes() != raw:
+            raise ValueError('Newsletter retry archive changed')
+    if marker.read_bytes() != raw:
+        raise ValueError('Newsletter marker changed while preserving retry history')
+    return {'attempt': attempt + 1, 'retry_history': history + [
+        {'archive': archive.name, 'sha256': digest, 'status': prior['status'],
+         'exit_code': code, 'finished_at': prior['finished_at'],
+         'retry_checked_utc': now.isoformat(), 'pre_post_evidence': proof}]}
+
+
 def tick(target, now=None, newsletter_only=False):
     import fcntl
     now = now or datetime.now(timezone.utc)
@@ -182,16 +244,30 @@ def tick(target, now=None, newsletter_only=False):
                     if status.get('date') == day and status.get('status') != 'waiting_for_selection':
                         continue
                 marker = MARKERS / f'{target}-daily-{day}-{now.strftime("%H%M")}.json'
+            retry = None
             if marker.exists():
-                continue
-            if phase == 'weekday_newsletter' and verified_reader_urls(CONTROLLER_ROOT, day) is None:
+                if phase != 'weekday_newsletter':
+                    continue
+                retry = _newsletter_retry(marker, target, phase, day, now)
+                if retry is None:
+                    continue
+            if phase == 'weekday_newsletter' and retry is None and verified_reader_urls(CONTROLLER_ROOT, day) is None:
                 continue
             # A started marker prevents duplicate newsletter/selector execution
-            # after a crash. Operators inspect a failed run before any retry.
+            # after a crash. Only a proven finished pre-POST weekday failure retries.
             record = {'target': target, 'phase': phase, 'date': day,
                       'started_at': now.isoformat(), 'status': 'running'}
-            with marker.open('x') as output:
-                json.dump(record, output)
+            if retry is None:
+                with marker.open('x') as output:
+                    json.dump(record, output)
+            else:
+                record.update(retry)
+                temporary = marker.with_suffix('.tmp')
+                with temporary.open('w', encoding='utf-8') as output:
+                    json.dump(record, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, marker)
             env = os.environ.copy()
             if target == 'production':
                 setting = (settings['sunday_summary'] if phase == 'sunday_summary' else

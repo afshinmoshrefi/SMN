@@ -43,9 +43,17 @@ def role_of(stage):
 
 
 def prepare(roles, role, *args, **kwargs):
+    from daily_budget import prepare as budget_prepare
     cfg = roles[role]
     extra = {'effort': cfg['effort'], 'model': cfg['model']}
-    return MODULES[cfg['provider']].prepare_job(*args, **kwargs, **extra)
+    # The immutable provider bridge only persists files here. Reserve under the
+    # shared normal/recovery lease through that persistence, never a model call.
+    job_root = Path(args[0] if args else kwargs['root'])
+    job_id = args[1] if len(args) > 1 else kwargs['job_id']
+    if job_root.name != 'jobs':
+        raise ValueError('SMN job preparation requires an edition jobs directory')
+    return budget_prepare(job_root.parent, kwargs.get('as_of'), job_id,
+        lambda: MODULES[cfg['provider']].prepare_job(*args, **kwargs, **extra))
 
 
 def module_for_job(job):

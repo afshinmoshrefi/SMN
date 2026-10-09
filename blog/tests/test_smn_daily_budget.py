@@ -124,7 +124,7 @@ class DailyBudgetTests(unittest.TestCase):
     def test_retry_at_59_reserves_60_without_losing_failure_or_attempt_kind(self):
         for prefix in evidence.ATTEMPT_PREFIXES:
             with self.subTest(prefix=prefix):
-                folder = self.edition/prefix
+                folder = self.root/prefix/DAY/'chatgpt'
                 reader = smn_daily.Day(folder, DAY, roles={}, profile='chatgpt')
                 for number in range(59): (folder/'jobs'/str(number)).mkdir(parents=True)
                 job = folder/'jobs/58'

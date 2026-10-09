@@ -105,6 +105,7 @@ def _fingerprint(root, day):
                     'jobs/*/output.json', 'results/*/article.json',
                     'jobs/*/state.json','jobs/*/execution.json',
                     'results/*/article.html', 'results/*/review-binding*.json',
+                    'results/*/editorial-advisory-disposition.json',
                     'results/*/bundle.json', 'results/*/commission.json',
                     'results/*/generation.json', 'results/*/hero-asset.json',
                     'results/*/mechanical-checks.json', 'results/*/visual-checks.json'):

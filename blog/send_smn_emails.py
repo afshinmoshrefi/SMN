@@ -25,6 +25,7 @@ import json
 import re
 import sys
 import argparse
+import hashlib
 import logging
 import os
 import tempfile
@@ -155,6 +156,42 @@ def _reserved_slugs(state, kind):
         if key.startswith(kind + ':'):
             slugs.update(record.get('slugs', []))
     return slugs
+
+
+@_serialized_newsletter
+def verified_retry_evidence(day, verified_urls):
+    """Prove a finished weekday attempt left no campaign intent; never calls a provider."""
+    if not STATE_FILE.is_file() or STATE_FILE.is_symlink():
+        raise ValueError('Newsletter retry requires the existing readable campaign journal')
+    raw = STATE_FILE.read_bytes()
+    state = json.loads(raw)
+    campaigns = state.get('campaigns') if isinstance(state, dict) else None
+    sent = state.get('daily_sent') if isinstance(state, dict) else None
+    if (not isinstance(campaigns, dict) or not isinstance(sent, list) or
+            any(not isinstance(slug, str) or not slug for slug in sent)):
+        raise ValueError('Newsletter retry campaign journal is incomplete')
+    for key, record in campaigns.items():
+        if (not isinstance(key, str) or not isinstance(record, dict) or
+                not isinstance(record.get('slugs'), list) or
+                any(not isinstance(slug, str) or not slug for slug in record['slugs'])):
+            raise ValueError('Newsletter retry campaign reservation is malformed')
+    # A known ID, an unknown creation, and a provider-completed campaign all
+    # retain their reservation. Reconciliation elsewhere is GET-only.
+    if _campaign_key('daily', date.fromisoformat(day)) in campaigns:
+        return None
+    selected = [post for post in _load_posts() if post.get('url') in verified_urls]
+    slugs = [post.get('slug') for post in selected]
+    if (len(selected) != len(verified_urls) or
+            {post.get('url') for post in selected} != verified_urls or
+            any(not isinstance(slug, str) or not slug for slug in slugs) or
+            len(set(slugs)) != len(slugs)):
+        raise ValueError('Newsletter retry requires the exact unique verified catalog lineup')
+    if set(slugs) & _reserved_slugs(state, 'daily'):
+        return None
+    return {'campaign_state_sha256': hashlib.sha256(raw).hexdigest(),
+            'campaign_key': 'daily:' + day,
+            'unreserved_slugs': slugs, 'checked_utc': datetime.now(timezone.utc).isoformat(),
+            'proof': 'readable native journal has no date intent or reserved lineup'}
 
 
 def _today():
@@ -779,8 +816,7 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
     group_id = groups.get('SMN-DAILY')
     if not group_id:
         log.error('daily_send: SMN-DAILY group not found in MailerLite')
-        print('Error: SMN-DAILY group not found.')
-        return
+        raise RuntimeError('SMN-DAILY group not found; no campaign was created')
 
     if verified_urls is not None:
         # Publication and its daily digest require zero model starts. Optional
