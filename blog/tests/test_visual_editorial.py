@@ -200,6 +200,21 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn('July previous',svg)
             self.assertIn('+162',svg)
             self.assertIn('-23',svg)
+            # The image carries its own title and source, not only the HTML.
+            self.assertIn('Fixture comparison',svg)
+            self.assertIn('Source: example.org',svg)
+
+    def test_seasonal_context_chart_names_the_security_inside_the_image(self):
+        b=bundle();b.pop('evidence_sha256')
+        b.update(story_id='NVDA',edition_type='seasonal',seasonal_contract={'company':'NVIDIA Corporation'})
+        with tempfile.TemporaryDirectory() as d:
+            a=render_catalog(seal(b),d)['comparison']
+            for key in ('desktop_svg','mobile_svg'):
+                svg=(Path(d)/a['paths'][key]).read_text(encoding='utf-8')
+                self.assertIn('NVDA · NVIDIA CORPORATION · CONTEXT',svg.replace('  ',''))
+            from PIL import Image
+            for key,width in (('desktop_png',1280),('mobile_png',780)):
+                with Image.open(Path(d)/a['paths'][key]) as image:self.assertEqual(image.size[0],width)
 
 
 if __name__=='__main__':unittest.main()

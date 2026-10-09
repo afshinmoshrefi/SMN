@@ -92,7 +92,11 @@ def _pal(palette):
         return palette
     return PALETTES.get(palette or "light", PAL)
 
-W, H, DPI = 1280, 720, 100
+# Pixel canvas stays 1280x720; DPI sets how large point sizes are on it.
+# Articles show the desktop image in a ~740 CSS px column (about 0.58x), so at
+# DPI 100 an 11 pt tick label displayed near 8 px. 150 keeps every label at or
+# above ~12 CSS px without changing any layout fraction or plotted value.
+W, H, DPI = 1280, 720, 150
 
 # --------------------------------------------------------------------------- #
 # Text helpers
@@ -207,51 +211,136 @@ def _semantics(variant, title, spec, source, n, direction,
 # Frame / header / footer builders
 # --------------------------------------------------------------------------- #
 def _fit_text(fig, x, y, text, *, max_frac, fontsize, fontweight, color,
-              ha="left", va="top", min_fontsize=8.0):
+              ha="left", va="top", min_fontsize=8.0, max_lines=1):
     """Draw header text, shrinking until it fits `max_frac` of the canvas width.
 
     The header used a fixed size with no width bound, so a long spec line ran
     past the chart's right margin (and nearly off the canvas). How long the
     string is depends on the data, so this must be measured, not guessed.
+    With max_lines > 1 a long line wraps at word boundaries before any
+    shrinking, so phone titles stay large instead of falling to minimum size.
     """
     t = fig.text(x, y, text, fontsize=fontsize, fontweight=fontweight,
-                 color=color, ha=ha, va=va)
+                 color=color, ha=ha, va=va, linespacing=1.2)
     W = fig.get_size_inches()[0] * fig.dpi
     avail = max_frac * W
     fig.canvas.draw()
     r = fig.canvas.get_renderer()
+
+    def width(s):
+        t.set_text(s)
+        return t.get_window_extent(renderer=r).width
+
+    def wrapped():
+        lines, current = [], ""
+        # Plain spaces only: callers bind dates with no-break spaces.
+        for word in str(text).split(" "):
+            candidate = (current + " " + word).strip()
+            if current and width(candidate) > avail:
+                lines.append(current)
+                current = word
+            else:
+                current = candidate
+        lines.append(current)
+        return lines
+
     size = fontsize
-    while t.get_window_extent(renderer=r).width > avail and size > min_fontsize:
+    while True:
+        lines = [str(text)] if width(str(text)) <= avail or max_lines == 1 else wrapped()
+        fits = len(lines) <= max_lines and all(width(l) <= avail for l in lines)
+        if fits or size <= min_fontsize:
+            if len(lines) > max_lines:
+                lines = lines[:max_lines - 1] + [" ".join(lines[max_lines - 1:])]
+            t.set_text("\n".join(lines))
+            return t
         size = max(min_fontsize, size * 0.96)
         t.set_fontsize(size)
-        fig.canvas.draw()
-    return t
+
+
+def identity_kicker(symbol, company, *rest):
+    """'SYM · Company · rest' with the company's own '(SYM)' suffix removed.
+
+    Every chart names the security inside the image, because the PNG travels
+    without its article (social cards, saved images, image search) and a bare
+    chart of an unnamed price series tells that reader nothing.
+    """
+    symbol = _sanitize(symbol).strip()
+    company = _sanitize(company).strip()
+    if symbol and company.upper().endswith(f"({symbol.upper()})"):
+        company = company[: -len(symbol) - 2].rstrip()
+    parts = [p for p in (symbol, company) if p]
+    if company and symbol and company.upper() == symbol.upper():
+        parts = [symbol]
+    return " · ".join(parts + [str(r) for r in rest if r])
 
 
 def new_frame(kicker, title, spec, source, *, palette="light", w=W, h=H,
-              ax_rect=(0.065, 0.145, 0.905, 0.60), axes_style=True):
-    """Standard SMN chart frame: header block, plot area, source footer."""
+              ax_rect=(0.065, 0.145, 0.905, 0.60), axes_style=True,
+              sizes=(11, 21.5, 12.5), min_sizes=(9.5, 13.0, 9.5),
+              source_size=10.5, track_kicker=True, header_frac=None,
+              wrap_lines=(1, 1, 2)):
+    """Standard SMN chart frame: header block, plot area, source footer.
+
+    Header lines are stacked by their measured heights, so a larger font or a
+    wrapped canvas can never make the title collide with the spec line or the
+    plot. `fig.smn_header_bottom` records where the header ends; elements that
+    sit below it (median keys) anchor there instead of a guessed fraction.
+    """
     pal = _pal(palette)
     fig = plt.figure(figsize=(w / DPI, h / DPI), dpi=DPI)
     fig.patch.set_facecolor(pal["bg"])
     left = ax_rect[0]
     # Header lines are width-fitted to the SAME right margin the plot, source
     # line and TRADEWAVE.AI already respect (left + ax_rect[2]).
-    _hdr_frac = ax_rect[2]
-    _fit_text(fig, left, 0.952, _track(_sanitize(kicker).upper()),
-              max_frac=_hdr_frac, fontsize=11, fontweight=500,
-              color=pal["muted"])
-    _fit_text(fig, left, 0.905, _sanitize(title),
-              max_frac=_hdr_frac, fontsize=21.5, fontweight=700,
-              color=pal["ink"], min_fontsize=13.0)
-    _fit_text(fig, left, 0.842, _sanitize(spec),
-              max_frac=_hdr_frac, fontsize=12.5, fontweight=400,
-              color=pal["muted"], min_fontsize=9.0)
-    fig.text(left, 0.040, _sanitize(source), fontsize=10.5, fontweight=400,
-             color=pal["faint"], ha="left", va="center")
-    fig.text(left + ax_rect[2], 0.040, _track("TRADEWAVE.AI"), fontsize=10.5,
-             fontweight=700, color=pal["faint"], ha="right", va="center")
-    ax = fig.add_axes(ax_rect)
+    _hdr_frac = header_frac or ax_rect[2]
+    kicker = _sanitize(kicker).upper()
+    if track_kicker and kicker:
+        # A long security name loses its letter-spacing rather than shrinking
+        # below a readable size.
+        probe = fig.text(0, 0, _track(kicker), fontsize=sizes[0], fontweight="medium")
+        fig.canvas.draw()
+        needed = probe.get_window_extent(renderer=fig.canvas.get_renderer()).width
+        probe.remove()
+        track_kicker = needed * 9.5 / sizes[0] <= _hdr_frac * w
+    # Named weights: the SVG text backend rejects numeric ones.
+    lines = [(_track(kicker) if track_kicker else kicker, sizes[0], min_sizes[0], "medium", pal["muted"]),
+             (_sanitize(title), sizes[1], min_sizes[1], "bold", pal["ink"]),
+             (_sanitize(spec), sizes[2], min_sizes[2], "normal", pal["muted"])]
+    y = 1.0 - 28.0 / h
+    renderer = None
+    for i, (text, size, smallest, weight, color) in enumerate(lines):
+        if not text.strip():
+            continue
+        t = _fit_text(fig, left, y, text, max_frac=_hdr_frac, fontsize=size,
+                      fontweight=weight, color=color, min_fontsize=smallest,
+                      max_lines=wrap_lines[i])
+        renderer = renderer or fig.canvas.get_renderer()
+        height = t.get_window_extent(renderer=renderer).height
+        # Breathing room follows the font size (not a wrapped block's height):
+        # a short gap under the kicker, a larger one under the title.
+        line_px = t.get_fontsize() * DPI / 72.0
+        y -= (height + line_px * (0.75 if i == 0 else 0.55 if i == 1 else 0.0)) / h
+    fig.smn_header_bottom = y
+    # Footer sits on a common bottom edge so a source that wraps to a second
+    # line grows upward, never off the canvas or under TRADEWAVE.AI. On a
+    # narrow (phone) canvas the source gets its own full-width line above it.
+    foot = 18.0 / h
+    brand = fig.text(left + ax_rect[2], foot, _track("TRADEWAVE.AI"),
+                     fontsize=source_size, fontweight="bold", color=pal["faint"],
+                     ha="right", va="bottom")
+    fig.canvas.draw()
+    extent = brand.get_window_extent(renderer=fig.canvas.get_renderer())
+    beside = ax_rect[2] - extent.width / w - 0.03
+    if beside >= 0.5:
+        src_y, src_frac = foot, beside
+    else:
+        src_y, src_frac = foot + (extent.height + 10) / h, _hdr_frac
+    _fit_text(fig, left, src_y, _sanitize(source), max_frac=src_frac,
+              fontsize=source_size, fontweight="normal", color=pal["faint"],
+              va="bottom", min_fontsize=max(9.0, source_size - 0.5), max_lines=2)
+    x0, y0, aw, ah = ax_rect
+    top = min(y0 + ah, y - 22.0 / h)
+    ax = fig.add_axes((x0, y0, aw, max(0.2, top - y0)))
     ax.set_facecolor(pal["bg"])
     if axes_style:
         style_axes(ax, palette=pal)
@@ -334,6 +423,25 @@ def place_label(ax, text, *, anchor, avoid=(), color=None, fontsize=11,
             t.remove()
 
     return best[1] if best else None
+
+
+def _year_ticks(ax, x, years, fontsize, span=None):
+    """Label every year that fits; thin to every 2nd/3rd year by measurement.
+
+    Larger, readable year labels collide on 20-bar or half-width panels, so
+    the step comes from the measured label width, never a fixed count.
+    """
+    import math
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    probe = fig.text(0, 0, "2000", fontsize=fontsize)
+    label_px = probe.get_window_extent(renderer=renderer).width
+    probe.remove()
+    per_bar = ax.get_window_extent(renderer=renderer).width / max(1.0, span or len(x) + 1)
+    step = max(1, math.ceil((label_px + 10) / per_bar))
+    ax.set_xticks(x[::step])
+    ax.set_xticklabels([str(y) for y in years][::step], fontsize=fontsize)
 
 
 def style_axes(ax, *, palette="light", bottom_spine=True):
@@ -442,10 +550,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
     days = meta.get("days", "")
     variant = meta.get("variant", "record_bars")
 
-    kicker = meta.get("kicker") or (
-        f"{symbol}"
-        + (f" · {company}" if company else "")
-        + (f" · {days}-day seasonal window" if days else " · seasonal window"))
+    kicker = meta.get("kicker") or identity_kicker(
+        symbol, company, f"{days}-day seasonal window" if days else "seasonal window")
     title = engine['title'] if engine else _bars_title(symbol, direction, wins, n, win_lbl, losses)
     if not engine and reported_wins is not None and any(abs(float(v)) < 1e-12 for v in nets):
         # A flat result may or may not be classified as a win by the engine.
@@ -496,23 +602,28 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         mobile_spec = f'{win_lbl} | {y0}-{y1} | changes from entry'
         if engine and engine.get('mobile_spec'):
             mobile_spec = engine['mobile_spec']
-        mobile_kicker = symbol + (' | Reference-series illustration' if reference_only else ' | Seasonal record')
+        mobile_kicker = identity_kicker(symbol, company,
+            'Reference-series illustration' if reference_only else 'Seasonal record')
+        # Phone images display at ~0.46x; rows are sized so 15 pt year labels
+        # (~14 CSS px) never touch, however many years the study holds.
+        mh = max(1100, int(465 + (n + 1.2) * 48))
         fig, ax = new_frame(mobile_kicker, mobile_title,
-            mobile_spec, 'Source: TradeWave', palette=pal, w=780, h=max(1100,n*47+300),
-            ax_rect=(0.15,0.17,0.80,0.60))
-        for t in list(fig.texts[:3]):
-            # Preserve the frame's width fitting when increasing phone text.
-            x_pos, y_pos = t.get_position()
-            text, size, weight, color = t.get_text(), t.get_fontsize(), t.get_fontweight(), t.get_color()
-            t.remove()
-            _fit_text(fig, x_pos, y_pos, text, max_frac=.80,
-                      fontsize=max(size,16), min_fontsize=10.5,
-                      fontweight=weight, color=color)
-        for t in fig.texts[:2]:
-            t.set_fontsize(max(t.get_fontsize(),16))
+            mobile_spec, 'Source: TradeWave', palette=pal, w=780, h=mh,
+            ax_rect=(0.15,205/mh,0.80,0.60), sizes=(13,20,13), min_sizes=(11.5,13,11.5),
+            source_size=11.5, track_kicker=False, header_frac=.82, wrap_lines=(2,2,2))
+        notes = []
         if reference_only:
-            _fit_text(fig,.15,.803,'Session/roll validation pending',max_frac=.80,
-                      fontsize=16,min_fontsize=10.5,fontweight=400,color=pal['muted'])
+            notes.append('Session/roll validation pending')
+        if show_median and engine:
+            notes.append(f'Dashed line: median {med:+.2f}%')
+        note_y = fig.smn_header_bottom - 8/mh
+        for note in notes:
+            t = _fit_text(fig, .15, note_y, note, max_frac=.80, fontsize=13,
+                          min_fontsize=9.5, fontweight=400, color=pal['muted'])
+            note_y -= t.get_window_extent(renderer=fig.canvas.get_renderer()).height * 1.45 / mh
+        if notes:
+            box = ax.get_position()
+            ax.set_position((box.x0, box.y0, box.width, max(.2, note_y - 16/mh - box.y0)))
         x = list(range(n))
         ax.barh(x,nets,height=.6,color=[pal['pos'] if v>=0 else pal['neg'] for v in nets],zorder=3)
         if mfe is not None or mae is not None:
@@ -524,17 +635,14 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
         ax.axvline(0,color=pal['ink'],linewidth=1.4,zorder=4)
         if show_median:
             ax.axvline(med,color=pal['ink'],linestyle='--',linewidth=1.2,alpha=.55)
-            if engine:
-                _fit_text(fig,.15,.79,f'Dashed line: median {med:+.2f}%',max_frac=.80,
-                          fontsize=16,min_fontsize=10.5,fontweight=400,color=pal['muted'])
-        ax.set_yticks(x);ax.set_yticklabels([str(y) for y in years],fontsize=20)
+        ax.set_yticks(x);ax.set_yticklabels([str(y) for y in years],fontsize=15)
         ax.invert_yaxis();ax.set_ylim(n-.4,-.8)
         ax.xaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
         from matplotlib.ticker import MaxNLocator
         ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
         ax.grid(False,axis='y');ax.grid(True,axis='x',color=pal['grid'],zorder=0)
-        ax.tick_params(axis='x',labelsize=20)
-        ax.set_xlabel('Reference-price change (%)' if reference_only else 'Underlying price return (%)',fontsize=18,labelpad=14,color=pal['muted'])
+        ax.tick_params(axis='x',labelsize=15)
+        ax.set_xlabel('Reference-price change (%)' if reference_only else 'Underlying price return (%)',fontsize=13.5,labelpad=10,color=pal['muted'])
         # Keep wide edge labels inside the phone image. Only label alignment
         # changes; tick locations, limits and financial series remain untouched.
         fig.canvas.draw()
@@ -581,9 +689,8 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
                    linestyle=(0, (4, 3)), zorder=4)
         median_label = f"median {med:+.2f}%" if engine else f"median {med:+.1f}%"
 
-    step = 1 if n <= 20 else 2
-    ax.set_xticks(x[::step])
-    ax.set_xticklabels([str(y) for y in years][::step], fontsize=10)
+    # The median gutter can take up to a quarter of the width; budget for it.
+    _year_ticks(ax, x, years, 11, span=(n + 1) / (0.76 if median_label else 1.0))
     ax.set_xlim(-0.7, n + 0.3)
     if median_label:
         # Measure the actual font at this canvas size. A short label gets its
@@ -614,7 +721,11 @@ def record_bars(years, nets, meta, path, *, mfe=None, mae=None,
                 label.remove()
                 ax.set_xlim(-0.7, n + 0.3)
         if not in_gutter:
-            line_y = 0.785
+            # Directly under the measured header; the plot moves down to make room.
+            line_y = fig.smn_header_bottom - 20.0 / h
+            box = ax.get_position()
+            if box.y1 > line_y - 26.0 / h:
+                ax.set_position((box.x0, box.y0, box.width, line_y - 26.0 / h - box.y0))
             fig.add_artist(Line2D([0.065, 0.087], [line_y, line_y],
                                   transform=fig.transFigure, color=pal["ink"],
                                   linewidth=1.1, alpha=0.55, linestyle=(0, (4, 3))))
@@ -713,6 +824,152 @@ def trend_window(labels, vals, d1, d2, direction, meta, path, *, palette="light"
     ax.yaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
     _save(fig, path)
     return _semantics("trend_window", title, spec, source, n, direction, d1, d2)
+
+# --------------------------------------------------------------------------- #
+# Renderer: engine_price_trend (native seasonal editions)
+# --------------------------------------------------------------------------- #
+def engine_price_trend(dates, closes, trend_dates, trend_values, meta, path, *,
+                       mobile=False, palette="light"):
+    """Recorded closes plus TradeWave's normalized seasonal trend overlay.
+
+    Pure presentation of supplied points. The overlay is the owner-produced
+    section of the trend chart anchored to the last close (owner decision
+    2026-09-12); it is plotted unchanged and never converted into a return,
+    target or endpoint value. Labels come from the caller.
+
+    meta keys: symbol, company, kicker_tail, title, mobile_title, spec,
+      mobile_spec, source, price_label, last_date, last_close, window_start,
+      window_end, window_label, trend_label, direction, n.
+    """
+    pal = _pal(palette)
+    closes = [float(v) for v in closes]
+    trend_values = [float(v) for v in trend_values]
+    symbol, company = meta.get("symbol", ""), meta.get("company", "")
+    kicker = identity_kicker(symbol, company, meta.get("kicker_tail", ""))
+    title = meta["mobile_title"] if mobile and meta.get("mobile_title") else meta["title"]
+    spec = meta["mobile_spec"] if mobile and meta.get("mobile_spec") else meta["spec"]
+    source = meta["source"]
+    if mobile:
+        w, h = 780, 1100
+        # Legend goes under the plot on phones, where the width is too narrow
+        # to share with the lines.
+        fig, ax = new_frame(kicker, title, spec, source, palette=pal, w=w, h=h,
+                            ax_rect=(0.155, 330 / h, 0.795, 0.60), sizes=(13, 20, 13),
+                            min_sizes=(11.5, 13, 11.5), source_size=11.5,
+                            track_kicker=False, header_frac=.82, wrap_lines=(2, 2, 2))
+        tick, small, legend_size = 14, 13, 13
+    else:
+        w, h = W, H
+        fig, ax = new_frame(kicker, title, spec, source, palette=pal, w=w, h=h,
+                            ax_rect=(0.085, 0.145, 0.885, 0.60), wrap_lines=(1, 1, 2))
+        tick, small, legend_size = 11, 11, 11
+    ax.tick_params(labelsize=tick)
+
+    dn = mdates.date2num(dates)
+    tn = mdates.date2num(trend_dates) if trend_dates else []
+    xmin = dn[0]
+    xmax = tn[-1] if len(tn) else dn[-1]
+    allp = closes + trend_values
+    lo, hi = min(allp), max(allp)
+    pad = (hi - lo) * 0.08 if hi > lo else max(abs(hi) * 0.02, 1.0)
+
+    handles = []
+    # The studied window, shaded where it falls inside the displayed dates.
+    ws, we = meta.get("window_start"), meta.get("window_end")
+    long_side = str(meta.get("direction", "long")).lower().startswith("l")
+    band = pal["pos"] if long_side else pal["neg"]
+    if ws and we:
+        w0 = mdates.date2num(datetime.datetime.strptime(ws, "%Y-%m-%d"))
+        w1 = mdates.date2num(datetime.datetime.strptime(we, "%Y-%m-%d"))
+        a, b = max(w0, xmin), min(w1, xmax)
+        label = meta.get("window_label") or (
+            f"{_fmt_mmm_d(ws)} – {_fmt_mmm_d(we)}" if ws[:4] == we[:4] else
+            f"{_fmt_mmm_d(ws)}, {ws[:4]} – {_fmt_mmm_d(we)}, {we[:4]}")
+        if a < b:
+            ax.axvspan(a, b, facecolor=band, alpha=0.10, zorder=1, linewidth=0)
+            ax.axvline(a, color=band, alpha=0.55, linewidth=1.0, zorder=2)
+            if w1 <= xmax:
+                ax.axvline(b, color=band, alpha=0.55, linewidth=1.0, zorder=2)
+            from matplotlib.patches import Patch
+            text = f"Seasonal window {label}" + ("" if w1 <= xmax else ", continues past chart")
+            if mobile:
+                # Phone legends wrap rather than run off the image.
+                parts = [f"Seasonal window {label}"] if len(label) <= 20 else ["Seasonal window", label]
+                if w1 > xmax:
+                    parts[-1] += ","
+                    parts.append("continues past these dates")
+                text = "\n".join(parts)
+            handles.append(Patch(facecolor=band, alpha=0.25, label=text))
+        elif w0 > xmax:
+            ax.annotate(f"Seasonal window opens {_fmt_mmm_d(ws)}, after these dates",
+                        xy=(1, 0.02), xycoords="axes fraction", ha="right",
+                        va="bottom", fontsize=small, fontweight=600, color=band)
+
+    # The last recorded close is a raw engine price; it is named in the
+    # legend rather than printed on the chart, where it collided with the line.
+    last = meta.get("last_close", closes[-1])
+    usd = "USD" in str(meta.get("price_label", ""))
+    last_txt = (f"${float(last):,.2f}" if usd else f"{float(last):,.2f}")
+    when = f" on {_fmt_mmm_d(meta['last_date'])}" if meta.get("last_date") else ""
+    close_label = (f"Recorded close · last {last_txt}{when}" if mobile
+                   else f"Recorded daily close (last {last_txt}{when})")
+    ax.plot(dn, closes, color=pal["accent"], linewidth=2.2, zorder=4,
+            solid_capstyle="round", label=close_label)
+    ax.fill_between(dn, closes, lo - pad * 1.6, color=pal["accent"], alpha=0.05, zorder=1)
+    if len(tn):
+        trend_label = (meta.get("mobile_trend_label") if mobile else None) or \
+            meta.get("trend_label") or "TradeWave seasonal trend (illustration)"
+        ax.plot(tn, trend_values, color=pal["amber"], linewidth=2.4,
+                linestyle=(0, (3, 2)), zorder=5, label=trend_label)
+    ax.axvline(dn[-1], color=pal["muted"], linewidth=0.9, linestyle=":", zorder=3)
+    ax.plot([dn[-1]], [closes[-1]], "o", ms=6, color=pal["accent"], zorder=6)
+
+    line_handles, _ = ax.get_legend_handles_labels()
+    if mobile:
+        # Stack upward from the footer: legend just above the source line,
+        # then the plot's bottom edge clear of the legend and tick labels.
+        fig.canvas.draw()
+        r = fig.canvas.get_renderer()
+        footer_top = max(t.get_window_extent(r).y1 for t in fig.texts
+                         if t.get_window_extent(r).y1 < 0.25 * h)
+        leg = ax.legend(handles=line_handles + handles, loc="lower left",
+                        bbox_to_anchor=(0.05, (footer_top + 22) / h),
+                        bbox_transform=fig.transFigure, fontsize=legend_size,
+                        frameon=False, handlelength=2.0, borderaxespad=0)
+        fig.canvas.draw()
+        legend_top = leg.get_window_extent(fig.canvas.get_renderer()).y1
+        box = ax.get_position()
+        y0 = (legend_top + tick * DPI / 72 * 1.8 + 22) / h
+        ax.set_position((box.x0, y0, box.width, box.y1 - y0))
+    else:
+        leg = ax.legend(handles=line_handles + handles, loc="upper left",
+                        fontsize=legend_size, frameon=True, framealpha=0.92,
+                        facecolor=pal["bg"], edgecolor=pal["bg"], borderaxespad=0.4,
+                        handlelength=2.2)
+    for t in leg.get_texts():
+        t.set_color(pal["ink"])
+
+    loc = mdates.AutoDateLocator(minticks=3, maxticks=5 if mobile else 8)
+    ax.xaxis.set_major_locator(loc)
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
+    ax.set_xlim(xmin, xmax + (xmax - xmin) * 0.01)
+    span = (hi + pad) - (lo - pad * 1.6)
+    top_frac = 0.0
+    if not mobile:
+        # Room above the data for the legend so it never sits on the lines.
+        fig.canvas.draw()
+        leg_h = leg.get_window_extent(renderer=fig.canvas.get_renderer()).height
+        ax_h = ax.get_window_extent(renderer=fig.canvas.get_renderer()).height
+        top_frac = min(0.45, (leg_h + 14) / ax_h)
+    ax.set_ylim(lo - pad * 1.6, hi + pad + span * top_frac / max(0.2, 1 - top_frac))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}" if abs(v) >= 100 else f"{v:,.2f}".rstrip("0").rstrip(".")))
+    ax.set_ylabel(meta.get("price_label", ""), fontsize=small, color=pal["muted"], labelpad=8)
+    ax.grid(axis="y", color=pal["grid"], linewidth=1.0)
+    _save(fig, path)
+    sem = _semantics("price_projection", title, spec, source, meta.get("n", ""),
+                     meta.get("direction", "long"), ws or "", we or "")
+    sem["kicker"] = _sanitize(kicker)
+    return sem
 
 # --------------------------------------------------------------------------- #
 # Renderer: price_projection
@@ -857,9 +1114,7 @@ def cumulative(years, cum_vals, meta, path, *, palette="light"):
             solid_capstyle="round")
     ax.fill_between(x, cum_vals, 0, color=color, alpha=0.12, zorder=1)
     ax.axhline(0, color=pal["axis"], linewidth=1.0, zorder=2)
-    step = 1 if n <= 20 else 2
-    ax.set_xticks(x[::step])
-    ax.set_xticklabels([str(y) for y in years][::step], fontsize=10)
+    _year_ticks(ax, x, years, 10.5)
     ax.set_xlim(-0.5, max(1, n - 1) + 0.5)
     ax.yaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
     _save(fig, path)
@@ -951,20 +1206,14 @@ def fork_panels(panels, meta, path, *, palette="light"):
     spec = meta.get("spec", "")
     source = meta.get("source", "")
 
-    fig = plt.figure(figsize=(W / DPI, H / DPI), dpi=DPI)
-    fig.patch.set_facecolor(pal["bg"])
-    left = 0.065
-    fig.text(left, 0.952, _track(_sanitize(kicker).upper()), fontsize=11,
-             fontweight=500, color=pal["muted"], ha="left", va="top")
-    fig.text(left, 0.905, _sanitize(title), fontsize=21.5, fontweight=700,
-             color=pal["ink"], ha="left", va="top")
-    fig.text(left, 0.842, _sanitize(spec), fontsize=12.5, color=pal["muted"],
-             ha="left", va="top")
-    fig.text(left, 0.040, _sanitize(source), fontsize=10.5, color=pal["faint"],
-             ha="left", va="center")
-    fig.text(0.97, 0.040, _track("TRADEWAVE.AI"), fontsize=10.5,
-             fontweight=700, color=pal["faint"], ha="right", va="center")
-    rects = [(0.065, 0.145, 0.42, 0.545), (0.55, 0.145, 0.42, 0.545)]
+    # Shared measured header/footer; the placeholder axes are replaced by the
+    # two panels, whose own titles need room under the header.
+    fig, placeholder = new_frame(kicker, title, spec, source, palette=pal,
+                                 ax_rect=(0.065, 0.145, 0.905, 0.545),
+                                 axes_style=False)
+    placeholder.remove()
+    top = min(0.69, fig.smn_header_bottom - 48.0 / H)
+    rects = [(0.065, 0.145, 0.42, top - 0.145), (0.55, 0.145, 0.42, top - 0.145)]
     total_n = 0
     for (years, nets, subtitle), rect in zip(panels, rects):
         years = list(years); nets = [float(v) for v in nets]
@@ -976,9 +1225,7 @@ def fork_panels(panels, meta, path, *, palette="light"):
         colors = [pal["pos"] if v >= 0 else pal["neg"] for v in nets]
         ax.bar(x, nets, width=0.62, color=colors, zorder=3)
         ax.axhline(0, color=pal["ink"], linewidth=1.1, zorder=4)
-        step = 1 if len(years) <= 12 else 2
-        ax.set_xticks(x[::step])
-        ax.set_xticklabels([str(y) for y in years][::step], fontsize=9.5)
+        _year_ticks(ax, x, years, 10.5)
         ax.yaxis.set_major_formatter(FuncFormatter(_fmt_pct_signed))
         ax.set_title(_sanitize(subtitle), fontsize=12.5, fontweight=600,
                      color=pal["ink"], loc="left", pad=10)

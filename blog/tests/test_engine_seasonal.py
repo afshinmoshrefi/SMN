@@ -123,6 +123,33 @@ class EngineAuthorityTests(unittest.TestCase):
             (Path(directory)/data['images'][0]['url']).write_bytes(b'changed')
             with self.assertRaisesRegex(ValueError,'Changed'):e.verify_assets(data,directory)
 
+    def test_every_chart_names_the_security_and_plots_owner_points_unchanged(self):
+        import chartkit
+        f=next(f for f in FIXTURES if f['original']['symbol']=='KDP');c=card(f)
+        contract={'card_sha256':digest(c),'angle':'TEST','company':'Keurig Dr Pepper Inc.','history_source_id':'history',
+            'viewer_url':'https://tradewave.ai/app/','methodology_url':'https://seasonalmarketnews.com/methodology.html'}
+        b={'seasonal_contract':contract,'sources':[{'id':'history','payload':c['engine_results']}]}
+        bars,prices=[],[]
+        real_bars,real_price=chartkit.record_bars,chartkit.engine_price_trend
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('chartkit.record_bars',side_effect=lambda *a,**k:bars.append(a[2]) or real_bars(*a,**k)), \
+             patch('chartkit.engine_price_trend',side_effect=lambda *a,**k:prices.append(a) or real_price(*a,**k)):
+            data=e.prepare({'card':c},b,directory)
+            self.assertTrue(e.verify_assets(data,directory))
+        self.assertTrue(bars and all(m['symbol']=='KDP' and m['company']=='Keurig Dr Pepper Inc.' for m in bars))
+        self.assertEqual(len(prices),2)
+        p=c['price_path']; last=float(p['ohlc_response'][-1][4])
+        for dates,closes,_,trend,meta,_path in prices:
+            self.assertEqual((meta['symbol'],meta['company']),('KDP','Keurig Dr Pepper Inc.'))
+            self.assertEqual(closes,[float(r[4]) for r in p['ohlc_response']])
+            self.assertEqual(trend,[last]+[r[1] for r in p['projection_response']])
+            self.assertEqual((meta['window_start'],meta['window_end']),
+                             (c['engine_results']['window']['start_date'],c['engine_results']['window']['end_date']))
+            self.assertNotIn('%',meta['title']+meta['spec']+meta['source'])
+        price=next(i for i in data['images'] if i['variant']=='price_projection')
+        self.assertTrue(price['alt'].startswith('KDP (Keurig Dr Pepper Inc.) recorded prices'))
+        self.assertEqual(e.PRICE_LABELS.get('7'),'Futures price')
+
     def test_comparisons_are_engine_outputs_and_describe_overlap(self):
         c=card(next(f for f in FIXTURES if f['original']['symbol']=='KMB'))
         d={'evidence':c['engine_results']}

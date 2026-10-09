@@ -301,5 +301,139 @@ class RenderSmoke(unittest.TestCase):
         self.assertEqual(s["variant"], "fork")
 
 
+def _texts(fig):
+    """Every visible string on the figure: header/footer, axes, ticks, legend."""
+    out = list(fig.texts)
+    for ax in fig.axes:
+        out += list(ax.texts) + ax.get_xticklabels() + ax.get_yticklabels()
+        out += [ax.xaxis.label, ax.yaxis.label]
+        if ax.get_legend():
+            out += list(ax.get_legend().get_texts())
+    return [t for t in out if t.get_visible() and t.get_text().strip()]
+
+
+ENGINE = dict(price_median=5.36, title='SPY: the selected seasonal record',
+              spec='7 selected midterm-election years (1998–2022) · Oct 29 – Dec 2, 2026',
+              source='TradeWave engine · 7 selected midterm-election years (1998–2022)',
+              caption='Each bar shows the price change.', mobile_title='SPY: seasonal record',
+              mobile_spec='7 selected midterm-election years (1998–2022) · Oct 29 – Dec 2, 2026')
+PRICE_META = dict(symbol='IWM', company='iShares Russell 2000 ETF (IWM)', kicker_tail='price and seasonal trend',
+                  title="IWM: recorded prices and TradeWave's seasonal trend", mobile_title='IWM: price and seasonal trend',
+                  spec='Daily closes to Oct 2, 2026 · dashed: TradeWave seasonal trend for the next 60 weekdays',
+                  mobile_spec='Closes to Oct 2, 2026 · dashed: 60-weekday seasonal trend',
+                  source='Source: TradeWave · trend from 6 selected midterm-election years (2002–2022) · illustration, not a forecast',
+                  trend_label='TradeWave seasonal trend (normalized; not a forecast)',
+                  mobile_trend_label='TradeWave seasonal trend (not a forecast)',
+                  price_label='Share price (USD)', last_date='2026-10-02', last_close=279.02,
+                  window_start='2026-10-24', window_end='2026-12-02', direction='long', n=6)
+
+
+class IdentityAndReadability(unittest.TestCase):
+    """Afshin, 2026-10-09: charts must name the security and be readable."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ck_")
+
+    def _render(self, fn, *args, **kwargs):
+        captured = []
+        with patch.object(ck, '_save', side_effect=lambda fig, path: captured.append(fig)):
+            sem = fn(*args, **kwargs)
+        return captured[0], sem
+
+    def _assert_readable(self, fig, min_px):
+        try:
+            for t in _texts(fig):
+                self.assertGreaterEqual(t.get_fontsize() * fig.dpi / 72, min_px, t.get_text())
+        finally:
+            ck.plt.close(fig)
+
+    def test_identity_kicker_names_symbol_and_company_once(self):
+        self.assertEqual(ck.identity_kicker('IWM', 'iShares Russell 2000 ETF (IWM)', 'Seasonal record'),
+                         'IWM · iShares Russell 2000 ETF · Seasonal record')
+        self.assertEqual(ck.identity_kicker('SPY', 'SPDR S&P 500 ETF Trust'), 'SPY · SPDR S&P 500 ETF Trust')
+        self.assertEqual(ck.identity_kicker('VIX', ''), 'VIX')
+
+    def test_every_bar_variant_names_the_security(self):
+        for mobile in (False, True):
+            with self.subTest(mobile=mobile):
+                meta = dict(BARS_META, symbol='SPY', company='SPDR S&P 500 ETF Trust', engine_presentation=ENGINE)
+                fig, _ = self._render(ck.record_bars, YEARS, NETS, meta, os.path.join(self.tmp, 'b.png'),
+                                      mfe=MFE, mae=MAE, mobile=mobile)
+                # Desktop kickers are letter-tracked ('S  P  Y'); undo that to read them.
+                header = [(s[::3] if s[1:3] == '  ' else s).upper() for s in (t.get_text() for t in fig.texts)]
+                self.assertTrue(any(s.startswith('SPY · SPDR S&P 500 ETF TRUST') for s in header), header)
+                # Desktop shows at ~0.58x and phones at ~0.46x; 18/24 image px
+                # keeps every label at or above ~10.5-11 CSS px.
+                self._assert_readable(fig, 22 if mobile else 18)
+
+    def test_header_never_overlaps_plot_or_footer(self):
+        for mobile in (False, True):
+            meta = dict(BARS_META, engine_presentation=ENGINE)
+            fig, _ = self._render(ck.record_bars, YEARS, NETS, meta, os.path.join(self.tmp, 'b.png'), mobile=mobile)
+            try:
+                fig.canvas.draw()
+                r = fig.canvas.get_renderer()
+                boxes = [t.get_window_extent(r) for t in fig.texts]
+                plot = fig.axes[0].get_window_extent(r)
+                header = [b for b in boxes if b.y0 > plot.y1 - 1]
+                self.assertGreaterEqual(len(header), 3)
+                for i, a in enumerate(boxes):
+                    for b in boxes[i + 1:]:
+                        self.assertFalse(a.overlaps(b), (a, b))
+                for b in header:
+                    self.assertGreater(b.y0, plot.y1)
+            finally:
+                ck.plt.close(fig)
+
+    def test_engine_price_trend_identity_window_and_no_derived_values(self):
+        dates = [datetime.datetime(2025, 10, 6) + datetime.timedelta(days=i) for i in range(0, 360, 2)]
+        closes = [250 + (i % 17) * 0.8 for i in range(len(dates))]
+        tdates = [dates[-1] + datetime.timedelta(days=i) for i in range(0, 84, 2)]
+        trend = [closes[-1] + i * 0.9 for i in range(len(tdates))]
+        for mobile, size in ((False, (1280, 720)), (True, (780, 1100))):
+            with self.subTest(mobile=mobile):
+                path = os.path.join(self.tmp, f'price-{mobile}.png')
+                sem = ck.engine_price_trend(dates, closes, tdates, trend, PRICE_META, path, mobile=mobile)
+                from PIL import Image
+                with Image.open(path) as image:
+                    self.assertEqual(image.size, size)
+                self.assertTrue(sem['kicker'].startswith('IWM · iShares Russell 2000 ETF · '))
+                fig, _ = self._render(ck.engine_price_trend, dates, closes, tdates, trend, PRICE_META, path, mobile=mobile)
+                strings = [t.get_text() for t in _texts(fig)]
+                legend = ' '.join(t.get_text() for t in fig.axes[0].get_legend().get_texts())
+                self.assertIn('$279.02', legend)
+                self.assertIn('Seasonal window Oct 24 – Dec 2', legend)
+                self.assertIn('not a forecast', legend)
+                # Pure presentation: no return, target or endpoint is printed.
+                self.assertFalse([s for s in strings if '%' in s], strings)
+                self._assert_readable(fig, 22 if mobile else 18)
+
+    def test_engine_price_trend_window_after_displayed_dates(self):
+        dates = [datetime.datetime(2025, 10, 6) + datetime.timedelta(days=i) for i in range(0, 120, 2)]
+        closes = [50 + i * 0.1 for i in range(len(dates))]
+        tdates = [dates[-1] + datetime.timedelta(days=i) for i in range(0, 30, 2)]
+        meta = dict(PRICE_META, window_start='2027-03-01', window_end='2027-04-01')
+        fig, _ = self._render(ck.engine_price_trend, dates, closes, tdates, closes[-len(tdates):], meta,
+                              os.path.join(self.tmp, 'late.png'))
+        try:
+            self.assertTrue(any('opens Mar 1' in t.get_text() for t in fig.axes[0].texts))
+        finally:
+            ck.plt.close(fig)
+
+    def test_long_titles_wrap_instead_of_shrinking_on_phones(self):
+        title = 'Data Center dominated NVIDIA’s reported second-quarter revenue'
+        fig, _ = ck.new_frame('NVDA · NVIDIA Corporation', title, 'Fiscal 2027 second quarter', 'Source: nvidia.com',
+                              w=780, h=900, sizes=(13, 20, 13), track_kicker=False, header_frac=.89,
+                              wrap_lines=(1, 2, 2))
+        try:
+            t = next(t for t in fig.texts if 'Data Center' in t.get_text())
+            self.assertEqual(t.get_fontsize(), 20)
+            self.assertIn('\n', t.get_text())
+            fig.canvas.draw()
+            self.assertLessEqual(t.get_window_extent(fig.canvas.get_renderer()).x1, 0.955 * 780)
+        finally:
+            ck.plt.close(fig)
+
+
 if __name__ == "__main__":
     unittest.main()

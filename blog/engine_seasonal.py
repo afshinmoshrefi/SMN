@@ -218,12 +218,15 @@ def prepare(source,bundle,directory):
                  'Each bar shows the price change from the start to the end of the same seasonal period. Green means higher; red means lower.')
         if c['direction']=='long':caption+=' The dashed line marks TradeWave’s median full-window result of '+stats['Median Profit']+'.'
         title=f"{c['symbol']}: "+('yearly seasonal range' if is_range else 'the selected seasonal record')
+        span=_span(e['window']['start_date'],e['window']['end_date'])
         meta={'symbol':c['symbol'],'company':contract['company'],'days':c['days'],'direction':c['direction'],
             'window_start':e['window']['start_date'],'window_end':e['window']['end_date'],'verified_completed':True,
             'variant':variant,'range_caps':caps if is_range else False,
             'engine_presentation':{'title':title,'mobile_title':c['symbol']+(': yearly seasonal range' if is_range else ': seasonal record'),
-              'mobile_spec':str(c['n'])+(' midterm-year windows' if c['years'].startswith('pe2-') else ' consecutive windows')+' | '+e['window']['start_date'][5:]+' to '+e['window']['end_date'][5:],
-              'spec':('Bars: ending change. Lines: lowest to highest change from the starting price.' if is_range else e['cohort']['label'])+f" · {e['window']['start_date']} to {e['window']['end_date']}",
+              # The engine's own cohort label names the year selection (midterm,
+              # pre-election, consecutive...); never infer it from the years code.
+              'mobile_spec':e['cohort']['label']+' · '+span,
+              'spec':('Bars: ending change. Lines: lowest to highest change from the starting price.' if is_range else e['cohort']['label'])+f" · {span}",
               'caption':caption,'source':'TradeWave engine · '+e['cohort']['label'],
               'price_median':float(stats['Median Profit'].rstrip('%')) if c['direction']=='long' else None}}
         kwargs={'mfe':[r['mfe'] for r in rows],'mae':[r['mae'] for r in rows]} if is_range else {}
@@ -244,7 +247,7 @@ def prepare(source,bundle,directory):
                     chartkit.record_bars(years,[r['net'] for r in rows],{**meta,'range_caps':show_caps},str(assets/f'tradewave-range-{suffix}.png'),mobile=mobile,**kwargs)
     with (assets/'tradewave-observations.csv').open('w',newline='',encoding='utf-8') as f:
         writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
-    price=render_price(card,assets)
+    price=render_price(card,assets,contract.get('company',''))
     images.append(price)
     data={'card':card,'evidence':e,'images':images,'study_url':study_link(card,contract['viewer_url']),
         'history_source_id':contract['history_source_id'],'methodology_url':contract['methodology_url'],
@@ -255,42 +258,65 @@ def prepare(source,bundle,directory):
     return data
 
 
-def render_price(card,assets):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
+PRICE_LABELS={'2':'Share price (USD)','11':'Share price (USD)','5':'Index level','7':'Futures price'}
+
+
+NBSP='\u00a0'  # keeps a date on one line when chart text wraps
+
+
+def _long_date(iso):
+    d=date.fromisoformat(str(iso)[:10])
+    return f'{d:%b}{NBSP}{d.day},{NBSP}{d.year}'
+
+
+def _span(start,end):
+    """'Oct 29 – Dec 2, 2026', or both years when the window crosses one."""
+    a,b=date.fromisoformat(start),date.fromisoformat(end)
+    if a.year==b.year:return f'{a:%b}{NBSP}{a.day}{NBSP}–{NBSP}{b:%b}{NBSP}{b.day},{NBSP}{b.year}'
+    return f'{_long_date(start)} – {_long_date(end)}'
+
+
+def render_price(card,assets,company=''):
+    import chartkit
     from datetime import datetime
     p=card['price_path']; past=p['ohlc_response']; future=p['projection_response']
-    # Date parsing and responsive layout only. Plot the owner's points unchanged.
+    # Date parsing and labels only. Plot the owner's points unchanged.
     dates=[datetime.fromisoformat(r[0]) for r in past]; prices=[float(r[4]) for r in past]
     fdates=[dates[-1]]+[datetime.fromisoformat(r[0]) for r in future]
     fprices=[prices[-1]]+[r[1] for r in future]
+    e=card['engine_results']; w=e['window']; cohort=e['cohort']['label']
+    symbol=card['symbol']; weekdays=p.get('request',{}).get('period_days',60)
+    last=_long_date(p['last_price_date'])
+    meta={'symbol':symbol,'company':company,'kicker_tail':'price and seasonal trend',
+        'title':f"{symbol}: recorded prices and TradeWave's seasonal trend",
+        'mobile_title':f'{symbol}: price and seasonal trend',
+        'spec':f'Daily closes to {last} · dashed: TradeWave seasonal trend for the next {weekdays} weekdays, anchored to the last close',
+        'mobile_spec':f'Closes to {last} · dashed: {weekdays}-weekday seasonal trend',
+        'source':f'Source: TradeWave · trend: {cohort}',
+        'trend_label':'TradeWave seasonal trend (normalized; not a forecast)',
+        'mobile_trend_label':'TradeWave seasonal trend (not a forecast)',
+        'price_label':PRICE_LABELS.get(str(card['resource_id']),'Price'),
+        'last_date':p['last_price_date'],'last_close':float(p['last_price']),
+        'window_start':w['start_date'],'window_end':w['end_date'],
+        'direction':card['story_cell']['direction'],'n':e['cohort']['n']}
     for mobile in (False,True):
-        with plt.rc_context({'font.family':'DejaVu Sans','font.size':11}):
-            fig,ax=plt.subplots(figsize=(5.1,5.3) if mobile else (10,4.8),dpi=160)
-            ax.plot(dates,prices,color='#295ac7',linewidth=1.6,label='Recorded closing price')
-            ax.plot(fdates,fprices,color='#c67818',linestyle='--',linewidth=1.8,label='TradeWave seasonal illustration')
-            ax.axvline(dates[-1],color='#8d9ba5',linewidth=.8,linestyle=':')
-            ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4,maxticks=5 if mobile else 8))
-            ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
-            ax.set_ylabel('Index level' if str(card['resource_id'])=='5' else 'Share price (USD)');ax.grid(axis='y',color='#e7ecee')
-            ax.spines[['right','top']].set_visible(False)
-            ax.legend(loc='upper left',fontsize=8 if mobile else 9,frameon=False)
-            fig.tight_layout(pad=1.2)
-            fig.savefig(assets/('tradewave-price_projection'+('-mobile' if mobile else '')+'.png'),facecolor='white')
-            plt.close(fig)
+        chartkit.engine_price_trend(dates,prices,fdates,fprices,meta,
+            str(assets/('tradewave-price_projection'+('-mobile' if mobile else '')+'.png')),mobile=mobile)
     with (assets/'tradewave-price-path.csv').open('w',newline='',encoding='utf-8') as f:
         writer=csv.writer(f);writer.writerow(['series','date','price'])
         writer.writerows(['TradeWave recorded close',r[0],r[4]] for r in past)
         writer.writerows(['TradeWave projection result',r[0],r[1]] for r in future)
     caption=(f"Blue shows recorded prices through {p['last_price_date']}. The amber line overlays a section of TradeWave's seasonal trend, scaled to the last recorded price, "
-        f"using {card['engine_results']['cohort']['label']}. Its displayed dates are {future[0][0]} to {future[-1][0]}; "
-        'covering the next 60 weekdays. That is a different horizon from the full seasonal window above. '
-        'It illustrates the historical seasonal shape, not a price target or forecast.')
+        f"using {cohort}. Its displayed dates are {future[0][0]} to {future[-1][0]}; "
+        'covering the next 60 weekdays. That is a different horizon from the full seasonal window above. ')
+    if w['start_date']<=future[-1][0]:
+        caption+=(f"The shaded band marks that window, {w['start_date']} to {w['end_date']}"
+                  +(', and continues past the displayed dates. ' if w['end_date']>future[-1][0] else '. '))
+    caption+='It illustrates the historical seasonal shape, not a price target or forecast.'
+    name=f'{symbol} ({company})' if company else symbol
     return {'variant':'price_projection','url':'assets/tradewave-price_projection.png','mobile_url':'assets/tradewave-price_projection-mobile.png',
         'sha256':sha(assets/'tradewave-price_projection.png'),'mobile_sha256':sha(assets/'tradewave-price_projection-mobile.png'),
-        'caption':caption,'alt':card['symbol']+' recorded prices and TradeWave seasonal illustration. '+caption,
+        'caption':caption,'alt':name+' recorded prices and TradeWave seasonal illustration. '+caption,
         'values_sha256':digest(p)}
 
 
