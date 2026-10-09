@@ -149,6 +149,10 @@ class EngineAuthorityTests(unittest.TestCase):
         price=next(i for i in data['images'] if i['variant']=='price_projection')
         self.assertTrue(price['alt'].startswith('KDP (Keurig Dr Pepper Inc.) recorded prices'))
         self.assertEqual(e.PRICE_LABELS.get('7'),'Futures price')
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory,'assets').mkdir()
+            alt=e.render_price({**c,'symbol':'SI'},Path(directory,'assets'),'Silver Futures (SI)')['alt']
+        self.assertTrue(alt.startswith('SI (Silver Futures) recorded prices'),alt)
 
     def test_comparisons_are_engine_outputs_and_describe_overlap(self):
         c=card(next(f for f in FIXTURES if f['original']['symbol']=='KMB'))

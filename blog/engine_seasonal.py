@@ -313,7 +313,9 @@ def render_price(card,assets,company=''):
         caption+=(f"The shaded band marks that window, {w['start_date']} to {w['end_date']}"
                   +(', and continues past the displayed dates. ' if w['end_date']>future[-1][0] else '. '))
     caption+='It illustrates the historical seasonal shape, not a price target or forecast.'
-    name=f'{symbol} ({company})' if company else symbol
+    # 'SI (Silver Futures)', not 'SI (Silver Futures (SI))'.
+    named=chartkit.identity_kicker(symbol,company).split(' · ')
+    name=f'{symbol} ({named[1]})' if len(named)>1 else symbol
     return {'variant':'price_projection','url':'assets/tradewave-price_projection.png','mobile_url':'assets/tradewave-price_projection-mobile.png',
         'sha256':sha(assets/'tradewave-price_projection.png'),'mobile_sha256':sha(assets/'tradewave-price_projection-mobile.png'),
         'caption':caption,'alt':name+' recorded prices and TradeWave seasonal illustration. '+caption,
