@@ -93,10 +93,19 @@ class Day:
     # ---- model jobs -------------------------------------------------
     def jobs_used(self):
         from model_job_evidence import jobs_used
-        return jobs_used(self.root)
+        return jobs_used(self.root, self.date)
 
     def _archive(self, job, exc, kind):
         """Move a failed attempt aside and mark the job ready to run again."""
+        from daily_budget import BudgetEvidenceError, reservation_lease
+        try:
+            with reservation_lease(self.root, self.date):
+                return self._archive_reserved(Path(job), exc, kind)
+        except BudgetEvidenceError as error:
+            raise Hold('Shared daily budget custody needs investigation: '+str(error)) from error
+
+    def _archive_reserved(self, job, exc, kind):
+        """Shared budget lease remains held through the new retry archive."""
         from smn_recovery import MAX_JOB_ATTEMPTS, attempts
         if (job/'.claim').exists() or (job/'receipt.json').exists():
             raise Hold('Running or completed model effect must be reconciled before retry')
