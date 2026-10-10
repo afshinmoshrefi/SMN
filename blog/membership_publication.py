@@ -10,7 +10,7 @@ import re
 from urllib.parse import parse_qs, unquote, urljoin, urlsplit
 import uuid
 
-from article_content_store import ContentStore, ContentError, canonical_path
+from article_content_store import ACCESS_CHOICES, ContentStore, ContentError, canonical_path
 from reader_app import asset_url
 from visual_evidence import digest
 
@@ -180,7 +180,16 @@ class AssetRewriter:
         return rendered
 
 
+def access_of(post):
+    """The post's reader access: 'open' (default, no login) or 'members'."""
+    access = str(post.get('access') or 'open').strip().lower()
+    if access not in ACCESS_CHOICES:
+        raise ContentError('Article access must be open or members')
+    return access
+
+
 def prepare(post, raw, preview=None, reviewer=None, previous=None, source_root=None):
+    access = access_of(post)
     preview = deepcopy(preview or opening_preview(post, raw))
     content_hash = digest(preview['content'])
     revision = 'r-' + sha((raw + content_hash).encode())[:32]
@@ -188,8 +197,12 @@ def prepare(post, raw, preview=None, reviewer=None, previous=None, source_root=N
     rendered = rewriter.rewrite(raw)
     hero = rewriter.url(post.get('hero_image', ''), public=True)
     # Asset hashes participate in revision identity; URL rewrites are derived.
-    revision = 'r-' + digest({'source': sha(raw.encode()), 'content': content_hash,
-                              'assets': {k: sha(v) for k, v in rewriter.assets.items()}})[:32]
+    # A members-only lock does too, but only when set, so existing revision ids are unchanged.
+    identity = {'source': sha(raw.encode()), 'content': content_hash,
+                'assets': {k: sha(v) for k, v in rewriter.assets.items()}}
+    if access == 'members':
+        identity['access'] = 'members'
+    revision = 'r-' + digest(identity)[:32]
     rewriter.revision = revision
     rendered = rewriter.rewrite(raw)
     hero = rewriter.url(post.get('hero_image', ''), public=True)
@@ -203,13 +216,14 @@ def prepare(post, raw, preview=None, reviewer=None, previous=None, source_root=N
     if existing:
         saved = json.loads(existing[0])
         if (saved['full_html_sha256'] != sha(rendered.encode()) or saved['preview'] != preview
+                or saved.get('access', 'open') != access
                 or saved['assets'] != {name: {'sha256': sha(data), 'public': name in rewriter.public}
                                       for name, data in rewriter.assets.items()}):
             raise ContentError('Immutable article revision changed')
         approval = saved['approval']
     manifest = private_store.prepare_revision(path_for(post), revision, rendered, preview, approval,
         assets=rewriter.assets, public_asset_ids=rewriter.public,
-        aliases=previous.get('aliases', []) if previous else [])
+        aliases=previous.get('aliases', []) if previous else [], access=access)
     updated = dict(post, path=str(store()._private_file(manifest, 'full.html')),
         hero_image=hero, membership_revision=revision, preview_mode=preview['provenance'].get('mode', 'summary'),
         dek=preview['content']['preview'][0]['text'], meta_description=preview['content']['preview'][0]['text'][:160])

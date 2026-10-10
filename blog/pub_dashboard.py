@@ -1029,8 +1029,19 @@ WRITABLE_FIELDS = (
     "title", "dek", "seo_title", "meta_description", "symbol", "tickers",
     "market_family", "direction", "pattern_start_date", "pattern_days",
     "lookback_years", "author_id", "resource_id", "tags", "hero_image",
-    "hero_alt", "publish_status", "published_date", "edition_id",
+    "hero_alt", "publish_status", "published_date", "edition_id", "access",
 )
+
+ACCESS_CHOICES = ("open", "members")
+
+
+def bad_access(data: Dict[str, Any]):
+    """A 400 reply when "access" is present but not open/members, else None."""
+    if "access" in data and data["access"] not in ACCESS_CHOICES:
+        return fail("bad_access", "access must be 'open' or 'members'",
+                    hint="'members' locks the complete article behind reader login",
+                    field="access")
+    return None
 
 
 def _article_target(symbol: str, family: str, published: str, slug: str) -> Path:
@@ -1049,6 +1060,9 @@ def api_create_article():
                     "missing required field(s): " + ", ".join(missing),
                     hint="required: symbol, title, html. See GET /api/schema",
                     field=missing[0])
+    invalid = bad_access(data)
+    if invalid:
+        return invalid
 
     who = actor(data)
     slug = slugify(data.get("slug") or data.get("title"))
@@ -1142,6 +1156,8 @@ def _create_post(data: Dict[str, Any], slug: str, who: str) -> Dict[str, Any]:
         "publish_status": str(data.get("publish_status", "true")).lower(),
         "created_by": who,
     }
+    if data.get("access"):
+        post["access"] = data["access"]
     if membership_publication.configured():
         post, manifest = membership_publication.prepare(post, str(data['html']))
     return post
@@ -1151,7 +1167,7 @@ def _create_post(data: Dict[str, Any], slug: str, who: str) -> Dict[str, Any]:
 def api_update_article(slug):
     data = body_json()
     who = actor(data)
-    blocked = unpublished_guard(slug)
+    blocked = bad_access(data) or unpublished_guard(slug)
     if blocked:
         return blocked
     with article_index.posts_lock():
@@ -1816,6 +1832,8 @@ FIELD_DOCS = {
     "pin": "The active pin record, or null.",
     "url": "Public URL.",
     "hero_image": "Public URL of the hero image.",
+    "access": "Reader access: 'open' (default, complete article and charts readable "
+              "without login) or 'members' (login required for the full article).",
     "hero_ok": "True when the hero file exists on disk and is not empty. Derived.",
     "path": "Absolute path of the article HTML on the webserver.",
 }

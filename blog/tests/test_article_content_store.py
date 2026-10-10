@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from article_content_store import ContentStore, ContentError
+from article_content_store import ContentStore, ContentError, is_open
 from visual_evidence import digest
 
 
@@ -11,7 +11,8 @@ CANONICAL = '/editions/2026-10-03/test/article.html'
 FULL = '<!doctype html><title>Full study</title><p>PROTECTED_BODY_SENTINEL</p>'
 
 
-def stage(store, revision='r1', aliases=None):
+# Fixtures lock with 'members' so the gated-reader tests keep exercising the gate.
+def stage(store, revision='r1', aliases=None, access='members'):
     statement = lambda text: {'text': text, 'source_ids': ['engine'], 'article_refs': ['title']}
     preview = {'provenance': {'article_id': 'https://seasonalmarketnews.com/articles/original.html', 'revision': revision},
                'content': {'headline': statement('Useful public finding'), 'preview': [statement('Public evidence and its limits.')],
@@ -19,7 +20,8 @@ def stage(store, revision='r1', aliases=None):
     approval = {'passed': True, 'reviewer': 'test-only', 'reviewed_at': '2026-10-03T00:00:00Z',
                 'derivative_sha256': digest(preview), 'full_html_sha256': hashlib.sha256(FULL.encode()).hexdigest()}
     return store.prepare_revision(CANONICAL, revision, FULL, preview, approval,
-        assets={'chart.png': b'PRIVATE_CHART_SENTINEL', 'hero.png': b'PUBLIC_HERO'}, public_asset_ids=['hero.png'], aliases=aliases)
+        assets={'chart.png': b'PRIVATE_CHART_SENTINEL', 'hero.png': b'PUBLIC_HERO'}, public_asset_ids=['hero.png'], aliases=aliases,
+        access=access)
 
 
 class ContentStoreTests(unittest.TestCase):
@@ -75,6 +77,15 @@ class ContentStoreTests(unittest.TestCase):
         stage(self.store, aliases=[alias]); self.store.activate_revision(CANONICAL, 'r1', 'publish1'); self.store.set_enabled(True)
         self.assertEqual(self.store.resolve(alias)['canonical_path'], CANONICAL)
         with self.assertRaises(ContentError): self.store.resolve('/articles/original.html')
+
+    def test_open_by_default_and_members_lock_is_explicit(self):
+        opened = stage(self.store, 'r-open', access='open')
+        self.assertNotIn('access', opened)
+        self.assertTrue(is_open(opened))
+        locked = stage(self.store)
+        self.assertEqual(locked['access'], 'members')
+        self.assertFalse(is_open(locked))
+        with self.assertRaises(ContentError): stage(self.store, 'r-bad', access='public')
 
     def test_changed_review_approval_rejected(self):
         manifest = stage(self.store)

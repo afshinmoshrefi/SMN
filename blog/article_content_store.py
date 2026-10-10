@@ -16,6 +16,14 @@ class ContentError(ValueError):
     pass
 
 
+# 'open' (default) is readable by anyone; 'members' needs reader entitlement.
+ACCESS_CHOICES = ('open', 'members')
+
+
+def is_open(manifest):
+    return manifest.get('access', 'open') != 'members'
+
+
 def canonical_path(value):
     if not isinstance(value, str) or any(ord(c) < 32 or ord(c) == 127 for c in value):
         raise ContentError('Invalid article path')
@@ -99,8 +107,10 @@ class ContentStore:
             return db.execute("SELECT value FROM settings WHERE key='enabled'").fetchone()[0] == '1'
 
     def prepare_revision(self, canonical, revision, full_html, preview, approval, assets=None,
-                         public_asset_ids=None, aliases=None):
+                         public_asset_ids=None, aliases=None, access='open'):
         canonical = canonical_path(canonical)
+        if access not in ACCESS_CHOICES:
+            raise ContentError('Article access must be open or members')
         if not isinstance(revision, str) or not revision.strip() or len(revision) > 200:
             raise ContentError('Explicit revision required')
         if not isinstance(full_html, str) or not full_html.strip():
@@ -129,6 +139,10 @@ class ContentStore:
         manifest = {'canonical_path': canonical, 'revision': revision, 'storage': relative,
                     'full_html_sha256': _sha(body), 'preview': preview, 'approval': approval,
                     'aliases': known_aliases, 'assets': {}, 'public_asset_ids': sorted(allowed)}
+        # Open (no key) serves the complete article to everyone, so existing
+        # revision bytes stay identical. Only a members-only lock is recorded.
+        if access == 'members':
+            manifest['access'] = 'members'
         blobs = {}
         for name, value in assets.items():
             asset_name(name)

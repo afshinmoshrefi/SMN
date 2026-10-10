@@ -44,6 +44,21 @@ class ReaderAppTests(unittest.TestCase):
         self.assertEqual(response.data, b'PUBLIC_HERO'); response.close()
         self.assertEqual(self.client.get(asset_url(CANONICAL, 'r1', 'chart.png', True)).status_code, 404)
 
+    def test_open_article_and_assets_need_no_login(self):
+        # setUp's r1 is locked to members; r2 uses the open default.
+        stage(self.store, 'r2', access='open')
+        self.store.activate_revision(CANONICAL, 'r2', 'open1', 'r1')
+        full = self.client.get(CANONICAL)
+        self.assertIn(b'PROTECTED_BODY_SENTINEL', full.data)
+        self.assertEqual(full.headers['Cache-Control'], 'private, no-store')
+        chart = self.client.get(asset_url(CANONICAL, 'r2', 'chart.png'))
+        self.assertEqual(chart.data, b'PRIVATE_CHART_SENTINEL'); chart.close()
+        # A stale revision of an open article and the gated route stay closed.
+        self.assertEqual(self.client.get(asset_url(CANONICAL, 'r1', 'chart.png')).status_code, 404)
+        self.store.activate_revision(CANONICAL, 'r1', 'gate1', 'r2')
+        self.assertNotIn(b'PROTECTED_BODY_SENTINEL', self.client.get(CANONICAL).data)
+        self.assertEqual(self.client.get(asset_url(CANONICAL, 'r1', 'chart.png')).status_code, 403)
+
     def test_archive_search_only_receives_public_projection(self):
         public = Path(self.tmp.name) / 'public'
         public.mkdir(exist_ok=True)

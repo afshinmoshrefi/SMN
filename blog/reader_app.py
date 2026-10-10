@@ -7,7 +7,7 @@ from urllib.parse import urlencode, urlsplit
 
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_file
 
-from article_content_store import ContentStore, ContentError
+from article_content_store import ContentStore, ContentError, is_open
 from reader_auth import ReaderAuth, ReaderError, _expiry
 
 
@@ -124,8 +124,14 @@ def create_app(config=None, store=None, auth=None):
                              '/smn-reader/cancel', {'cancel_at_period_end': True})
         return jsonify(result) if request.is_json else redirect('/member/account', 303)
 
+    def open_article(path):
+        try:
+            return is_open(store.resolve(path))
+        except ContentError:
+            return False
+
     def get_asset(public):
-        if not public:
+        if not public and not open_article(request.args.get('article', '')):
             entitlement, _ = auth.entitlement(cookie())
             if entitlement.get('can_read') is not True:
                 raise ReaderError('access_required', 'Sign in with reader access to view this asset.', 403)
@@ -217,6 +223,8 @@ def create_app(config=None, store=None, auth=None):
         manifest = store.resolve(path)
         if path != manifest['canonical_path']:
             return redirect(manifest['canonical_path'], 308)
+        if is_open(manifest):
+            return Response(store.read_revision(path, 'full'), mimetype='text/html')
         notice = None
         try:
             entitlement, local = auth.entitlement(cookie())

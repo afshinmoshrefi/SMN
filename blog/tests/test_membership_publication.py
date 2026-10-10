@@ -46,6 +46,21 @@ class MembershipPublicationTests(unittest.TestCase):
         _, repeated = publication.prepare(self.post, self.raw)
         self.assertEqual(repeated, manifest)
 
+    def test_open_by_default_and_members_lock_binds_revision(self):
+        _, default = publication.prepare(self.post, self.raw)
+        _, opened = publication.prepare(dict(self.post, access='open'), self.raw)
+        self.assertEqual(opened['revision'], default['revision'])
+        self.assertNotIn('access', default)
+        with self.assertRaises(ContentError): publication.prepare(dict(self.post, access='free'), self.raw)
+        # Locking a published article re-reads its assets from the prior revision.
+        old, _ = self.publish()
+        raw, previous = publication.source(old)
+        _, locked = publication.prepare(dict(old, access='members'), raw, previous=previous)
+        self.assertEqual(locked['access'], 'members')
+        self.assertNotEqual(locked['revision'], previous['revision'])
+        self.assertEqual({a['sha256'] for a in locked['assets'].values()},
+                         {a['sha256'] for a in previous['assets'].values()})
+
     def test_native_cache_version_is_replaced_with_private_hash_bound_url(self):
         version = publication.sha(b'EXACT_ENGINE_CHART')[:16]
         updated, manifest = publication.prepare(self.post, self.raw.replace('src="chart.png"', f'src="chart.png?v={version}"'))

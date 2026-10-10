@@ -34,7 +34,7 @@ def prepare():
                 failures.append({'slug': post.get('slug'), 'error': str(exc)})
         result = {'status': 'held' if failures else 'prepared', 'created_at': publication.now(),
             'catalog_sha256': publication.sha(before), 'count': len(posts), 'prepared': prepared,
-            'failures': failures, 'policy': 'Source openings remain public; complete articles require reader access.'}
+            'failures': failures, 'policy': 'Complete articles are open unless a post is locked with access "members".'}
         publication._write(record, result)
         return result
 

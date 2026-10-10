@@ -185,6 +185,17 @@ class DashboardTestCase(DashboardFixture):
         error = self.client.post("/api/articles", json={"symbol": "X"}).get_json()["error"]
         self.assertEqual(error["code"], "missing_fields")
 
+    def test_access_is_validated_and_stored(self):
+        bad = self.client.post("/api/articles", json={
+            "symbol": "X", "title": "Free", "html": "<p>x</p>", "access": "public"})
+        self.assertEqual((bad.status_code, bad.get_json()["error"]["code"]), (400, "bad_access"))
+        self.assertEqual(self.client.patch("/api/articles/a0", json={"access": "all"}).status_code, 400)
+        r = self.client.post("/api/articles", json={
+            "symbol": "X", "title": "Locked", "html": "<p>x</p>", "access": "members"})
+        self.assertEqual(r.get_json()["data"]["article"]["access"], "members")
+        self.client.patch("/api/articles/a0", json={"access": "members"})
+        self.assertEqual(self.client.get("/api/articles/a0").get_json()["data"]["access"], "members")
+
     # ---------------------------------------------------------------- hero
     def _hero_call(self, slug, reply_status=200, reply=None):
         sent = {}
