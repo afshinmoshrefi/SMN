@@ -16,6 +16,7 @@
 !/docs/
 /docs/*
 !/docs/AGENT_COORDINATION.md
+!/docs/SMN_SOL61_QUALIFICATION.md
 
 # 3) Inside blog/: ignore everything, re-allow code + templates only.
 blog/*

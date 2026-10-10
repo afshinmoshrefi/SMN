@@ -40,6 +40,63 @@ class SubscriptionHandoffTests(unittest.TestCase):
         self.assertEqual(result,{'PATH':'normal','CODEX_HOME':'existing_login_location'})
         self.assertIn('CODEX_API_KEY',original)
 
+    def test_default_and_explicit_legacy_jobs_keep_their_model_identity(self):
+        default = verify_job(self.job())
+        self.assertEqual((default['model'], default['effort']), ('gpt-6.1-sol', 'medium'))
+        legacy_job = prepare_job(self.root, 'explicit-legacy', 'Retained evidence.', self.schema,
+            as_of=datetime.now(timezone.utc).isoformat(),
+            valid_until=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),
+            evidence_sha256='a'*64, model='gpt-6-astra', effort='high')
+        original = (legacy_job/'job.json').read_bytes()
+        self.assertEqual(verify_job(legacy_job)['model'], 'gpt-6-astra')
+        self.assertEqual((legacy_job/'job.json').read_bytes(), original)
+
+    def test_chatgpt_text_profile_stops_before_dispatch_when_sol61_is_missing(self):
+        import smn_models
+        from subscription_writer import load_json
+        roles = smn_models.load(profile='chatgpt')
+        snapshot = {'model_catalog': [{'id': 'gpt-6-astra', 'model': 'gpt-6-astra',
+                    'supportedReasoningEfforts': [{'reasoningEffort': 'medium'}]}]}
+        for role in ('write', 'research', 'review'):
+            with self.subTest(role=role):
+                job = smn_models.prepare(roles, role, self.root, 'missing-'+role,
+                    'Retained evidence.', self.schema,
+                    as_of=datetime.now(timezone.utc).isoformat(),
+                    valid_until=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),
+                    evidence_sha256='a'*64)
+                original = (job/'job.json').read_bytes()
+                self.assertEqual((verify_job(job)['model'], verify_job(job)['effort']),
+                                 ('gpt-6.1-sol', 'medium'))
+                with patch('subscription_writer.account_snapshot', return_value=snapshot), \
+                     patch('subscription_writer.subprocess.Popen') as provider:
+                    with self.assertRaisesRegex(RuntimeError, 'model is unavailable'):
+                        run_job(job, 'never-start-this')
+                    provider.assert_not_called()
+                self.assertEqual(load_json(job/'state.json')['status'], 'failed_needs_review')
+                self.assertFalse(load_json(job/'state.json')['automatic_retry'])
+                self.assertFalse((job/'receipt.json').exists())
+                self.assertEqual((job/'job.json').read_bytes(), original)
+                with patch('subscription_writer.account_snapshot') as retry_probe:
+                    with self.assertRaisesRegex(RuntimeError, 'not ready'):
+                        run_job(job, 'never-start-this')
+                    retry_probe.assert_not_called()
+        for role in ('visual', 'hero_check'):
+            self.assertEqual((roles[role]['model'], roles[role]['effort']), ('gpt-6-luna', 'low'))
+
+    def test_missing_medium_effort_is_not_substituted_or_dispatched(self):
+        from subscription_writer import load_json
+        job = self.job()
+        snapshot = {'model_catalog': [{'id': 'gpt-6.1-sol', 'model': 'gpt-6.1-sol',
+                    'supportedReasoningEfforts': [{'reasoningEffort': 'high'}]}]}
+        with patch('subscription_writer.account_snapshot', return_value=snapshot), \
+             patch('subscription_writer.subprocess.Popen') as provider:
+            with self.assertRaisesRegex(RuntimeError, 'effort is unavailable'):
+                run_job(job, 'never-start-this')
+            provider.assert_not_called()
+        self.assertEqual(load_json(job/'state.json')['status'], 'failed_needs_review')
+        self.assertEqual(verify_job(job)['effort'], 'medium')
+        self.assertFalse((job/'receipt.json').exists())
+
     def test_prepared_input_cannot_change_silently(self):
         job=self.job()
         (job/'prompt.txt').write_text('altered',encoding='utf-8')
