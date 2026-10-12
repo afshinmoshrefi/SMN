@@ -2,9 +2,10 @@
 import hashlib
 import re
 
-VERSION = 1
-KIND = 'market-bar-numeric-quotes-v1'
+VERSION = 2
+KIND = 'market-bar-numeric-quotes-v2'
 SPAN = re.compile(rb'<div class="market-bar">.*?</div>\s*</div>', re.S)
+NUMBER = rb'[-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?'
 
 
 def _sha(raw):
@@ -21,12 +22,12 @@ def split(raw):
 
 def contract(raw):
     prefix, span, suffix = split(raw)
-    stable = re.sub(rb'<span class="market-price"(?: style="color:#818cf8")?>[-+0-9,.]*(?:<sup style=\x27font-size:9px;color:#6366f1;margin-left:1px\x27>F</sup>)?</span>', b'', span)
-    stable = re.sub(rb"<span class='market-change (?:up|down|flat)'>[-+0-9,.%]*</span>", b'', stable)
+    stable = re.sub(rb'(<span class="market-price"(?: style="color:#818cf8")?>)('+NUMBER+rb')(<sup style=\x27font-size:9px;color:#6366f1;margin-left:1px\x27>F</sup>)?(</span>)', lambda m:m[1]+b'PRICE'+(m[3] or b'')+m[4], span)
+    stable = re.sub(rb"(<span class='market-change )(up|down|flat)('>)("+NUMBER+rb"%?)(</span>)", lambda m:m[1]+b'DIRECTION'+m[3]+b'CHANGE'+m[5], stable)
     stable = re.sub(rb'class="market-item (?:up|down|flat)"', b'class="market-item DIRECTION"', stable)
     return {'version': VERSION, 'kind': KIND,
             'outside_sha256': _sha(prefix + suffix),
-            'markup_sha256': _sha(re.sub(rb'\s+', b'', stable)),
+            'markup_sha256': _sha(stable),
             'observed_sha256': _sha(raw), 'quote_sha256': _sha(span)}
 
 

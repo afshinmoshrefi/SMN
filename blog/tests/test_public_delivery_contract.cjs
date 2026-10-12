@@ -13,8 +13,13 @@ const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`
  await assert.rejects(()=>contract.normalizeAnalytics(enc.encode(PAGE+BEACON.replace('crossorigin="anonymous"','onclick="alert(1)"'))),/Unrecognized/);
  assert.notEqual(await contract.sha((await contract.normalizeAnalytics(enc.encode(PAGE+BEACON+'<script>unknown</script>'))).bytes),await contract.sha(enc.encode(PAGE)),'Unknown script cannot disappear');
  const frozen=await contract.quoteContract(enc.encode(PAGE));
+ const price='<span class="market-price">100.25</span>';
+ const linked=PAGE.replace('SPX ','<a href="/markets/sp500.html">SPX</a> ');
+ const bound=await contract.quoteContract(enc.encode(linked));
+ for(const changed of [linked.replace(price,''),linked.replace(price,price+price),linked.replace('/markets/sp500.html','/markets/sp 500.html')])assert(!contract.matches(bound,await contract.quoteContract(enc.encode(changed))));
+ for(const bad of ['--.','','1,00.25'])assert(!contract.matches(bound,await contract.quoteContract(enc.encode(linked.replace('100.25',bad)))));
  assert(contract.matches(frozen,await contract.quoteContract(enc.encode(PAGE.replace('100.25','102.00')))));
  for(const change of [PAGE.replace('Bound article','Peer edit'),PAGE.replace('SPX','FAKE'),PAGE.replace('100.25','<script>alert(1)</script>')])assert(!contract.matches(frozen,await contract.quoteContract(enc.encode(change))));
  await assert.rejects(()=>contract.quoteContract(enc.encode(PAGE+BAR)),/one complete/);
- console.log('9 delivery contract assertions passed: exact analytics, repeated/unknown inserts, numeric refresh and content tampering');
+ console.log('Delivery contract cases passed: exact analytics, repeated/unknown inserts, numeric refresh, deleted/duplicated spans, malformed numbers and link whitespace');
 })().catch(error=>{console.error(error);process.exitCode=1});

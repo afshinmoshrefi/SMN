@@ -979,7 +979,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', metavar='EMAIL',
                         help='Send a single test email to the given address (no state changes)')
     parser.add_argument('--verified-reader-date', metavar='YYYY-MM-DD',
-                        help='Require the complete verified production reader edition')
+                        help='Require the current verified published reader coverage')
     args = parser.parse_args()
 
     today = _today()
@@ -990,13 +990,15 @@ if __name__ == '__main__':
         setting = operational_settings.for_instant(datetime.now(timezone.utc))['weekday_newsletter']
         local_now = datetime.now(timezone.utc).astimezone(ZoneInfo(setting['timezone']))
         local_today = local_now.date()
+        from operational_schedule import NEWSLETTER_SCHEDULE_LEAD
+        send_at=datetime.combine(local_today,datetime.strptime(setting['time'],'%H:%M').time(),ZoneInfo(setting['timezone']))
         if (args.test or args.force or args.verified_reader_date != local_today.isoformat() or
-                local_today.weekday() >= 5 or local_now.strftime('%H:%M') < setting['time']):
+                local_today.weekday() >= 5 or local_now < send_at-NEWSLETTER_SCHEDULE_LEAD):
             parser.error('verified reader send requires the current weekday without --test or --force')
         from operational_schedule import CONTROLLER_ROOT, verified_reader_urls
         urls = verified_reader_urls(CONTROLLER_ROOT, args.verified_reader_date)
         if not urls:
-            raise ValueError('Complete verified reader edition is not ready')
+            raise ValueError('Verified published reader coverage is not ready')
         daily_send(verified_urls=urls, edition_date=local_today)
     elif args.test:
         test_send(args.test)

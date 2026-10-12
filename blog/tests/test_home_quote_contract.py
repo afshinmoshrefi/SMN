@@ -8,6 +8,13 @@ BAR='''<div class="market-bar"><div class="market-track"><span class="market-ite
 PAGE=('<html><body>'+BAR+'<p>Bound article and manual pin</p></body></html>').encode()
 
 class HomeQuoteContractTests(unittest.TestCase):
+    def test_element_count_order_and_significant_link_whitespace_are_bound(self):
+        price=b'<span class="market-price">100.25</span>'
+        original=PAGE.replace(b'SPX ',b'<a href="/markets/sp500.html">SPX</a> ')
+        for changed in [original.replace(price,b''),original.replace(price,price+price),original.replace(b'/markets/sp500.html',b'/markets/sp 500.html')]:
+            self.assertFalse(quotes.matches(quotes.contract(original),quotes.contract(changed)))
+        for bad in [b'--.',b'',b'1,00.25']:
+            self.assertFalse(quotes.matches(quotes.contract(original),quotes.contract(original.replace(b'100.25',bad))))
     def test_numeric_refresh_is_allowed_without_rebasing_content(self):
         changed=PAGE.replace(b'100.25',b'99.00').replace(b'+0.25%',b'-1.25%').replace(b'item up',b'item down').replace(b'change up',b'change down')
         self.assertNotEqual(quotes.contract(PAGE)['observed_sha256'],quotes.contract(changed)['observed_sha256'])

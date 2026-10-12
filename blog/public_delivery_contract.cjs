@@ -15,12 +15,12 @@ const SMNDeliveryContract=(()=>{
   const text=decoder.decode(raw),matches=[...text.matchAll(/<div class="market-bar">[\s\S]*?<\/div>\s*<\/div>/g)];
   if(matches.length!==1)throw Error('Expected one complete market quote span');
   const m=matches[0],span=m[0];
-  const stable=span.replace(/<span class="market-price"(?: style="color:#818cf8")?>[-+0-9,.]*(?:<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F<\/sup>)?<\/span>/g,'')
-   .replace(/<span class='market-change (?:up|down|flat)'>[-+0-9,.%]*<\/span>/g,'')
-   .replace(/class="market-item (?:up|down|flat)"/g,'class="market-item DIRECTION"').replace(/\s+/g,'');
-  return {version:1,kind:'market-bar-numeric-quotes-v1',outside_sha256:await sha(encoder.encode(text.slice(0,m.index)+text.slice(m.index+span.length))),markup_sha256:await sha(encoder.encode(stable)),observed_sha256:await sha(raw),quote_sha256:await sha(encoder.encode(span))};
+  const stable=span.replace(/(<span class="market-price"(?: style="color:#818cf8")?>)([-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?)(<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F<\/sup>)?(<\/span>)/g,(_,open,price,marker,close)=>open+'PRICE'+(marker||'')+close)
+   .replace(/(<span class='market-change )(up|down|flat)('>)([-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?%?)(<\/span>)/g,(_,open,direction,end,number,close)=>open+'DIRECTION'+end+'CHANGE'+close)
+   .replace(/class="market-item (?:up|down|flat)"/g,'class="market-item DIRECTION"');
+  return {version:2,kind:'market-bar-numeric-quotes-v2',outside_sha256:await sha(encoder.encode(text.slice(0,m.index)+text.slice(m.index+span.length))),markup_sha256:await sha(encoder.encode(stable)),observed_sha256:await sha(raw),quote_sha256:await sha(encoder.encode(span))};
  }
- function matches(expected,observed){return !!(expected&&observed&&expected.version===1&&expected.kind==='market-bar-numeric-quotes-v1'&&['version','kind','outside_sha256','markup_sha256'].every(k=>expected[k]===observed[k]));}
+ function matches(expected,observed){return !!(expected&&observed&&expected.version===2&&expected.kind==='market-bar-numeric-quotes-v2'&&['version','kind','outside_sha256','markup_sha256'].every(k=>expected[k]===observed[k]));}
  return {sha,normalizeAnalytics,quoteContract,matches,ANALYTICS_SHA};
 })();
 if(typeof module!=='undefined')module.exports=SMNDeliveryContract;
