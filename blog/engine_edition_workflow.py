@@ -82,6 +82,8 @@ def review_writer_evidence(out):
 def repair_source_allowances(article,bundle,chart_words):
     counts=source_word_counts(article,bundle,chart_words)
     return [{'id':sid,'maximum_all_surfaces':row['maximum'],'current_total':row['total'],
+             'budget_policy':row.get('budget_policy','explicit_hard_limit'),
+             'hard_limit':row.get('budget_policy')!='internal_editing_target_v1',
              'current_prose':row['prose'],'chart_words':row['chart'],
              'headings_and_citation_words':row['headings_and_citation'],
              'maximum_prose_with_current_headings':max(0,row['maximum']-row['chart']-row['headings_and_citation']),
@@ -344,16 +346,18 @@ class Edition:
             'Make targeted corrections using only supplied evidence; preserve strong writing, every protected chart and exact study. '
             'Follow each source budget policy: internal editing targets warn, other explicit limits remain hard. Do not omit material facts for an editing target. Do not calculate TradeWave metrics.\n'+se.RULES+'\n'+WRITER_SOURCE_RULES+
             '\nSOURCE PROSE ALLOWANCES:\n'+json.dumps(allowances)+
-            '\nCorrect by replacing or shortening existing source-derived prose rather than adding beyond its allowance. '
-            'The cap includes title, dek, takeaways, every mixed-source paragraph, chart text, headings and citations. '
-            'Stay below the recommended prose target to leave room for changed headings. Preserve the corrected factual '
-            'meaning and required material causes/counterpoints while cutting repetition; never relabel citations to evade a cap. '+
+            '\nThe allowance rows explicitly identify hard_limit. All surfaces count, including title, dek, takeaways, '
+            'mixed-source paragraphs, chart text, headings and citations. For hard_limit=false, the numbers are editing '
+            'targets: add source-backed facts or qualifications when needed even beyond the target; overages are warnings. '
+            'For hard_limit=true, enforce the explicit or legacy ceiling and shorten repetition to make room for corrections. '
+            'Preserve corrected factual meaning and required causes/counterpoints; never change citations to disguise source use. '+
             '\nDEFECTS:\n'+Path(issuefile).read_text(encoding='utf-8')+
             '\nFor each requested missing forecast or qualification, search the captured primary pages in the '
             'source audit context, check its period and measure against the reviewer issue, and cite that primary '
             'source. The prepared brief and material-context list may be incomplete. Keep related GAAP and adjusted '
             'outlooks together when the source reports both; distinguish guidance from reported results. '
-            'Replace less useful source prose to stay within the cap.\n'+
+            'Replace less useful source prose when helpful, but do not sacrifice a necessary correction for an advisory target. '
+            'Explicit and legacy hard limits still apply.\n'+
             '\nARTICLE:\n'+json.dumps(article,ensure_ascii=False)+
             '\nEVIDENCE:\n'+json.dumps(review_writer_evidence(out),ensure_ascii=False)+
             '\nSOURCE COUNTS:\n'+json.dumps(load_json(out/'mechanical-checks.json'))+

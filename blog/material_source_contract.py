@@ -1,4 +1,9 @@
-"""Explicit newer primary restatements; no inferred financial equivalence."""
+"""Validate restatement custody/dates; the independent reviewer judges equivalence.
+
+Exact quotations do not establish matching period, measure, currency or split
+basis by themselves. Those semantic checks remain mandatory in editorial review.
+No downstream financial conversion is performed here.
+"""
 from datetime import datetime
 import re
 

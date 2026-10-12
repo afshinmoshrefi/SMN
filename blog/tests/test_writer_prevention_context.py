@@ -95,7 +95,31 @@ class WriterPreventionContextTests(unittest.TestCase):
         self.assertEqual(allowances['remaining_additional_words'],0)
         self.assertEqual(allowances['maximum_prose_with_current_headings'],186)
         self.assertEqual(allowances['recommended_prose_target'],166)
+        self.assertTrue(allowances['hard_limit'])
+        self.assertEqual(allowances['budget_policy'],'explicit_hard_limit')
         self.assertIn('Do not transfer causality by proximity',prompt)
+
+    def test_repair_keeps_needed_facts_beyond_internal_target_but_retains_hard_limit_metadata(self):
+        out=self.root/'results/ABC';out.mkdir(parents=True)
+        article={'title':'word '*59,'title_source_ids':['issuer'],'dek':'','dek_source_ids':[],
+            'sections':[{'heading':'Current business results now','paragraphs':[{'text':'','source_ids':['issuer']}]}],
+            'takeaways':[]}
+        bundle={'as_of':'2026-09-30','evidence_sha256':'engine','sources':[
+            {'id':'issuer','title':'Q2 results','max_derived_words':200,'word_budget_policy':'internal_editing_target_v1'},
+            {'id':'licensed','title':'Licensed source','max_derived_words':100,'word_budget_policy':'contractual'}]}
+        for name,value in [('bundle.json',bundle),('article.json',article),('chart-words.json',{'issuer':140}),
+                ('writer-evidence.json',{}),('mechanical-checks.json',{}),('article.schema.json',{})]:self.write(out/name,value)
+        issue=self.root/'issue.txt';issue.write_text('Retain the source-confirmed GAAP counterpoint.')
+        edition=workflow.Edition(self.root,'2026-09-30',roles={'write':{'provider':'codex','model':'gpt-test','effort':'low'}})
+        with patch('editorial_gate.context',return_value={}),patch.object(edition,'_prepare') as prepare:
+            edition.repair('ABC',issue,'repair-two')
+        prompt=prepare.call_args.args[3];rows=json.loads(prompt.split('SOURCE PROSE ALLOWANCES:\n',1)[1].split('\n',1)[0]);by_id={r['id']:r for r in rows}
+        self.assertEqual(by_id['issuer']['current_total'],205);self.assertFalse(by_id['issuer']['hard_limit'])
+        self.assertTrue(by_id['licensed']['hard_limit']);self.assertEqual(by_id['licensed']['maximum_all_surfaces'],100)
+        self.assertIn('add source-backed facts or qualifications when needed even beyond the target',prompt)
+        self.assertNotIn('rather than adding beyond its allowance',prompt)
+        self.assertNotIn('Stay below the recommended prose target',prompt)
+        self.assertIn('fresh independent review is mandatory',prompt)
 
 
 if __name__=='__main__':unittest.main()

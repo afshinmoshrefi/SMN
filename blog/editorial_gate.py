@@ -393,7 +393,9 @@ article that communicates the fact/qualification. Choose quoted text carrying th
 or a validated alternative_sources citation; prefer a short exact contiguous quote from one cited unit.
 The primary source_id or an explicitly verified alternative_sources restatement may support the SAME fact,
 reporting period, measure and accounting basis. Check both primary quotations before accepting an alternative;
-a revised forecast or different period/basis is not equivalent. If meaning spans multiple cited units,
+a revised forecast or different period/basis is not equivalent. The independent reviewer is responsible for
+semantic equivalence, including currency and pre-split versus post-split basis; verbatim quotation and dates
+alone do not prove equivalence. Do not invent or calculate a conversion. If meaning spans multiple cited units,
 quote those exact spans in reading order with an ellipsis.
 Check the item's full summary against the article before marking it covered. A nearby paragraph citing a
 different unverified source does not establish coverage. Do not demand duplicate earlier-release prose when
