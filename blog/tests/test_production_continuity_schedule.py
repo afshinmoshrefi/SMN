@@ -69,6 +69,34 @@ class ContinuityScheduleTests(unittest.TestCase):
             reconcile.assert_called_once()
             self.assertEqual(result['status'],'generation_complete')
 
+    def test_verified_completed_continuity_day_is_complete_even_at_budget_limit(self):
+        path=self.root/DAY/'chatgpt/production-publication-receipt.json';path.parent.mkdir(parents=True)
+        receipt={'status':'live_verified','production_written':True,'publication_policy':'continuity-v1',
+                 'edition_date':DAY,'complete':True,'expected_symbols':['AAA'],'published_symbols':['AAA'],
+                 'pending_symbols':[],'revision':7}
+        path.write_text(json.dumps(receipt))
+        with patch('subscription_publication.selected_lineup',return_value=['AAA']), \
+                patch('production_continuity.verify_public_receipt',create=True) as verify, \
+                patch.object(schedule,'_fingerprint',return_value=('complete',60)), \
+                patch.object(smn_subscription_daily,'run') as run:
+            first=schedule.progress(self.root,DAY,AT_SEVEN)
+            second=schedule.progress(self.root,DAY,AT_SEVEN+timedelta(minutes=1))
+            self.assertEqual(first['status'],'generation_complete');self.assertEqual(second['jobs_used'],60)
+            self.assertEqual(verify.call_count,2);run.assert_not_called()
+            verify.side_effect=ValueError('Previously published content changed')
+            with self.assertRaisesRegex(ValueError,'content changed'):schedule.progress(self.root,DAY,AT_SEVEN)
+            run.assert_not_called()
+
+    def test_false_completed_partition_never_starts_another_model_run(self):
+        path=self.root/DAY/'chatgpt/production-publication-receipt.json';path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'status':'live_verified','publication_policy':'continuity-v1',
+            'complete':True,'published_symbols':['AAA'],'expected_symbols':['AAA','BBB'],'pending_symbols':[]}))
+        with patch('subscription_publication.selected_lineup',return_value=['AAA','BBB']), \
+                patch('production_continuity.verify_public_receipt',create=True), \
+                patch.object(smn_subscription_daily,'run') as run:
+            with self.assertRaisesRegex(ValueError,'frozen lineup'):schedule.progress(self.root,DAY,AT_SEVEN)
+            run.assert_not_called()
+
     def test_reconcile_cli_only_calls_get_poll_after_policy_guard(self):
         mail=types.ModuleType('send_smn_emails');mail.poll_pending_campaigns=lambda *_:{'campaign':'queued'}
         with patch.dict(sys.modules,{'send_smn_emails':mail}),patch.object(sys,'argv',['production_continuity_schedule.py','reconcile','--enable-production-continuity','--root',str(self.root),'--date',DAY]),patch('builtins.print'),patch('production_continuity.require_policy') as policy:

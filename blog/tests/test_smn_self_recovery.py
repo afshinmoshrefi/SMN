@@ -299,9 +299,12 @@ class IndependentSupervision(unittest.TestCase):
         self.assertTrue((self.root/DAY/'continuity-supervision.json').is_file())
 
     def test_mail_get_failure_does_not_disable_recovery_supervision(self):
+        from contextlib import contextmanager
+        @contextmanager
+        def fixture_lock(*_):yield True
         mail=types.SimpleNamespace(poll_pending_campaigns=Mock(side_effect=RuntimeError('mail provider unavailable')))
         argv=['schedule','reconcile','--enable-production-continuity','--root',str(self.root),'--date',DAY]
-        with patch.object(schedule,'require_production_host'),patch('sys.argv',argv),patch.dict('sys.modules',{'send_smn_emails':mail}),patch('builtins.print'):
+        with patch.object(schedule,'require_production_host'),patch.object(schedule,'_lock',fixture_lock),patch('sys.argv',argv),patch.dict('sys.modules',{'send_smn_emails':mail}),patch('builtins.print'):
             self.assertEqual(schedule.main(),0)
         worker=load_json(self.root/DAY/'continuity-workers/reconcile.json')
         self.assertEqual(worker['result']['mail_reconciliation']['status'],'held')
@@ -317,7 +320,7 @@ class IndependentSupervision(unittest.TestCase):
 
 class OptionalAssetRecovery(unittest.TestCase):
     def test_neutral_hero_for_missing_assets_has_zero_paid_calls_and_real_raster(self):
-        from test_subscription_inputs import package
+        from tests.test_subscription_inputs import package
         from PIL import Image
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);inputs.capture(root,'2026-09-30',lambda _:package())
@@ -330,7 +333,7 @@ class OptionalAssetRecovery(unittest.TestCase):
             with Image.open(root/item['path']) as image:self.assertEqual(image.size,(1200,675));self.assertEqual(image.format,'JPEG')
 
     def test_changed_retained_hero_custody_is_never_silently_replaced(self):
-        from test_subscription_inputs import package
+        from tests.test_subscription_inputs import package
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);inputs.capture(root,'2026-09-30',lambda _:package())
             inputs.prepare_heroes(root,'2026-09-30',nonessential_fallback=True)

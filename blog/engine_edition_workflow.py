@@ -260,9 +260,9 @@ class Edition:
             '\nAim 400-520 useful words including title, dek and takeaways; minimum350. Use six sections. '
             'Use a natural inviting opening, not a dry specialist report. Put current_context second, seasonal_record third, '
             'risk fourth, comparison fifth, outlook last so business and seasonal charts each follow their own discussion. '
-            'Give actual record and implications without a recital of every table statistic. All issuer sources have a200-word '
-            'derived-word cap across EVERY surface; chart text and headings count. Keep issuer-derived prose short enough '
-            'to fit the remaining allowance. Do not cite an issuer for independent historical analysis, or an engine source for issuer facts. '
+            'Give actual record and implications without a recital of every table statistic. Source guidance counts every surface. '
+            'For internal_editing_target_v1 sources, 200 words is an editing target; overages warn and do not hold otherwise factual copy. '
+            'Keep material facts and qualifications; other explicit budgets remain hard. Do not cite an issuer for engine analysis or an engine source for issuer facts. '
             'Paragraphs with mixed source IDs count fully against each. A source-related interpretation still counts. '
             'The own TradeWave evidence has no issuer word cap. No copy of the production article is supplied. '
             'Do not change the exact primary study or hide material comparison differences. State why the example year is chosen. '
@@ -288,6 +288,11 @@ class Edition:
         if hero_provider=='SMN deterministic neutral placeholder':
             request.update(alt='Neutral SMN article placeholder',caption='Neutral placeholder · Seasonal Market News',
                            provenance={'kind':'neutral_placeholder','source':p['hero_image']})
+        elif hero_provider=='SMN inspected archive':
+            archived=load_json(self.root/'input-heroes.json')['heroes'][sym]
+            request.update(alt=archived['alt'],caption='Conceptual illustration from the Seasonal Market News archive.',
+                provenance={'kind':'illustration','source':archived['source_asset_url'],
+                            'source_publication':archived['source_publication_url'],'inspection':archived['inspection']})
         h=install_hero(request,{'path':str(hero),'prompt_sha256':request['prompt_sha256'],'provider':hero_provider},out)
         save_json(out/'hero-asset.json',h)
         print(json.dumps({'prepared':sym,'source_allowances':allowances,'study_verified':True}),flush=True)
@@ -312,7 +317,8 @@ class Edition:
             'years, dates and direction. Extra comparisons are separately requested engine responses; short-side stats must stay labeled. '
             'Check why-now, seasonal value, useful takeaways, natural opening, properly explained risk example and completed dates, '
             'context graphic placement, comparison meaning, and the price chart introduced in outlook. '
-            'Old quarter results must be dated background, not breaking news. All source caps include title/dek/takeaways, headings and chart text. '
+            'Old results are dated background. Source budgets include every surface. Internal editing target overages are style warnings, not factual failures. '
+            'Other explicit budgets remain hard. Verified newer primary restatements of the same fact, period, measure and accounting basis can satisfy coverage without duplicate older prose. '
             'Audit causality against primary statements: preserve material execution failures, delayed deals and offsetting segment strength; '
             'do not attribute a multi-cause miss solely to external spending or demand. If the prepared summaries omit a needed primary '
             'qualification, fail the relevant check and request evidence repair rather than assuming the summary is complete. '
@@ -336,7 +342,7 @@ class Edition:
         allowances=repair_source_allowances(article,b,load_json(out/'chart-words.json'))
         prompt=('You are the final SMN financial editor. Return the COMPLETE repaired article JSON. No tools, commands, APIs, browsing or delegation. '
             'Make targeted corrections using only supplied evidence; preserve strong writing, every protected chart and exact study. '
-            'Observe each source word cap. Do not calculate TradeWave metrics.\n'+se.RULES+'\n'+WRITER_SOURCE_RULES+
+            'Follow each source budget policy: internal editing targets warn, other explicit limits remain hard. Do not omit material facts for an editing target. Do not calculate TradeWave metrics.\n'+se.RULES+'\n'+WRITER_SOURCE_RULES+
             '\nSOURCE PROSE ALLOWANCES:\n'+json.dumps(allowances)+
             '\nCorrect by replacing or shortening existing source-derived prose rather than adding beyond its allowance. '
             'The cap includes title, dek, takeaways, every mixed-source paragraph, chart text, headings and citations. '

@@ -70,6 +70,18 @@ class OperationalSettingsTest(unittest.TestCase):
             'production', default, newsletter_only=True), [('weekday_newsletter', '2026-10-05')])
         self.assertEqual(operational_schedule.due(monday, 'production', default, newsletter_only=True), [])
 
+    def test_earlier_repair_runway_is_future_only_and_preserves_newsletter_target(self):
+        prior=operational_settings.load();changed=json.loads(json.dumps(prior))
+        changed['daily_generation'].update(start_time='04:00',no_start_grace_minutes=5,stall_minutes=20)
+        now=datetime(2026,10,12,16,0,tzinfo=timezone.utc)
+        operational_settings.save(changed,'owner-approved earlier generation',now)
+        self.assertEqual(operational_settings.for_date('2026-10-12')['daily_generation'],prior['daily_generation'])
+        future=operational_settings.for_date('2026-10-13')
+        self.assertEqual(future['daily_generation']['start_time'],'04:00')
+        self.assertEqual(future['weekday_newsletter']['time'],'07:00')
+        self.assertIn(('selector','2026-10-13'),operational_schedule.due(datetime(2026,10,13,7,0,tzinfo=timezone.utc),'production',future))
+        self.assertIn(('daily','2026-10-13'),operational_schedule.due(datetime(2026,10,13,8,0,tzinfo=timezone.utc),'production',future))
+
     def test_newsletter_requires_exact_verified_live_reader_lineup(self):
         day = '2026-10-01'
         root, web = self.state/'runs', self.state/'web'

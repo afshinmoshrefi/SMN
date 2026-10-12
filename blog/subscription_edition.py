@@ -34,6 +34,15 @@ def source_word_counts(article, bundle, chart_words):
     for row in counts.values():
         row['total'] = row['prose'] + row['chart'] + row['headings_and_citation']
         row['passed'] = row['total'] <= row['maximum']
+    for source in bundle['sources']:
+        if source['id'] not in counts:continue
+        row=counts[source['id']]
+        if source.get('word_budget_policy')=='internal_editing_target_v1':
+            row['budget_policy']='internal_editing_target_v1'
+            row['over_target_words']=max(0,row['total']-row['maximum'])
+            row['passed']=True
+            if row['over_target_words']:
+                row['warning']='Internal editing target exceeded; factual/source checks remain required'
     return counts
 
 

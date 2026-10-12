@@ -82,6 +82,28 @@ class EditorialGateTests(unittest.TestCase):
     def test_valid_complete_custody_reaches_assets_and_visual(self):
         self.assertTrue(self.complete()['passed'])
 
+    def test_verified_newer_restatement_covers_same_fact_without_duplicate_old_prose(self):
+        quote=self.text;url='https://issuer.example/restatement';page='September 27 restatement. '+quote
+        raw=self.root/'primary/SPY.txt';proof_path=self.root/'primary/SPY.receipt.json'
+        raw.write_text(raw.read_text()+'TEXT_SHA256: '+gate.sha256(page.encode())+'\nTEXT:\n'+page+'\n')
+        proof=json.loads(proof_path.read_text());proof['text_sha256']=gate.sha256(raw.read_bytes())
+        proof['sources'].append({'url':url,'final_url':url,'date':'2026-09-27',
+            'page_text_sha256':gate.sha256(page.encode()),'page_text_chars':len(page)})
+        self.write(proof_path,proof)
+        self.material['alternative_sources']=[{'source_id':'restatement','quote':quote,
+            'same_fact_reason':'The newer primary restates the same management facts, period and accounting basis.'}]
+        self.bundle['sources'].append({'id':'restatement','url':url})
+        self.write(self.result/'bundle.json',self.bundle)
+        self.write(self.result/'writer-evidence.json',{'material_context':[self.material]})
+        self.article['sections'][0]['paragraphs'][0]['source_ids']=['restatement']
+        self.write(self.result/'article.json',self.article)
+        ctx=gate.context(self.root,'SPY','2026-09-30')
+        # Source-identity acceptance is narrow; other claim checks still run.
+        self.assertEqual(gate.problems(self.article,self.bundle,ctx,self.review),[])
+        self.material['alternative_sources'][0]['quote']='A quotation absent from the captured primary page.'
+        self.write(self.result/'writer-evidence.json',{'material_context':[self.material]})
+        with self.assertRaisesRegex(ValueError,'Restatement quote'):gate.context(self.root,'SPY','2026-09-30')
+
     def test_material_quote_must_use_matching_citation_even_when_adjacent_facts_are_correct(self):
         first='The filing reports the quarter ended July 26, 2026.'
         second='For the quarter ended July 26, 2026, revenue rose 18% sequentially and 106% annually.'

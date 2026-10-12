@@ -33,6 +33,10 @@ SCHEMA = {
                 'kind': {'type':'string','enum':['cause','counterpoint','event','fact']},
                 'source_id': {'type':'string'}, 'quote': {'type':'string'},
                 'summary': {'type':'string'}, 'required': {'type':'boolean'},
+                'alternative_sources': {'type':'array','maxItems':3,'items':{
+                    'type':'object','additionalProperties':False,
+                    'required':['source_id','quote','same_fact_reason'],
+                    'properties':{k:{'type':'string'} for k in ('source_id','quote','same_fact_reason')}}},
                 'event_date': {'type':'string'}}}},
         'sources': {'type': 'array', 'items': {
             'type': 'object', 'additionalProperties': False,
@@ -85,6 +89,13 @@ and recent, dated news. Pick 2-4 sources.
   kind cause|counterpoint|event|fact, source_id, quote (a complete verbatim primary-source statement),
   summary, required (true for information needed to prevent a materially misleading article), and
   event_date (YYYY-MM-DD when the primary source establishes the event date, otherwise an empty string).
+  Mark required only when omission makes a claim in the commissioned article materially misleading or
+  removes a necessary counterpoint. An earlier equivalent forecast is optional when a newer primary
+  restatement already supports the current outlook, unless the article compares the forecasts.
+  Do not require the same fact in several source-specific paragraphs. When a newer selected primary
+  page explicitly restates the SAME fact, period, measure and accounting basis, optionally provide
+  alternative_sources: source_id, exact captured quote, and same_fact_reason explaining that identity.
+  A revised forecast, different quarter or different accounting basis is not an equivalent restatement.
   Preserve ALL material management explanations of the story, including execution or deal delays and
   offsetting strength, not only a convenient external-demand explanation. Causes require captured primary
   evidence; do not substitute a news summary. Keep material counterevidence and confirmed event dates.
@@ -284,6 +295,11 @@ def check_material_context(entry, root, date, sym):
         quote=item.get('quote','')
         if not document or not isinstance(quote,str) or len(quote.strip())<20 or _spaced(quote) not in _spaced(document['text']):
             problems.append('material_context %s quote is not verbatim captured primary text for its source_id' % identifier)
+        try:
+            from material_source_contract import accepted_source_ids
+            accepted_source_ids(item,sources,documents)
+        except (KeyError,TypeError,ValueError) as exc:
+            problems.append('material_context %s primary restatement invalid: %s' % (identifier,exc))
         if not isinstance(item.get('summary'),str) or len(item['summary'].strip())<10:
             problems.append('material_context %s needs a substantive summary' % identifier)
         event_date=item.get('event_date')
@@ -303,7 +319,8 @@ def to_sources(entry):
     spec = dict(entry['chart']['spec'], id='business-context', kind='bars')
     records = [{k: r[k] for k in ('id', 'value', 'unit', 'period', 'status', 'source_id', 'locator')}
                for r in entry['chart']['records']]
-    sources = [dict(s, max_derived_words=200, excerpt_kind='verified_factual_summary') for s in entry['sources']]
+    sources = [dict(s, max_derived_words=200, excerpt_kind='verified_factual_summary',
+                    word_budget_policy='internal_editing_target_v1') for s in entry['sources']]
     return {**{k: entry[k] for k in ('company', 'angle', 'category', 'question', 'brief', 'hero_alt', 'material_context')},
             'sources': sources, 'chart': [spec, records]}
 

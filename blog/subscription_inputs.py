@@ -234,7 +234,11 @@ def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False)
         if one.exists():
             item=json.loads(one.read_bytes()); _verify(root,{'files':{item['path']:item['sha256']}})
         else:
+            generated=None
             if nonessential_fallback:
+                from inspected_archive_hero import available
+                generated=available(post)
+            if nonessential_fallback and generated is None:
                 # Compatibility bytes for private draft processing only. This is
                 # an unavailable hero, never usable published art or approval.
                 from subscription_publication import continuity_hero_png
@@ -250,12 +254,15 @@ def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False)
                            'provider':'SMN deterministic neutral placeholder','api_cost_stage':False,
                            'asset_kind':'neutral_placeholder','method':'continuity-placeholder-v1',
                            'paid_generation_retried':False,'cost_usd':0}
-            else:
+            elif not nonessential_fallback:
                 generated=(callback or generate_hero)(post,edition)
             blob=base64.b64decode(generated['image_base64'],validate=True)
             if _sha(blob)!=generated['sha256']:
                 raise Held('hero asset hash differs')
-            name=Path(post['hero_image']).name; path=f'production/{sym}/assets/{name}'
+            name=Path(post['hero_image']).name
+            if generated.get('method')=='inspected-archive-v1':
+                name=Path(name).stem+generated['asset_extension']
+            path=f'production/{sym}/assets/{name}'
             _write_once(root/path,blob)
             item={k:v for k,v in generated.items() if k!='image_base64'}
             item.update(path=path,url=post['hero_image'])

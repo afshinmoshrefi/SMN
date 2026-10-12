@@ -139,6 +139,27 @@ def progress(root, day, current=None):
             receipt_path = edition/name
             if receipt_path.is_file():
                 receipt = load_json(receipt_path)
+                if (receipt.get('status')=='live_verified' and receipt.get('publication_policy')=='continuity-v1'
+                        and receipt.get('complete') is True):
+                    from production_continuity import verify_public_receipt
+                    from subscription_publication import selected_lineup
+                    expected=selected_lineup(edition,day,required=True)
+                    published=receipt.get('published_symbols')
+                    if (not isinstance(published,list) or len(published)!=len(expected)
+                            or set(published)!=set(expected) or receipt.get('pending_symbols')!=[]
+                            or set(receipt.get('expected_symbols',[]))!=set(expected)):
+                        raise ValueError('Completed publication differs from frozen lineup')
+                    verify_public_receipt(receipt,day,expected)
+                    fingerprint,used=_fingerprint(root,day)
+                    record={'date':day,'status':'generation_complete','jobs_used':used,'max_jobs':MAX_JOBS,
+                            'fingerprint':fingerprint,'updated_utc':current.isoformat(),
+                            'artifact_verification':{'complete':True,'basis':'verified_completed_publication'},
+                            'publication_revision':receipt.get('revision'),'next_attempt_utc':None}
+                    if prior.get('status')=='needs_attention':
+                        record['recovered_from']={key:prior.get(key) for key in
+                            ('status','reason','updated_utc','jobs_used','max_jobs')}
+                    save_json(path,record)
+                    return record
                 if receipt.get('status') == 'live_verified' and receipt.get('publication_policy') != 'continuity-v1':
                     from production_continuity import reconcile_legacy
                     reconcile_legacy(edition,day)

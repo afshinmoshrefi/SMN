@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "symbol": "CPRT",
+      "asset_path": "editions/2026-10-06/CPRT/assets/hero-a5118cf2a80b.jpg",
+      "article_path": "editions/2026-10-06/CPRT/article.html",
+      "alt": "Conceptual illustration of a vehicle auction yard",
+      "asset_sha256": "a5118cf2a80b062f0487720d5e0a18a300ef49fff0897f9b1c3808646e3fe8ac",
+      "article_sha256": "3b96bba1930dbbf9ec66a347af26841b50471a0262d8d1b28ff50b99739a7db5",
+      "width": 2176,
+      "height": 960,
+      "approved_utc": "2026-10-12T16:52:49.031000+00:00",
+      "actor": "Codex",
+      "inspection": "Unchanged conceptual illustration visually inspected October 12; no dated financial chart or forecast text",
+      "publication_receipt_sha256": "d5136c489784ec4f10c03eec791a3871b40063e013d7eea18964070b6fb36cd5"
+    },
+    {
+      "symbol": "XLK",
+      "asset_path": "editions/2026-10-06/XLK/assets/hero-748fa7d51e26.jpg",
+      "article_path": "editions/2026-10-06/XLK/article.html",
+      "alt": "Conceptual illustration of technology infrastructure",
+      "asset_sha256": "748fa7d51e264beb4dd3732c805a5f8ade7f4953512c2fb148b12b1826fe876b",
+      "article_sha256": "63d58ddebcd0895c393e026ab8a496081aaa26ea47e3c6c6b1fc9a2586ae5946",
+      "width": 2176,
+      "height": 960,
+      "approved_utc": "2026-10-12T16:52:49.034883+00:00",
+      "actor": "Codex",
+      "inspection": "Unchanged conceptual illustration visually inspected October 12; no dated financial chart or forecast text",
+      "publication_receipt_sha256": "d5136c489784ec4f10c03eec791a3871b40063e013d7eea18964070b6fb36cd5"
+    },
+    {
+      "symbol": "JPM",
+      "asset_path": "articles/US/2026/04/13/hero_JPM.jpg",
+      "article_path": "articles/US/2026/04/13/jpmorgan-chase-jpm-has-rallied-in-10-of-10-years-in-this-233-day-bullish-window.html",
+      "alt": "Conceptual illustration of a bank building",
+      "asset_sha256": "6c390d6fa3f49a37d1079201b60f5d3c34fb91fe3f4fd738872126216705a781",
+      "article_sha256": "4d2aa6a19befbceda545b74c7ab26593f50bcdadf4e964c4c1f5015dda602282",
+      "width": 1536,
+      "height": 640,
+      "approved_utc": "2026-10-12T16:52:49.037013+00:00",
+      "actor": "Codex",
+      "inspection": "Unchanged conceptual illustration visually inspected October 12; no dated financial chart or forecast text",
+      "publication_receipt_sha256": "d5136c489784ec4f10c03eec791a3871b40063e013d7eea18964070b6fb36cd5"
+    },
+    {
+      "symbol": "APH",
+      "asset_path": "editions/2026-10-06/APH/assets/hero-a9e315cac713.jpg",
+      "article_path": "editions/2026-10-06/APH/article.html",
+      "alt": "Conceptual illustration of electronic component manufacturing",
+      "asset_sha256": "a9e315cac7133ddfbe7d6825e5af20b653e3cb87981a9e86994e85d5e19a9234",
+      "article_sha256": "cc972aee7272da4b85a085c369bd0cdd13c5fd0f7d2c612ccd0d36add1abeebd",
+      "width": 2176,
+      "height": 960,
+      "approved_utc": "2026-10-12T16:52:49.040194+00:00",
+      "actor": "Codex",
+      "inspection": "Unchanged conceptual illustration visually inspected October 12; no dated financial chart or forecast text",
+      "publication_receipt_sha256": "d5136c489784ec4f10c03eec791a3871b40063e013d7eea18964070b6fb36cd5"
+    },
+    {
+      "symbol": "GS",
+      "asset_path": "articles/US/2026/04/21/hero_GS_ce254c60.jpg",
+      "article_path": "articles/US/2026/04/21/premarket-drop-in-goldman-sachs-gs-meets-a-bearish-midterm-year-april-stretch.html",
+      "alt": "Conceptual illustration of an investment bank entrance",
+      "asset_sha256": "d4e872c3bdd19486196d60c946b12a359ba81ec3902a02b683fb767a6764345f",
+      "article_sha256": "8e656c5a7ef094656d16c5b0dc169d976c24122a81305fedf32083f04b33031c",
+      "width": 1536,
+      "height": 640,
+      "approved_utc": "2026-10-12T16:52:49.042437+00:00",
+      "actor": "Codex",
+      "inspection": "Unchanged conceptual illustration visually inspected October 12; no dated financial chart or forecast text",
+      "publication_receipt_sha256": "d5136c489784ec4f10c03eec791a3871b40063e013d7eea18964070b6fb36cd5"
+    },
+    {
+      "symbol": "JNJ",
+      "asset_path": "articles/US/2026/09/23/hero_JNJ_0fbd6c4c.jpg",
+      "article_path": "articles/US/2026/09/23/johnson-johnson-jnj-has-risen-in-10-of-10-late-midterm-windows-averaging-6-6-gains.html",
+      "alt": "Conceptual illustration of healthcare technology",
+      "asset_sha256": "26f6d9329199013b829e497dfaf9bf3ae89de21b80f5bd2bb52df71b02d3418f",
+      "article_sha256": "5e5b728284893bf77455323b5c9b40cc5622ffab34a3c688e6adbec08a50ae9a",
+      "width": 3136,
+      "height": 1344,
+      "approved_utc": "2026-10-12T16:52:49.046001+00:00",
+      "actor": "Codex",
+      "inspection": "Unchanged conceptual illustration visually inspected October 12; no dated financial chart or forecast text",
+      "publication_receipt_sha256": "d5136c489784ec4f10c03eec791a3871b40063e013d7eea18964070b6fb36cd5"
+    }
+  ]
+}

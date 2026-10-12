@@ -110,9 +110,11 @@ Use short, natural headlines. Section headings must not assert that an era or
 cycle matters more than another factor when the evidence merely shows a difference.
 Use only supplied sources. Every factual paragraph/takeaway/title/dek cites
 source_ids. Clearly label interpretation as kind='analysis'. Respect each
-source's derived-word budget across all passages; for 200-word issuer sources
-reserve the chart headings, captions, alternative text, accessible tables and
-source labels first, then fit title/dek/takeaways and prose into what remains.
+source's derived-word guidance across all passages, including chart headings,
+captions, alternative text, accessible tables and source labels. Budgets marked
+internal_editing_target_v1 are editing targets: keep copy concise but do not omit
+needed facts or qualifications to fit them. Overages are recorded as warnings.
+Other explicit source budgets remain hard constraints.
 Never shift a fact to the wrong citation to evade a limit. Historical facts come from
 the unchanged TradeWave engine evidence; do not reuse errors from the old article.
 Aim roughly 450-650 useful prose words, but do not pad to a target. No em dashes.

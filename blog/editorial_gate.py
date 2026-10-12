@@ -346,6 +346,8 @@ def context(root, symbol, edition):
         doc = docs.get(source.get('url'))
         if item['id'] in ids or not doc or len(spaced(item['quote'])) < 12 or spaced(item['quote']) not in spaced(doc['text']):
             raise ValueError('Material-source contract is duplicated or not grounded in captured primary evidence')
+        from material_source_contract import accepted_source_ids
+        accepted_source_ids(item,sources,docs)
         ids.add(item['id'])
     return {'version': VERSION, 'symbol': symbol, 'edition': edition,
             'article_sha256': digest(article), 'evidence_sha256': bundle['evidence_sha256'],
@@ -387,10 +389,15 @@ def review_schema(schema, context):
 
 RULES = '''Mandatory source audit (editorial_audit): raw captured primary pages below outrank prepared summaries.
 For EVERY material_context item provide its item_id, covered/missing/uncertain and an exact quote from this
-article that communicates the fact/qualification. Choose quoted text carrying the item's source_id citation;
-if the meaning spans multiple cited units, quote those exact spans in reading order with an ellipsis.
+article that communicates the fact/qualification. Choose quoted text carrying the item's source_id citation
+or a validated alternative_sources citation; prefer a short exact contiguous quote from one cited unit.
+The primary source_id or an explicitly verified alternative_sources restatement may support the SAME fact,
+reporting period, measure and accounting basis. Check both primary quotations before accepting an alternative;
+a revised forecast or different period/basis is not equivalent. If meaning spans multiple cited units,
+quote those exact spans in reading order with an ellipsis.
 Check the item's full summary against the article before marking it covered. A nearby paragraph citing a
-different source does not establish coverage for this ledger item. Required omissions fail even if minor.
+different unverified source does not establish coverage. Do not demand duplicate earlier-release prose when
+a verified newer primary restatement establishes the same fact. Required omissions fail even if minor.
 Read management explanations for all material causes and counterevidence, not only the selected headline.
 Truncated captured pages do not prove that a management explanation is complete; require the relevant primary
 account for causal claims or hold for source repair. Secondary attribution alone cannot establish causality.
@@ -433,7 +440,12 @@ def problems(article, bundle, ctx, review, result=None, *, advisory_issue_ids=()
     for item in ctx['material_context']:
         row = by_id.get(item['id'], {})
         quote = spaced(row.get('article_quote',''))
-        cited = [u for u in displayed if item['source_id'] in u['source_ids']]
+        if item['required'] and row.get('status')!='covered':
+            issues.append('Missing material context '+item['id']+': '+item['summary'])
+            continue
+        from material_source_contract import accepted_source_ids
+        accepted=accepted_source_ids(item,{s['id']:s for s in bundle['sources']},ctx.get('primary_sources',{}))
+        cited = [u for u in displayed if set(accepted)&set(u['source_ids'])]
         if item['required'] and (row.get('status') != 'covered' or
                                  not quote_in_verified_units(quote,cited,[s['id'] for s in bundle['sources']])):
             issues.append('Missing material context '+item['id']+': '+item['summary'])
@@ -495,7 +507,9 @@ def review_quote_binding_errors(article, bundle, ctx, review, result=None):
         if not item['required']:
             continue
         quote = spaced(by_id[item['id']].get('article_quote', ''))
-        cited = [unit for unit in displayed if item['source_id'] in unit['source_ids']]
+        from material_source_contract import accepted_source_ids
+        accepted=accepted_source_ids(item,{s['id']:s for s in bundle['sources']},ctx.get('primary_sources',{}))
+        cited = [unit for unit in displayed if set(accepted)&set(unit['source_ids'])]
         if not quote_in_verified_units(quote, cited, source_order):
             if not (quote_in_verified_units(quote, cited, source_order, ordered=False) or
                     quote_in_verified_units(quote, displayed, source_order)):

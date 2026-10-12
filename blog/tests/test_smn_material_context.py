@@ -42,6 +42,20 @@ class MaterialContextTests(unittest.TestCase):
             self.assertTrue(any('custody' in p for p in research.check_material_context(
                 self.entry,Path('.'),'2026-09-30','ABC')))
 
+    def test_newer_primary_restatement_requires_exact_quote_and_period_basis_reason(self):
+        self.documents['https://issuer.example/letter']['date']='2026-09-01'
+        quote='The September restatement retains the same quarterly outlook and accounting basis.'
+        self.entry['sources'].append({'id':'restatement','url':'https://issuer.example/restatement'})
+        self.documents['https://issuer.example/restatement']={'text':quote,'date':'2026-09-20'}
+        alternate={'source_id':'restatement','quote':quote,
+                   'same_fact_reason':'Same quarter, management explanation and accounting basis restated later.'}
+        self.item['alternative_sources']=[alternate]
+        self.assertEqual(self.check(),[])
+        alternate['quote']='An unsupported claim not found in the captured page.'
+        self.assertTrue(any('restatement' in p for p in self.check()))
+        alternate['quote']=quote;self.documents['https://issuer.example/restatement']['date']='2026-08-31'
+        self.assertTrue(any('restatement' in p for p in self.check()))
+
     def test_contract_is_required_and_propagated_without_changes(self):
         self.assertIn('material_context',research.SCHEMA['required'])
         entry={**self.entry,**{k:'value' for k in ('company','angle','category','question','brief','hero_alt')},
