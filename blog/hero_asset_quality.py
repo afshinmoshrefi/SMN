@@ -16,6 +16,9 @@ def available_hero(result):
     result=Path(result).resolve();record_path=result/'hero-asset.json'
     if not record_path.is_file():return None
     record=json.loads(record_path.read_text(encoding='utf-8'))
+    from decorative_hero_reuse import override
+    recovered=override(result)
+    if recovered is not None:record=recovered
     if placeholder(record):return None
     relative=Path(record.get('url',''))
     if relative.is_absolute() or len(relative.parts)!=2 or relative.parts[0]!='assets':

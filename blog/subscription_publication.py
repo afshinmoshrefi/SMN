@@ -163,7 +163,7 @@ def qualified_html(result, review, *, continuity=False):
     try:
         article=reviewed(result,review)
         from hero_asset_quality import available_hero
-        if available_hero(result) is None:
+        if available_hero(result) is None or (result/'decorative-hero-reuse.json').is_file():
             if not continuity:raise ValueError('Usable hero missing')
             from presentation_fallback import prepare_fallback
             rendered,proof=prepare_fallback(result)

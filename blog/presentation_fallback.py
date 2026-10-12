@@ -146,12 +146,19 @@ def prepare_fallback(result):
     original = (result/'article.html').read_bytes()
     from hero_asset_quality import available_hero
     hero=available_hero(result)
-    rendered = derive(original.decode('utf-8'),keep_hero=hero is not None)
+    source=original.decode('utf-8')
+    reuse_sha=None
+    if (result/'decorative-hero-reuse.json').is_file():
+        from decorative_hero_reuse import replace
+        source=replace(source,hero)
+        reuse_sha=sha((result/'decorative-hero-reuse.json').read_bytes())
+    rendered = derive(source,keep_hero=hero is not None)
     proof = {'version':VERSION, 'kind':'deterministic_readable',
              'content_proof':content, 'original_html_sha256':sha(original),
              'article_html_sha256':sha(rendered.encode()),
              'transform_sha256':sha(Path(__file__).read_bytes()),
              'omitted_decorative_hero':hero is None, 'hero_sha256':hero['sha256'] if hero else None,
+             'decorative_reuse_sha256':reuse_sha,
              'browser_verification_required':True}
     return rendered, proof
 
