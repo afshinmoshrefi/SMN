@@ -16,7 +16,7 @@ def _snapshot(scan_root,date,registry,date_root=False):
     if original_scan.is_symlink() or original_registry.is_symlink():raise BudgetEvidenceError("Symlink daily scan/registry root")
     scan_root=original_scan.resolve();registry=original_registry.resolve()
     if not scan_root.is_dir():raise BudgetEvidenceError("Daily scan root missing")
-    receipts={};receipt_paths={};pending={};archives={};running=[];namespaces=[]
+    receipts={};receipt_paths={};pending={};archives={};archive_identities={};running=[];namespaces=[]
     def walk_error(exc):raise BudgetEvidenceError("Unreadable daily namespace:"+str(exc))
     for current,dirs,files in os.walk(str(scan_root),followlinks=False,onerror=walk_error):
         here=Path(current)
@@ -61,7 +61,28 @@ def _snapshot(scan_root,date,registry,date_root=False):
             for child in job.iterdir():
                 if child.is_dir() and child.name.startswith(PREFIXES):
                     if child.is_symlink():raise BudgetEvidenceError("Symlink retry archive")
-                    archives[str(child.resolve())]={"prefix":next(p for p in PREFIXES if child.name.startswith(p)),"classification":"conservative additional attempt; no archive deletion or exclusion"}
+                    archive_path=str(child.resolve())
+                    # Publication-only transactions copy the entire completed
+                    # job, including its failed attempts. Charge the original
+                    # attempt once only when completed parent receipt, manifest,
+                    # archive name and EVERY retained archive byte match.
+                    # Uncompleted/uncertain parents remain charged per path.
+                    identity=archive_path
+                    if receipt.is_file() and manifest.is_file():
+                        files={}
+                        for current_archive,archive_dirs,archive_files in os.walk(child,followlinks=False,onerror=walk_error):
+                            archive_here=Path(current_archive)
+                            if any((archive_here/name).is_symlink() for name in archive_dirs+archive_files):
+                                raise BudgetEvidenceError("Linked retry archive evidence")
+                            for name in archive_files:
+                                file=archive_here/name;files[file.relative_to(child).as_posix()]=sha(file)
+                        proof={"job_id":job.name,"manifest_sha256":sha(manifest),
+                               "completed_receipt_sha256":sha(receipt),"archive_name":child.name,"files":files}
+                        identity=hashlib.sha256(json.dumps(proof,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+                    archives[archive_path]={"prefix":next(p for p in PREFIXES if child.name.startswith(p)),
+                        "classification":"conservative additional attempt; exact completed publication copies deduplicated",
+                        "identity":identity}
+                    archive_identities.setdefault(identity,[]).append(archive_path)
     orphans={};reservations={}
     for p in sorted((registry/"reservations").glob("*/reservation.json")):
         if p.is_symlink() or p.parent.is_symlink():raise BudgetEvidenceError("Linked reservation evidence")
@@ -77,8 +98,8 @@ def _snapshot(scan_root,date,registry,date_root=False):
             raise BudgetEvidenceError("Reservation target path does not name its own job identity")
         if not target or (target not in pending and target not in receipt_paths):
             orphans[p.parent.name]={"classification":"durable reservation without certain matching job; never refunded","job_path":target}
-    count=len(receipts)+len(pending)+len(archives)+len(orphans)
-    return {"consumed_conservative":count,"completed_unique_receipts":len(receipts),"prepared_or_uncertain_paths":len(pending),"archived_attempt_paths":len(archives),"orphan_reservations":len(orphans),"namespaces":namespaces,"receipt_identity_union":receipts,"pending_paths":pending,"retry_archive_paths":archives,"reservation_without_job":orphans,"all_reservations":reservations,"running_or_claimed_without_receipt":running,"copied_receipts_deduplicated_by":"exact receipt SHA plus matching overlapping manifest/dispatch evidence; never job ID alone","retirement_exclusions":[],"retirement_policy":"No unproven never-dispatched preparation is excluded; genuine retirement proof requires a new explicit versioned input."}
+    count=len(receipts)+len(pending)+len(archive_identities)+len(orphans)
+    return {"consumed_conservative":count,"completed_unique_receipts":len(receipts),"prepared_or_uncertain_paths":len(pending),"archived_attempt_paths":len(archives),"archived_unique_attempts":len(archive_identities),"archive_identity_union":archive_identities,"orphan_reservations":len(orphans),"namespaces":namespaces,"receipt_identity_union":receipts,"pending_paths":pending,"retry_archive_paths":archives,"reservation_without_job":orphans,"all_reservations":reservations,"running_or_claimed_without_receipt":running,"copied_receipts_deduplicated_by":"exact receipt SHA plus matching overlapping manifest/dispatch evidence; never job ID alone","copied_archives_deduplicated_by":"exact completed parent receipt, manifest, archive name and every archive file hash; uncertain parents remain charged per path","retirement_exclusions":[],"retirement_policy":"No unproven never-dispatched preparation is excluded; genuine retirement proof requires a new explicit versioned input."}
 
 
 # Native normal runs share the recovery registry and its exact mkdir lease.
