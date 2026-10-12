@@ -223,7 +223,10 @@ def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False)
         receipt=json.loads(receipt_path.read_bytes()); _verify(root,receipt)
         if receipt['date']!=edition or receipt['selection_sha256']!=_sha((root/'input-selection.json').read_bytes()):
             raise Held('hero selection binding changed')
+        from hero_asset_quality import placeholder
+        missing=[sym for sym,item in receipt['heroes'].items() if placeholder(item)]
         return {'status':'captured','idempotent':True,'symbols':list(receipt['heroes']),
+                'hero_ready':not missing,'missing_heroes':missing,
                 'api_cost_stage':receipt['api_cost_stage']}
     heroes={}; files={}
     for post in json.loads((root/'production/posts.json').read_bytes()):
@@ -232,8 +235,8 @@ def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False)
             item=json.loads(one.read_bytes()); _verify(root,{'files':{item['path']:item['sha256']}})
         else:
             if nonessential_fallback:
-                # Reuse the tested neutral raster; never retry an uncertain paid
-                # image request. Preserve any old private remote generation state.
+                # Compatibility bytes for private draft processing only. This is
+                # an unavailable hero, never usable published art or approval.
                 from subscription_publication import continuity_hero_png
                 from PIL import Image
                 import io
@@ -263,4 +266,7 @@ def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False)
              'api_cost_stage':any(item.get('api_cost_stage') is True for item in heroes.values()),
              'paid_article_writer_called':False,'public_runtime_writes':False}
     _write_once(receipt_path,_json(receipt))
-    return {'status':'captured','symbols':list(heroes),'api_cost_stage':receipt['api_cost_stage']}
+    from hero_asset_quality import placeholder
+    missing=[sym for sym,item in heroes.items() if placeholder(item)]
+    return {'status':'captured','symbols':list(heroes),'hero_ready':not missing,
+            'missing_heroes':missing,'api_cost_stage':receipt['api_cost_stage']}

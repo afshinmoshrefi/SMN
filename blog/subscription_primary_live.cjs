@@ -8,6 +8,7 @@ const production=base==='https://seasonalmarketnews.com',robots=production?'inde
 const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
 (async()=>{
  browser=await chromium.launch({...(process.env.SMN_BROWSER_CHANNEL==='bundled'?{}:{channel:process.env.SMN_BROWSER_CHANNEL||'chrome'}),headless:true});const page=await browser.newPage({viewport:{width:1440,height:1050}});
+ await page.addInitScript({path:path.join(__dirname,'public_delivery_contract.cjs')});
  const home=await page.goto(base+'/',{waitUntil:'domcontentloaded',timeout:60000});assert(home.status()===200,'Dev home HTTP');
  if(!production)assert(await page.locator('meta[name="robots"]').getAttribute('content')==='noindex,nofollow','Dev homepage noindex');
  assert(new URL(page.url()).pathname==='/','Cumulative home must not redirect to one edition');
@@ -82,13 +83,15 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
    assert(state.rows.length===native.card.story_cell.n&&state.rows.map(r=>Number(r[0])).join(',')===native.card.engine_results.cohort.years.join(','),e.symbol+' exact historical cohort');
    assert(state.priceRole==='outlook'&&state.introduced&&state.businessRole==='current_context',e.symbol+' chart placement');
    assert(state.noindex===robots&&!state.body.includes('Editorial review has not passed')&&state.brand==='SeasonalMarketNews'&&state.footer.includes('Tara Data Research LLC'),e.symbol+' final site presentation');
+   if(e.hero_status==='unavailable')assert(await page.locator('.hero img').count()===0,e.symbol+' no blank hero presented as art');
+   if(e.hero_status==='available')assert(await page.locator('.hero img').getAttribute('src')===new URL(e.hero_image).pathname.replace(new URL(e.url).pathname.replace(/article\.html$/,''),''),e.symbol+' catalog hero matches article');
    if(production)assert(await page.locator('link[rel="canonical"]').getAttribute('href')===e.url,e.symbol+' production canonical');
    if(kind==='mobile')assert(state.images.filter(u=>u.includes('tradewave-')).every(u=>u.includes('-mobile.png')),e.symbol+' responsive native images');
    await page.locator('.history-comparison>summary').click();assert(await page.locator('.history-comparison table').isVisible(),e.symbol+' expandable comparisons');
    await page.locator('[data-native-chart="bars"] details>summary').click();assert(await page.locator('[data-native-chart="bars"] table').isVisible(),e.symbol+' year data');
    await page.locator('.data-figure details>summary').click();
    await page.screenshot({path:path.join(local,'live-'+kind+'-top.png')});
-   pages.push({symbol:e.symbol,kind,title:state.title,rows:state.rows.length,study_url:native.study_url,passed:true});
+   pages.push({symbol:e.symbol,kind,title:state.title,rows:state.rows.length,study_url:native.study_url,hero_status:e.hero_status||'legacy',hero_url:e.hero_image||null,passed:true});
   }
  }
  const homeManifestBytes=await page.evaluate(async ()=>Array.from(new Uint8Array(await (await fetch('/home-manifest.json',{cache:'no-store'})).arrayBuffer())));
@@ -100,21 +103,25 @@ const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
  const files=[...Object.entries(activation.files),...sample(activation.retained_articles,40),...sample(activation.retained_heroes,40)];
  const checked=[];
  for(let i=0;i<files.length;i+=6){
-  const results=await page.evaluate(async ({batch,base,retained})=>Promise.race([new Promise((_,no)=>setTimeout(()=>no(new Error('public asset batch timed out')),90000)),Promise.all(batch.map(async ([rel,expected])=>{
+  const results=await page.evaluate(async ({batch,base,retained,homeQuoteContract})=>Promise.race([new Promise((_,no)=>setTimeout(()=>no(new Error('public asset batch timed out')),90000)),Promise.all(batch.map(async ([rel,expected])=>{
    const response=await fetch(base+'/'+rel,{cache:'no-store'});const bytes=await response.arrayBuffer();
    const sha=async b=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b))).map(b=>b.toString(16).padStart(2,'0')).join('');
    const publicHash=await sha(bytes);let hash=publicHash,normalization=null;
+   let deliveryBytes=bytes;
+   if(rel.endsWith('.html')){const transformed=await SMNDeliveryContract.normalizeAnalytics(bytes);deliveryBytes=transformed.bytes;normalization=transformed.normalization;hash=await sha(deliveryBytes);}
    if(hash!==expected&&retained.includes(rel)&&rel.endsWith('.html')){
     // Reverse only Cloudflare's observed email-link delivery transform. The
     // complete restored HTML must still match the retained origin byte hash.
-    const text=new TextDecoder().decode(bytes).replace(/href="\/cdn-cgi\/l\/email-protection#([a-f0-9]+)"/gi,(_,hex)=>{
+    const text=new TextDecoder().decode(deliveryBytes).replace(/href="\/cdn-cgi\/l\/email-protection#([a-f0-9]+)"/gi,(_,hex)=>{
      const key=parseInt(hex.slice(0,2),16),out=[];for(let j=2;j<hex.length;j+=2)out.push(parseInt(hex.slice(j,j+2),16)^key);
      return 'href="mailto:'+new TextDecoder().decode(new Uint8Array(out))+'"';
     }).replace(/<script data-cfasync="false" src="\/cdn-cgi\/scripts\/[a-f0-9]+\/cloudflare-static\/email-decode\.min\.js"><\/script>/gi,'');
     hash=await sha(new TextEncoder().encode(text));normalization='cloudflare-email-link';
    }
-   return {rel,status:response.status,passed:response.status===200&&hash===expected,sha256:hash,public_sha256:publicHash,normalization};
-  }))]),{batch:files.slice(i,i+6),base,retained:Object.keys(activation.retained_articles)});
+   const quote=rel==='index.html'&&homeQuoteContract?await SMNDeliveryContract.quoteContract(deliveryBytes):null;
+   const matched=quote?SMNDeliveryContract.matches(homeQuoteContract,quote):hash===expected;
+   return {rel,status:response.status,passed:response.status===200&&matched,sha256:hash,public_sha256:publicHash,normalization,home_quote_contract:quote};
+  }))]),{batch:files.slice(i,i+6),base,retained:Object.keys(activation.retained_articles),homeQuoteContract:activation.home_quote_contract||null});
   for(const r of results)assert(r.passed,'Public asset hash: '+r.rel);checked.push(...results);
  }
  const provenance=await page.evaluate(async url=>(await fetch(url,{cache:'no-store'})).json(),base+'/editions/'+date+'/provenance.json');assert(provenance.source_commit===manifest.source_commit,'Live source provenance');

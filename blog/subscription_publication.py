@@ -162,6 +162,12 @@ def validate_staged_reviews(root):
 def qualified_html(result, review, *, continuity=False):
     try:
         article=reviewed(result,review)
+        from hero_asset_quality import available_hero
+        if available_hero(result) is None:
+            if not continuity:raise ValueError('Usable hero missing')
+            from presentation_fallback import prepare_fallback
+            rendered,proof=prepare_fallback(result)
+            return rendered,proof,article
         return (result/'article.html').read_text(encoding='utf-8'), None, article
     except (OSError,ValueError):
         if not continuity:
@@ -189,14 +195,16 @@ def edition_section(entries,date,target_origin=DEV):
     day=datetime.strptime(date,'%Y-%m-%d');label=day.strftime('%B')+' '+str(day.day)
     if target_origin not in {DEV,'https://seasonalmarketnews.com'}:raise ValueError('Unknown publication origin')
     for p in entries:
-        for link in (p['url'],p['hero_image']):
+        for link in (p['url'],p.get('hero_image')):
+            if link is None:continue
             u=urlparse(link)
             if u.scheme!='https' or u.netloc!=urlparse(target_origin).netloc or u.username or u.query or u.fragment:
                 raise ValueError('Article link outside exact publication origin')
         proof=''
         if p.get('production_original'):
             proof='<details class="edition-proof"><summary>Article details</summary><a href="'+esc(p['production_original'],quote=True)+'" target="_blank" rel="noopener">Original publication</a></details>'
-        cards.append('<article class="edition-card"><a href="'+esc(p['url'],quote=True)+'"><img src="'+esc(p['hero_image'],quote=True)+'" alt="'+esc(p['hero_alt'],quote=True)+'"></a><div class="edition-copy"><span class="edition-meta">'+esc(p['symbol'])+' · '+esc(p['market_family'])+'</span><h3><a href="'+esc(p['url'],quote=True)+'">'+esc(p['title'])+'</a></h3><p>'+esc(p['dek'])+'</p><a class="read-more" href="'+esc(p['url'],quote=True)+'">Read Analysis →</a>'+proof+'</div></article>')
+        image='<a href="'+esc(p['url'],quote=True)+'"><img src="'+esc(p['hero_image'],quote=True)+'" alt="'+esc(p['hero_alt'],quote=True)+'"></a>' if p.get('hero_image') else ''
+        cards.append('<article class="edition-card">'+image+'<div class="edition-copy"><span class="edition-meta">'+esc(p['symbol'])+' · '+esc(p['market_family'])+'</span><h3><a href="'+esc(p['url'],quote=True)+'">'+esc(p['title'])+'</a></h3><p>'+esc(p['dek'])+'</p><a class="read-more" href="'+esc(p['url'],quote=True)+'">Read Analysis →</a>'+proof+'</div></article>')
     return '<main class="smn-edition" id="smn-subscription-edition"><div class="section-header"><span class="section-title">Market Analysis</span></div><h1>'+esc(label)+' market analysis</h1><p class="edition-intro">Data-backed coverage of seasonal market patterns and the current context around them.</p><div class="edition-grid">'+''.join(cards)+'</div></main>'
 
 def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,continuity=None):
@@ -239,7 +247,8 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,co
         if fallback:fallbacks[sym]=fallback
         commission=read(result/'commission.json');original=commission['production_article']
         rel=Path('editions')/date/sym
-        b=read(result/'bundle.json');hero=read(result/'hero-asset.json') if (result/'hero-asset.json').is_file() else {}
+        from hero_asset_quality import available_hero
+        b=read(result/'bundle.json');hero=available_hero(result)
         if not fallback and not hero:raise ValueError('Reviewed hero missing')
         if 'Private draft · Editorial review has not passed.' in htmltext:raise ValueError('Unfinalized page')
         if 'Development preview · Not published' in htmltext:raise ValueError('Unfinalized footer')
@@ -256,8 +265,8 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,co
         entry.update(title=a['title'],dek=a['dek'],slug=sym.lower()+'-subscription-'+date,
             url=url,path='/var/www/smn/'+rel.as_posix()+'/article.html',lookback_years=original['lookback_years'],
             published_date=original['published_date'],updated_date=asof,tags=['subscription-edition'],
-            hero_image=target_origin+'/'+rel.as_posix()+'/'+('assets/continuity-placeholder.png' if fallback else hero['url']),
-            hero_alt='Seasonal Market News article' if fallback else hero['alt'],
+            hero_image=target_origin+'/'+rel.as_posix()+'/'+hero['url'] if hero else None,
+            hero_alt=hero['alt'] if hero else '',hero_status='available' if hero else 'unavailable',
             seo_title=a['title'],meta_description=a['dek'][:155],publish_status='true',
             production_original='' if original.get('source_mode')=='selected_inputs' else original.get('url',''),edition_id='subscription-'+date,source_commit=source_commit,
             production_release_allowed=production,history_validation=commission['history_status'])
@@ -282,10 +291,6 @@ def package(edition_root,date,source_commit,review_stages,target_origin=DEV,*,co
         (dest/'article.html').write_text(htmltext,encoding='utf-8')
         for source,relative in assets:
             d=dest/relative;d.parent.mkdir(exist_ok=True);shutil.copy2(source,d)
-        if fallback:
-            placeholder=dest/'assets/continuity-placeholder.png'
-            placeholder.parent.mkdir(exist_ok=True)
-            placeholder.write_bytes(continuity_hero_png())
     entries.sort(key=lambda p:p['published_date'],reverse=True)
     section=edition_section(entries,date,target_origin)
     landing='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Seasonal Market News</title><style>'+CSS+'</style></head><body><header><div class="header-content"><a href="/" class="logo"><span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span></a><nav><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></nav></div></header>'+section+'<footer><div class="footer-content"><div class="footer-left">© '+str(datetime.now().year)+' <a href="https://taradataresearch.com" target="_blank" rel="noopener">Tara Data Research LLC</a>. All rights reserved.</div><div class="footer-links"><a href="https://tradewave.ai" target="_blank" rel="noopener">TradeWave</a></div></div></footer></body></html>'

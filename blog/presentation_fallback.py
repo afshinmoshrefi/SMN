@@ -36,7 +36,7 @@ def _chart_assets(result):
 
 
 class _ReadableHTML(HTMLParser):
-    def __init__(self):
+    def __init__(self,keep_hero=False):
         super().__init__(convert_charrefs=False)
         self.parts = []
         self.hero_depth = 0
@@ -44,6 +44,13 @@ class _ReadableHTML(HTMLParser):
         self.in_style = False
         self.articles = 0
         self.head = self.body = False
+        self.keep_hero=keep_hero
+
+    def start(self,tag,attrs):
+        if any(name.lower().startswith('on') or (name.lower() in {'src','href'} and str(value).lower().startswith('javascript:')) for name,value in attrs):
+            raise ValueError('Unexpected active content in article attributes')
+        attributes=''.join(' '+name+('' if value is None else '="'+escape(value,quote=True)+'"') for name,value in attrs if name.lower()!='style')
+        return '<'+tag+attributes+'>'
 
     def handle_starttag(self, tag, attrs):
         if tag in {'script', 'iframe'}:
@@ -56,10 +63,12 @@ class _ReadableHTML(HTMLParser):
                 self.hero_images += 1
             else:
                 self.hero_depth += 1
+            if self.keep_hero:self.parts.append(self.start(tag,attrs))
             return
         if tag == 'figure' and 'hero' in values.get('class', '').split():
             self.hero_depth = 1
             self.hero_images = 0
+            if self.keep_hero:self.parts.append(self.start(tag,attrs))
             return
         if tag == 'style':
             self.in_style = True
@@ -68,9 +77,7 @@ class _ReadableHTML(HTMLParser):
             self.articles += 1
         self.head |= tag == 'head'
         self.body |= tag == 'body'
-        attributes = ''.join(' '+name + ('' if value is None else '="'+escape(value, quote=True)+'"')
-                             for name, value in attrs if name.lower() != 'style')
-        self.parts.append('<'+tag+attributes+'>')
+        self.parts.append(self.start(tag,attrs))
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -82,6 +89,7 @@ class _ReadableHTML(HTMLParser):
             self.hero_depth -= 1
             if self.hero_depth == 0 and (tag != 'figure' or self.hero_images != 1):
                 raise ValueError('Hero contains unexpected content')
+            if self.keep_hero:self.parts.append('</'+tag+'>')
             return
         if tag == 'style':
             self.in_style = False
@@ -91,7 +99,7 @@ class _ReadableHTML(HTMLParser):
         self.parts.append('</'+tag+'>')
 
     def handle_data(self, data):
-        if not self.hero_depth and not self.in_style:
+        if (not self.hero_depth or self.keep_hero) and not self.in_style:
             self.parts.append(data)
 
     def handle_entityref(self, name):
@@ -108,9 +116,9 @@ class _ReadableHTML(HTMLParser):
             self.parts.append('<!--'+data+'-->')
 
 
-def derive(original):
-    """Change styling and omit only the renderer's decorative hero figure."""
-    parser = _ReadableHTML()
+def derive(original,*,keep_hero=False):
+    """Change styling; hero availability is separate from presentation failure."""
+    parser = _ReadableHTML(keep_hero)
     parser.feed(original)
     parser.close()
     if not parser.head or not parser.body or parser.articles != 1 or parser.hero_depth or parser.in_style:
@@ -136,12 +144,15 @@ def prepare_fallback(result):
     content = binding['editorial_audit']
     _chart_assets(result)
     original = (result/'article.html').read_bytes()
-    rendered = derive(original.decode('utf-8'))
+    from hero_asset_quality import available_hero
+    hero=available_hero(result)
+    rendered = derive(original.decode('utf-8'),keep_hero=hero is not None)
     proof = {'version':VERSION, 'kind':'deterministic_readable',
              'content_proof':content, 'original_html_sha256':sha(original),
              'article_html_sha256':sha(rendered.encode()),
              'transform_sha256':sha(Path(__file__).read_bytes()),
-             'omitted_decorative_hero':True, 'browser_verification_required':True}
+             'omitted_decorative_hero':hero is None, 'hero_sha256':hero['sha256'] if hero else None,
+             'browser_verification_required':True}
     return rendered, proof
 
 

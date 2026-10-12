@@ -231,6 +231,8 @@ def _public_url(article):
 
 
 def _hero_url(article):
+    if article.get('hero_status')=='unavailable' or ('hero_image' in article and article['hero_image'] is None):
+        return None
     # Use stored hero_image URL if available (set for articles published after hero collision fix)
     if article.get('hero_image'):
         return _normalize_url(article['hero_image'])
@@ -337,8 +339,8 @@ def _verified_daily_narrative(articles, edition_date):
     lineup = ', '.join(symbols[:-1]) + ' and ' + symbols[-1] if len(symbols) > 1 else symbols[0]
     count = {1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six'}.get(len(symbols), str(len(symbols)))
     noun = 'article' if len(symbols) == 1 else 'articles'
-    narrative = (f"The {edition_date.strftime('%B')} {edition_date.day} edition is complete. "
-                 f"Read today's {count} {noun} below: {lineup}.")
+    narrative = (f"Today's briefing covers {lineup}. "
+                 f"Read today's {count} {noun} below.")
     return subject, narrative
 
 
@@ -447,6 +449,8 @@ def _article_grid_html(articles):
 
 
 def _build_email_html(email_type, narrative, articles, send_date):
+    from subscriber_copy import validate
+    validate('',narrative)
     date_str      = send_date.strftime('%B %d, %Y')
     type_label    = 'Daily Briefing' if email_type == 'daily' else 'Weekly Recap'
     section_title = "TODAY'S FEATURED PATTERNS" if email_type == 'daily' else "THIS WEEK'S FEATURED PATTERNS"
@@ -829,6 +833,8 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
     if not subject:
         subject = f"Today's Seasonal Market Briefing — {today.strftime('%B %d, %Y')}"
 
+    from subscriber_copy import validate
+    validate(subject,narrative)
     html = _build_email_html('daily', narrative, articles, today)
     name = f"SMN-Daily-{today.isoformat()}"
 

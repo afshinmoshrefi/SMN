@@ -121,11 +121,24 @@ class ContinuityScheduleTests(unittest.TestCase):
 
     def test_delivery_window_and_weekend_are_hard_boundaries(self):
         with patch('production_continuity.publish_available') as publish:
-            self.assertEqual(schedule.deliver(self.root, DAY, AT_SEVEN-timedelta(minutes=1))['status'],
+            self.assertEqual(schedule.deliver(self.root, DAY, AT_SEVEN-timedelta(hours=2))['status'],
                              'before_delivery_window')
             self.assertEqual(schedule.deliver(self.root, '2026-10-04', AT_SEVEN)['status'],
                              'before_delivery_window')
             publish.assert_not_called()
+
+    def test_qualified_partial_edition_publishes_before_target(self):
+        with patch('production_continuity.publish_available',return_value={'status':'live_verified','complete':False,'coverage_status':'partial'}) as publish:
+            result=schedule.deliver(self.root,DAY,AT_SEVEN-timedelta(hours=1))
+        self.assertEqual(result['coverage_status'],'partial')
+        publish.assert_called_once()
+
+    def test_deadline_failure_records_need_for_alert_without_claiming_delivery(self):
+        with patch('production_continuity.publish_available',side_effect=RuntimeError('provider unavailable')):
+            with self.assertRaises(RuntimeError):schedule.deliver(self.root,DAY,AT_SEVEN)
+        state=json.loads((self.root/DAY/'continuity-delivery-state.json').read_text())
+        self.assertTrue(state['deadline_missed']);self.assertTrue(state['alert_required'])
+        self.assertFalse(state['alert_delivery_verified'])
 
     def test_cli_rejects_non_production_policy_before_any_work(self):
         with patch.object(sys, 'argv', ['continuity_schedule.py', 'deliver',

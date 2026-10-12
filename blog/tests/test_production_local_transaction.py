@@ -14,6 +14,7 @@ if os.name=='nt' and 'fcntl' not in sys.modules:
     sys.modules['fcntl']=types.SimpleNamespace(LOCK_EX=1,LOCK_UN=2,flock=lambda *_:None)
 import install_smn_primary_edition as installer
 import production_continuity as rolling
+import home_quote_contract as quotes
 from subscription_publication import write,read
 
 DATE='2026-10-06'
@@ -22,6 +23,9 @@ ORIGIN='https://seasonalmarketnews.com'
 
 class LocalProductionTransactionTests(unittest.TestCase):
     def setUp(self):
+        modules=patch.dict(sys.modules);modules.start();self.addCleanup(modules.stop)
+        for name in ('rebuild_news_home','pin_store','article_index','seo_helpers'):
+            sys.modules.pop(name,None)
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
         self.root=Path(temp.name);self.web=self.root/'web';self.web.mkdir()
         self.state=self.root/'state';self.state.mkdir();self.blog=self.root/'blog';self.blog.mkdir()
@@ -70,8 +74,55 @@ class LocalProductionTransactionTests(unittest.TestCase):
     def finish(self,record):
         receipt=read(record/'receipt.json')
         public=[{'rel':rel,'sha256':digest,'passed':True} for rel,digest in {**receipt['files'],**receipt['retained_articles'],**receipt['retained_heroes']}.items()]
+        if receipt.get('home_quote_contract'):
+            row=next(p for p in public if p['rel']=='index.html')
+            row.update(sha256=installer.sha(self.web/'index.html'),public_sha256=installer.sha(self.web/'index.html'),home_quote_contract=quotes.contract((self.web/'index.html').read_bytes()))
         write(record/'live-verification.json',{'passed':True,'source_commit':COMMIT,'public_files':public})
         return installer.finish(record)
+
+    def with_market_quotes(self):
+        from tests.test_home_quote_contract import BAR
+        (self.web/'index.html').write_text('<html><body>'+BAR+'Old archive</body></html>')
+        (self.blog/'update_news_quotes.py').write_text('Known fixture quote writer')
+        renderer=installer.render.side_effect
+        def render(candidate):
+            renderer(candidate)
+            page=(candidate/'index.html').read_text().replace('<body>','<body>'+BAR)
+            (candidate/'index.html').write_text(page)
+        return patch.object(installer,'render',side_effect=render)
+
+    def test_quote_refresh_before_activation_and_before_finish(self):
+        with self.with_market_quotes():
+            prepared=installer.prepare(self.package(['AAA']))
+            (self.web/'index.html').write_bytes((self.web/'index.html').read_bytes().replace(b'100.25',b'102.50'))
+            record=Path(prepared['record']);installer.activate(record)
+            (self.web/'index.html').write_bytes((self.web/'index.html').read_bytes().replace(b'100.25',b'103.50'))
+            finished=self.finish(record)
+        self.assertTrue(finished['production_written'])
+        self.assertEqual(finished['status'],'live_verified')
+        self.assertNotEqual(finished['files']['index.html'],finished['verified_home_quotes']['origin']['observed_sha256'])
+
+    def test_quote_refresh_rollback_keeps_quote_and_archive(self):
+        with self.with_market_quotes():
+            backup=(self.web/'index.html').read_bytes()
+            record=Path(installer.prepare(self.package(['AAA']))['record']);installer.activate(record)
+            (self.web/'index.html').write_bytes((self.web/'index.html').read_bytes().replace(b'100.25',b'105.00'))
+            installer.rollback(record)
+        self.assertEqual((self.web/'index.html').read_bytes(),backup.replace(b'100.25',b'105.00'))
+        self.assertEqual((self.web/'old.html').read_text(),'Retained exact article')
+
+    def test_peer_homepage_edit_blocks_finish_and_rollback(self):
+        with self.with_market_quotes():
+            record=Path(installer.prepare(self.package(['AAA']))['record']);installer.activate(record)
+            (self.web/'index.html').write_bytes((self.web/'index.html').read_bytes().replace(b'Fixture renderer',b'Peer changed content'))
+            with self.assertRaisesRegex(ValueError,'quote contract'):self.finish(record)
+            with self.assertRaisesRegex(ValueError,'content or quote markup'):installer.rollback(record)
+
+    def test_quote_writer_drift_blocks_relaxed_home_validation(self):
+        with self.with_market_quotes():
+            record=Path(installer.prepare(self.package(['AAA']))['record'])
+            (self.blog/'update_news_quotes.py').write_text('Unrecognized writer')
+            with self.assertRaisesRegex(ValueError,'quote writer changed'):installer.activate(record)
 
     def test_notice_partial_complete_use_same_urls_and_preserve_archive(self):
         for revision,published in enumerate(([],['AAA'],['AAA','BBB']),1):

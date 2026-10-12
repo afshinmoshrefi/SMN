@@ -51,7 +51,9 @@ class VerifiedNewsletterTest(unittest.TestCase):
                 subject, narrative = module._verified_daily_narrative([
                     {'symbol': symbol} for symbol in ('OMC', 'MRK', 'VIX', 'WMT', 'NG', 'HPQ')], module.date(2026, 10, 8))
                 self.assertNotIn('\u2014', subject + narrative)
-                self.assertIn('six articles below: OMC, MRK, VIX, WMT, NG and HPQ.', narrative)
+                self.assertIn('six articles below.', narrative)
+                self.assertIn('OMC, MRK, VIX, WMT, NG and HPQ', narrative)
+                self.assertNotIn('edition is complete',narrative)
                 state = json.loads(module.STATE_FILE.read_text())
                 self.assertEqual(state['daily_sent'], [])
                 self.assertEqual(state['campaigns']['daily:'+day]['phase'], 'scheduled')

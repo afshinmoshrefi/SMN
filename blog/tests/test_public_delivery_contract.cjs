@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const contract=require('../public_delivery_contract.cjs');
+const enc=new TextEncoder();
+const BEACON=`<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c01a94c73b74392e4234840661791215815920" integrity="sha512-L0ha0OXavK/8okipN9F8BtP84dg9DUhPERbBXzwI6dgTA55d2+yweo3pn5CSFYs45/r8md2+xvUPtTdvTNRfjA==" data-cf-beacon='{"version":"2024.11.0","token":"6c5153e7bcd94cb993504acb03b8923e","r":1,"spa":2}' crossorigin="anonymous"></script>\n`;
+const BAR=`<div class="market-bar"><div class="market-track"><span class="market-item up">SPX <span class="market-price">100.25</span><span class='market-change up'>+0.25%</span></span></div></div>`;
+const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`;
+(async()=>{
+ assert.equal(await contract.sha(enc.encode(BEACON)),contract.ANALYTICS_SHA,'Exact observed public fixture');
+ const normalized=await contract.normalizeAnalytics(enc.encode(PAGE+BEACON));
+ assert.equal(new TextDecoder().decode(normalized.bytes),PAGE,'Whole origin restored');
+ assert.equal(normalized.normalization,'exact-cloudflare-analytics-v1');
+ await assert.rejects(()=>contract.normalizeAnalytics(enc.encode(PAGE+BEACON+BEACON)),/Repeated/);
+ await assert.rejects(()=>contract.normalizeAnalytics(enc.encode(PAGE+BEACON.replace('crossorigin="anonymous"','onclick="alert(1)"'))),/Unrecognized/);
+ assert.notEqual(await contract.sha((await contract.normalizeAnalytics(enc.encode(PAGE+BEACON+'<script>unknown</script>'))).bytes),await contract.sha(enc.encode(PAGE)),'Unknown script cannot disappear');
+ const frozen=await contract.quoteContract(enc.encode(PAGE));
+ assert(contract.matches(frozen,await contract.quoteContract(enc.encode(PAGE.replace('100.25','102.00')))));
+ for(const change of [PAGE.replace('Bound article','Peer edit'),PAGE.replace('SPX','FAKE'),PAGE.replace('100.25','<script>alert(1)</script>')])assert(!contract.matches(frozen,await contract.quoteContract(enc.encode(change))));
+ await assert.rejects(()=>contract.quoteContract(enc.encode(PAGE+BAR)),/one complete/);
+ console.log('9 delivery contract assertions passed: exact analytics, repeated/unknown inserts, numeric refresh and content tampering');
+})().catch(error=>{console.error(error);process.exitCode=1});

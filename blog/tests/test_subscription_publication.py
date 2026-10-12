@@ -74,20 +74,24 @@ class PublicationBoundaries(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'Preserve prior'):package(root,'2026-09-22','a'*40,{})
 
     def test_empty_unrecorded_package_can_be_recovered_but_nonempty_is_preserved(self):
+        from PIL import Image
+        import io,hashlib
+        image=Image.new('RGB',(600,300));image.putdata([(x%256,y%256,(x+y)%256) for y in range(300) for x in range(600)])
+        output=io.BytesIO();image.save(output,format='PNG');hero_bytes=output.getvalue()
         with tempfile.TemporaryDirectory() as t:
             root=Path(t);target=root/'publication-package';target.mkdir()
             stages={}
             for n in range(6):
                 sym='S%d'%n;stages[sym]='review';result=root/'results'/sym;result.mkdir(parents=True)
                 write(result/'commission.json',{'history_status':'ok','production_article':{'symbol':sym,'tickers':[sym],'market_family':'US','pattern_start_date':'2026-01-01','pattern_days':5,'author_id':'author','direction':'long','lookback_years':'10','published_date':'2026-09-%02d'%(n+1),'url':'https://example.com'}})
-                write(result/'bundle.json',{});write(result/'hero-asset.json',{'url':'hero.png','alt':'hero'})
+                write(result/'bundle.json',{});write(result/'hero-asset.json',{'url':'assets/hero.png','alt':'hero','sha256':hashlib.sha256(hero_bytes).hexdigest(),'provenance':{'kind':'illustration'}})
                 (result/'article.html').write_text('<meta name="robots" content="noindex,nofollow">')
-                (result/'assets').mkdir();(result/'assets'/'hero.png').write_bytes(b'hero')
+                (result/'assets').mkdir();(result/'assets'/'hero.png').write_bytes(hero_bytes)
                 (result/'evidence').mkdir();(result/'evidence'/'proof.json').write_text('{}')
             with patch('subscription_publication.reviewed',return_value={'title':'Reviewed','dek':'Dek'}):
                 package(root,'2026-09-22','a'*40,stages)
             self.assertTrue(target.is_dir())
-            self.assertEqual((target/'editions'/'2026-09-22'/'S0'/'assets'/'hero.png').read_bytes(),b'hero')
+            self.assertEqual((target/'editions'/'2026-09-22'/'S0'/'assets'/'hero.png').read_bytes(),hero_bytes)
             self.assertTrue((target/'editions'/'2026-09-22'/'S0'/'evidence'/'proof.json').is_file())
             (target/'immutable').write_text('keep')
             with self.assertRaisesRegex(ValueError,'Preserve prior'):package(root,'2026-09-22','a'*40,{})

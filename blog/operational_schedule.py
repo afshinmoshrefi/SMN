@@ -25,10 +25,11 @@ CONTROLLER_ROOT = Path('/var/lib/tradewave/smn-daily/subscription-primary')
 WEB_ROOT = Path('/var/www/smn')
 MAX_NEWSLETTER_ATTEMPTS = 3
 NEWSLETTER_RETRY_DELAY = timedelta(minutes=5)
+NEWSLETTER_SCHEDULE_LEAD = timedelta(minutes=5)  # Native provider scheduling lead.
 
 
-def verified_reader_urls(root, day, web_root=WEB_ROOT):
-    """Return only a complete, still-live production reader edition."""
+def verified_reader_urls(root, day, web_root=WEB_ROOT, *, current=None):
+    """Return still-live qualified coverage; partial editions release at deadline."""
     edition = root/day
     selected_path = edition/'inputs/input-selection.json'
     receipt_path = edition/'chatgpt/production-publication-receipt.json'
@@ -36,31 +37,36 @@ def verified_reader_urls(root, day, web_root=WEB_ROOT):
         return None
     selected = json.loads(selected_path.read_text())
     receipt = json.loads(receipt_path.read_text())
-    if receipt.get('publication_policy') == 'continuity-v1':
-        if receipt.get('complete') is not True:
+    continuity=receipt.get('publication_policy') == 'continuity-v1'
+    partial=False
+    if continuity:
+        if not receipt.get('published_symbols') and receipt.get('complete') is False:
             return None
         expected_symbols = receipt.get('expected_symbols')
         published_symbols = receipt.get('published_symbols')
         pending_symbols = receipt.get('pending_symbols')
-        if (receipt.get('coverage_status') != 'complete' or
-                not isinstance(expected_symbols, list) or
+        if (not isinstance(expected_symbols, list) or
                 not isinstance(published_symbols, list) or
                 not isinstance(pending_symbols, list) or
                 len(set(expected_symbols)) != len(expected_symbols) or
                 len(set(published_symbols)) != len(published_symbols) or
-                pending_symbols or set(expected_symbols) != set(published_symbols) or
+                len(set(pending_symbols)) != len(pending_symbols) or
+                set(published_symbols)&set(pending_symbols) or
+                set(expected_symbols) != set(published_symbols)|set(pending_symbols) or
                 set(expected_symbols) != set(selected.get('symbols', []))):
-            raise ValueError('Complete reader coverage partition differs from selection')
+            raise ValueError('Reader coverage partition differs from selection')
+        partial=bool(pending_symbols)
+        if receipt.get('complete') is not (not partial) or receipt.get('coverage_status')!=('partial' if partial else 'complete'):
+            raise ValueError('Reader coverage partition completion claim differs')
     symbols = selected.get('symbols')
     if (selected.get('date') != day or not isinstance(symbols, list) or
             not 1 <= len(symbols) <= 6 or len(set(symbols)) != len(symbols) or
             any(not re.fullmatch(r'[A-Z0-9]{1,12}', s) for s in symbols)):
         raise ValueError('Reader selection is incomplete')
-    if receipt.get('publication_policy') == 'continuity-v1' and len(symbols) != 6:
-        raise ValueError('Continuity newsletter requires six frozen subjects')
     if (receipt.get('status') != 'live_verified' or receipt.get('production_written') is not True or
             receipt.get('edition_date') != day or not receipt.get('source_commit')):
         raise ValueError('Reader publication is not fully verified')
+    if continuity:symbols=published_symbols
     urls = receipt.get('urls')
     if not isinstance(urls, list) or len(urls) != len(symbols) or len(set(urls)) != len(urls):
         raise ValueError('Reader publication lineup differs from selection')
@@ -76,6 +82,12 @@ def verified_reader_urls(root, day, web_root=WEB_ROOT):
     if bound.get('date') != day:
         raise ValueError('Scheduled reader date differs')
     morning = bound['daily_generation']
+    if partial:
+        newsletter=bound.get('weekday_newsletter') or operational_settings.for_date(day)['weekday_newsletter']
+        local=(current or datetime.now(timezone.utc)).astimezone(ZoneInfo(newsletter['timezone']))
+        deadline=datetime.combine(datetime.fromisoformat(day).date(),datetime.strptime(newsletter['time'],'%H:%M').time(),ZoneInfo(newsletter['timezone']))
+        if local.date().isoformat()!=day or local<deadline-NEWSLETTER_SCHEDULE_LEAD:
+            return None
     start = datetime.combine(datetime.fromisoformat(day).date(),
                              datetime.strptime(morning['start_time'], '%H:%M').time(),
                              ZoneInfo(morning['timezone'])).timestamp()
@@ -102,6 +114,7 @@ def verified_reader_urls(root, day, web_root=WEB_ROOT):
                 str(post.get('published_date', ''))[:10] != day or
                 str(post.get('publish_status')).lower() != 'true' or
                 not digest or not file.is_file() or file.is_symlink() or
+                web_root.resolve() not in file.resolve().parents or
                 hashlib.sha256(file.read_bytes()).hexdigest().lower() != str(digest).lower()):
             raise ValueError('A verified reader article changed or was unpublished')
     return expected
@@ -123,7 +136,8 @@ def due(now, target, settings, newsletter_only=False):
         if target != 'production':
             raise ValueError('Subscriber email is production-only')
         local = _local_when(now, settings['weekday_newsletter'])
-        if local.weekday() < 5 and local.strftime('%H:%M') >= settings['weekday_newsletter']['time']:
+        deadline=datetime.combine(local.date(),datetime.strptime(settings['weekday_newsletter']['time'],'%H:%M').time(),ZoneInfo(settings['weekday_newsletter']['timezone']))
+        if local.weekday() < 5 and local >= deadline-NEWSLETTER_SCHEDULE_LEAD:
             return [('weekday_newsletter', local.date().isoformat())]
         return []
     daily = settings['daily_generation']
@@ -182,7 +196,7 @@ def _newsletter_retry(marker, target, phase, day, now):
         return None
     if finished.tzinfo is None or now < finished + NEWSLETTER_RETRY_DELAY:
         return None
-    urls = verified_reader_urls(CONTROLLER_ROOT, day)
+    urls = verified_reader_urls(CONTROLLER_ROOT, day,current=now)
     if urls is None:
         return None
     from send_smn_emails import verified_retry_evidence
@@ -251,7 +265,7 @@ def tick(target, now=None, newsletter_only=False):
                 retry = _newsletter_retry(marker, target, phase, day, now)
                 if retry is None:
                     continue
-            if phase == 'weekday_newsletter' and retry is None and verified_reader_urls(CONTROLLER_ROOT, day) is None:
+            if phase == 'weekday_newsletter' and retry is None and verified_reader_urls(CONTROLLER_ROOT, day,current=now) is None:
                 continue
             # A started marker prevents duplicate newsletter/selector execution
             # after a crash. Only a proven finished pre-POST weekday failure retries.

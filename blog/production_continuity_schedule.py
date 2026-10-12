@@ -24,6 +24,7 @@ ACTIVATION = Path('/etc/SMN/subscription-primary.json')
 MAX_JOBS = DAILY_JOB_LIMIT
 BUDGET_EXHAUSTED_REASON = 'Cumulative model-job budget exhausted; saved approvals remain available for delivery'
 MAX_UNCHANGED_ATTEMPTS = 6
+PUBLICATION_LEAD = timedelta(minutes=15)
 ZONE = ZoneInfo('America/New_York')
 
 
@@ -219,7 +220,12 @@ def deliver(root, day, current=None, repo=None):
     current = current or datetime.now(timezone.utc)
     if preserved_release_day(day):
         return {'status': 'preserved_release_day', 'date': day}
-    if not _eligible(root, day, current, 'target_time'):
+    setting=_setting(root,day)
+    local=current.astimezone(ZoneInfo(setting['timezone']))
+    deadline=datetime.combine(datetime.fromisoformat(day).date(),datetime.strptime(setting['target_time'],'%H:%M').time(),ZoneInfo(setting['timezone']))
+    delivery_window=(local.date().isoformat()==day and local.weekday()<5 and
+                     _eligible(root,day,current,'start_time'))
+    if not delivery_window:
         progress_path = root/day/'continuity-progress.json'
         ready = load_json(progress_path) if progress_path.is_file() else {}
         if (ready.get('date') != day or ready.get('status') != 'generation_complete' or
@@ -247,13 +253,19 @@ def deliver(root, day, current=None, repo=None):
         except Exception as exc:
             save_json(state_path, {'date': day, 'fingerprint': fingerprint,
                       'next_attempt_utc': (current+timedelta(minutes=5)).isoformat(),
-                      'status': 'held', 'reason': str(exc)[:500]})
+                      'status': 'held', 'reason': str(exc)[:500],
+                      'deadline_utc':deadline.astimezone(timezone.utc).isoformat(),
+                      'deadline_missed':current>=deadline,'alert_required':current>=deadline,
+                      'alert_delivery_verified':False})
             raise
         save_json(state_path, {'date': day, 'fingerprint': fingerprint,
                   'next_attempt_utc': None if result.get('complete') is True and
                       result.get('status') == 'live_verified' else
                       (current+timedelta(minutes=15)).isoformat(),
-                  'result': result, 'updated_utc': datetime.now(timezone.utc).isoformat()})
+                  'result': result,'coverage_status':result.get('coverage_status'),
+                  'deadline_utc':deadline.astimezone(timezone.utc).isoformat(),
+                  'partial_at_deadline':current>=deadline and result.get('complete') is False,
+                  'updated_utc': datetime.now(timezone.utc).isoformat()})
         return result
 
 

@@ -172,6 +172,8 @@ def _direction_to_sentiment(direction):
 def _get_hero_image_url(article_url, symbol, hero_image=""):
     """Return hero image URL. Uses stored hero_image from posts.json if available,
     otherwise constructs from article URL and symbol (legacy fallback)."""
+    if hero_image is None:
+        return ''  # Explicit unavailable state; never guess a nonexistent image.
     if hero_image:
         return hero_image
     if not article_url or not symbol:

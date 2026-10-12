@@ -18,6 +18,7 @@ import sys
 import types
 from urllib.parse import urlsplit
 from install_smn_recovery_edition import validate_package, sha, read, write, atomic
+import home_quote_contract as quotes
 
 WEB = Path('/var/www/smn')
 STATE = Path('/var/lib/tradewave/release-state')
@@ -194,6 +195,7 @@ def prepare(package):
     with catalog_lock():
         previous = read(WEB/'posts.json')
         before = {n: sha(WEB/n) if (WEB/n).exists() else None for n in GENERATED}
+        before_quotes = quotes.optional_contract((WEB/'index.html').read_bytes()) if (WEB/'index.html').is_file() else None
         runtime=RUNTIME_BLOG or BLOG
         helpers = {n:(sha(runtime/n) if (runtime/n).exists() else None)
                    for n in ('rebuild_news_home.py','pin_store.py','article_index.py') + (('seo_helpers.py',) if PRODUCTION and continuity else ())}
@@ -274,6 +276,15 @@ def prepare(package):
                'expected_pins':read(DASH/'pins.json').get('pins',[]) if pin_hash else [], 'files':files,
                'retained_articles':{k:v for k,v in articles.items() if not k.startswith('editions/'+date+'/')},
                'retained_heroes':heroes, 'production_written':False, 'target_host':HOST_IP, 'urls':[p['url'] for p in entries]}
+    if PRODUCTION:
+        home_quotes=quotes.optional_contract((candidate/'index.html').read_bytes())
+        if home_quotes:
+            receipt['home_quote_contract']=home_quotes
+            receipt['before_home_quote_contract']=before_quotes
+            writer=BLOG/'update_news_quotes.py'
+            if not writer.is_file() or writer.is_symlink():
+                raise ValueError('Known market quote writer unavailable')
+            receipt['home_quote_writer_sha256']=sha(writer)
     if continuity:
         receipt.update({k:manifest[k] for k in ('revision','revision_id','transaction_id','selection_sha256','selection_status','published_symbols',
             'pending_symbols','coverage_status','complete','publication_policy')})
@@ -284,7 +295,15 @@ def prepare(package):
     return {'record':str(record), **receipt}
 
 
+def quote_writer_unchanged(receipt):
+    if receipt.get('home_quote_contract'):
+        writer=BLOG/'update_news_quotes.py'
+        if writer.is_symlink() or not writer.is_file() or sha(writer)!=receipt.get('home_quote_writer_sha256'):
+            raise ValueError('Market quote writer changed')
+
+
 def unchanged(receipt):
+    quote_writer_unchanged(receipt)
     runtime=Path(receipt.get('runtime_blog',str(BLOG)))
     if receipt.get('continuity_policy')==1 and PRODUCTION and runtime.resolve()!=Path(__file__).resolve().parent:
         raise ValueError('Production renderer is not bound to this immutable release')
@@ -293,6 +312,8 @@ def unchanged(receipt):
             raise ValueError('Dashboard renderer changed during preparation')
     for n, digest in receipt['before'].items():
         if (sha(WEB/n) if (WEB/n).exists() else None) != digest:
+            if n=='index.html' and quotes.matches(receipt.get('before_home_quote_contract'),quotes.optional_contract((WEB/n).read_bytes())):
+                continue
             raise ValueError('Catalog/template changed during preparation: '+n)
     if (sha(DASH/'pins.json') if (DASH/'pins.json').exists() else None) != receipt['pins_sha256']:
         raise ValueError('Dashboard pins changed during preparation')
@@ -373,16 +394,22 @@ def rollback(record):
     guard()
     record = Path(record)
     r = read(record/'receipt.json')
+    quote_writer_unchanged(r)
     with catalog_lock():
         # Preserve peer edits instead of reverting the whole directory blindly.
+        restored_home=None
         for rel, digest in r['files'].items():
             current = WEB/rel
             old = record/'backup'/rel
             if current.exists() and sha(current) not in {digest, sha(old) if old.exists() else None}:
+                if rel=='index.html' and r.get('home_quote_contract') and old.is_file():
+                    restored_home=quotes.restore_with_current_quotes(old.read_bytes(),current.read_bytes(),r['home_quote_contract'])
+                    continue
                 raise ValueError('Peer changed published file; targeted recovery required: '+rel)
         for rel in r['files']:
             old = record/'backup'/rel
-            if old.exists(): atomic(WEB/rel, old.read_bytes())
+            if rel=='index.html' and restored_home is not None: atomic(WEB/rel,restored_home)
+            elif old.exists(): atomic(WEB/rel, old.read_bytes())
             elif (WEB/rel).exists(): (WEB/rel).unlink()
         r['status'] = 'rolled_back'
         write(record/'receipt.json', r)
@@ -394,6 +421,7 @@ def finish(record):
     guard()
     record = Path(record)
     r = read(record/'receipt.json')
+    quote_writer_unchanged(r)
     proof = read(record/'live-verification.json')
     if r['status'] != 'active_pending_live_verification' or not proof.get('passed'):
         raise ValueError('Live verification required')
@@ -406,6 +434,13 @@ def finish(record):
     # must still match on disk, and a sample of them through the public site: hashing all ~1,400
     # publicly ran ~20 h and exhausted Dev (Sept 29-30); this publish does not modify them.
     for rel, digest in r['files'].items():
+        if rel=='index.html' and r.get('home_quote_contract'):
+            observed=quotes.contract((WEB/rel).read_bytes())
+            public=next((p for p in proof.get('public_files',[]) if p.get('rel')==rel and p.get('passed')), {})
+            if not quotes.matches(r['home_quote_contract'],observed) or not quotes.matches(r['home_quote_contract'],public.get('home_quote_contract')):
+                raise ValueError('Public homepage quote contract missing/changed')
+            r['verified_home_quotes']={'origin':observed,'public':public['home_quote_contract'],'public_sha256':public.get('public_sha256')}
+            continue
         if sha(WEB/rel) != digest or verified.get(rel) != digest:
             raise ValueError('Public verification missing/changed: '+rel)
     for group in ('retained_articles', 'retained_heroes'):
