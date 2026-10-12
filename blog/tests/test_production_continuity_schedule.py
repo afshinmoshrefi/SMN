@@ -79,6 +79,8 @@ class ContinuityScheduleTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
+        activation=patch.object(schedule,'ACTIVATION',self.root/'activation.json')
+        activation.start();self.addCleanup(activation.stop)
         fake = types.ModuleType('fcntl')
         fake.LOCK_EX, fake.LOCK_NB, fake.LOCK_UN = 1, 2, 4
         fake.flock = lambda *_args: None
