@@ -45,6 +45,8 @@ class OperationalAlertTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        activation=patch.object(alerts,'CONTINUITY_ACTIVATION',self.root/'activation.json')
+        activation.start();self.addCleanup(activation.stop)
         relay = patch.object(alerts, 'retrieve_resend', return_value=None)
         relay.start()
         self.addCleanup(relay.stop)

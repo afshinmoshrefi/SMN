@@ -50,8 +50,8 @@ class PublicationFailures(unittest.TestCase):
         self.stack.enter_context(patch.dict(sys.modules, {'install_smn_primary_edition': installer}))
         self.stack.enter_context(patch.object(rolling, 'require_policy'))
         self.stack.enter_context(patch.object(rolling.subprocess, 'check_output', return_value=COMMIT))
-        self.stack.enter_context(patch('editorial_gate.verify_complete'))
-        self.stack.enter_context(patch('editorial_gate.verify_content'))
+        self.stack.enter_context(patch('editorial_gate.verify_complete',return_value={'passed':True}))
+        self.stack.enter_context(patch('editorial_gate.verify_content',return_value={'passed':True}))
         self.browser = self.stack.enter_context(patch.object(rolling.subprocess, 'run', side_effect=self.browser_check))
         self.records = {}
         self.active_record = None
@@ -91,9 +91,14 @@ class PublicationFailures(unittest.TestCase):
         save_json(result/'commission.json', {'history_status': 'ok', 'production_article': {
             'symbol': symbol, 'market_family': 'Fixture market', 'lookback_years': '10',
             'published_date': DAY, 'source_mode': 'selected_inputs'}})
-        save_json(result/'hero-asset.json', {'url': 'assets/hero.png', 'alt': 'Illustration'})
         (result/'assets').mkdir(exist_ok=True)
-        (result/'assets/hero.png').write_bytes(b'fixture-hero')
+        from PIL import Image
+        from io import BytesIO
+        image=Image.new('RGB',(600,300),'#126868');image.paste('#f8df8a',(300,0,600,300))
+        output=BytesIO();image.save(output,format='PNG');raw=output.getvalue()
+        save_json(result/'hero-asset.json', {'url': 'assets/hero.png', 'alt': 'Illustration',
+            'sha256':sha256(raw),'width':600,'height':300,'provider':'Synthetic test fixture'})
+        (result/'assets/hero.png').write_bytes(raw)
         (result/'evidence').mkdir(exist_ok=True)
         role = {'provider': 'openai', 'model': 'gpt-test', 'billing_source': 'subscription', 'api_fallback': False}
         save_json(result/'generation.json', {'article_sha256': publication.digest(article),
@@ -336,6 +341,7 @@ class SchedulerRecoveryFailures(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.dict(sys.modules, {'fcntl': fake}))
         self.stack.enter_context(patch.object(schedule, '_eligible', return_value=True))
+        self.stack.enter_context(patch.object(schedule,'ACTIVATION',self.root/'activation.json'))
         self.stack.enter_context(patch.object(rolling, 'require_policy'))
 
     def test_terminal_hold_is_quiet_until_repaired_evidence_then_resumes_with_diagnostic(self):
