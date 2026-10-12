@@ -266,7 +266,7 @@ def prepare(package):
     if continuity:
         home['coverage'] = read(candidate/'coverage-status.json')
     write(candidate/'home-manifest.json', home)
-    files = {str(p.relative_to(candidate)):sha(p) for p in candidate.rglob('*') if p.is_file()}
+    files = {p.relative_to(candidate).as_posix():sha(p) for p in candidate.rglob('*') if p.is_file()}
     receipt = {'id':ident, 'status':'prepared', 'source_commit':manifest['source_commit'],
                'expected_symbols':manifest.get('expected_symbols'),
                'editorial_gate_version':manifest['editorial_gate_version'],
@@ -416,6 +416,8 @@ def finish(record):
         if sum(rel in verified for rel in retained) < min(RETAINED_SAMPLE, len(retained)):
             raise ValueError('Public verification missing/changed: too few %s sampled' % group)
     r['status'] = 'live_verified'
+    if PRODUCTION:
+        r['production_written'] = True
     write(record/'receipt.json', r)
     release_lock(r)
     return r

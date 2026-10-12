@@ -92,6 +92,23 @@ class LocalProductionTransactionTests(unittest.TestCase):
         self.assertEqual(resumed['record'],first['record'])
         self.assertEqual(len(list(record.glob('candidate.incomplete.*'))),1)
 
+    def test_verified_native_receipt_resumes_without_canonical_receipt(self):
+        """A crash between native finish and canonical receipt must not republish."""
+        tx=self.root/'verified-tx';tx.mkdir()
+        prepared=installer.prepare(self.package(['AAA']))
+        write(tx/'production-stage.json',prepared)
+        record=Path(prepared['record'])
+        installer.activate(record)
+        finished=self.finish(record)
+        self.assertTrue(finished['production_written'])
+        self.assertTrue(read(record/'receipt.json')['production_written'])
+        with patch.object(rolling.subprocess,'run') as browser,patch.object(installer,'activate') as activate:
+            resumed=rolling._resume_or_publish(tx,self.root,'node',None)
+        browser.assert_not_called();activate.assert_not_called()
+        self.assertEqual(resumed['status'],'live_verified')
+        self.assertEqual(resumed['transaction_id'],finished['transaction_id'])
+        self.assertFalse(resumed['complete'])
+
     def test_rollback_restores_catalog_and_overwritten_edition_bytes(self):
         first=Path(installer.prepare(self.package(['AAA'],1))['record']);installer.activate(first);self.finish(first)
         before={p.relative_to(self.web).as_posix():p.read_bytes() for p in self.web.rglob('*') if p.is_file()}
