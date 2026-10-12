@@ -22,8 +22,16 @@ def split(raw):
 
 def contract(raw):
     prefix, span, suffix = split(raw)
-    stable = re.sub(rb'(<span class="market-price"(?: style="color:#818cf8")?>)('+NUMBER+rb')(<sup style=\x27font-size:9px;color:#6366f1;margin-left:1px\x27>F</sup>)?(</span>)', lambda m:m[1]+b'PRICE'+(m[3] or b'')+m[4], span)
-    stable = re.sub(rb"(<span class='market-change )(up|down|flat)('>)("+NUMBER+rb"%?)(</span>)", lambda m:m[1]+b'DIRECTION'+m[3]+b'CHANGE'+m[5], stable)
+    price=rb'(<span class="market-price"(?: style="color:#818cf8")?>)('+NUMBER+rb')(<sup style=\x27font-size:9px;color:#6366f1;margin-left:1px\x27>F</sup>)?(</span>)'
+    change=rb"(<span class='market-change )(up|down|flat)('>)("+NUMBER+rb"%?)(</span>)"
+    for field in re.findall(rb'<span\b[^>]*class="market-price"[^>]*>.*?</span>',span,re.S):
+        if not re.fullmatch(price,field):raise ValueError('Invalid quote price field')
+    for field in re.findall(rb"<span\b[^>]*class='market-change [^']*'[^>]*>.*?</span>",span,re.S):
+        if not re.fullmatch(change,field):raise ValueError('Invalid quote change field')
+    for direction in re.findall(rb'class="market-item ([^"]*)"',span):
+        if direction not in {b'up',b'down',b'flat'}:raise ValueError('Invalid quote item direction')
+    stable = re.sub(price, lambda m:m[1]+b'PRICE'+(m[3] or b'')+m[4], span)
+    stable = re.sub(change, lambda m:m[1]+b'DIRECTION'+m[3]+b'CHANGE'+m[5], stable)
     stable = re.sub(rb'class="market-item (?:up|down|flat)"', b'class="market-item DIRECTION"', stable)
     return {'version': VERSION, 'kind': KIND,
             'outside_sha256': _sha(prefix + suffix),

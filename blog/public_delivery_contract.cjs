@@ -15,8 +15,13 @@ const SMNDeliveryContract=(()=>{
   const text=decoder.decode(raw),matches=[...text.matchAll(/<div class="market-bar">[\s\S]*?<\/div>\s*<\/div>/g)];
   if(matches.length!==1)throw Error('Expected one complete market quote span');
   const m=matches[0],span=m[0];
-  const stable=span.replace(/(<span class="market-price"(?: style="color:#818cf8")?>)([-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?)(<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F<\/sup>)?(<\/span>)/g,(_,open,price,marker,close)=>open+'PRICE'+(marker||'')+close)
-   .replace(/(<span class='market-change )(up|down|flat)('>)([-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?%?)(<\/span>)/g,(_,open,direction,end,number,close)=>open+'DIRECTION'+end+'CHANGE'+close)
+  const price=/(<span class="market-price"(?: style="color:#818cf8")?>)([-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?)(<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F<\/sup>)?(<\/span>)/g;
+  const change=/(<span class='market-change )(up|down|flat)('>)([-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?%?)(<\/span>)/g;
+  for(const field of span.match(/<span\b[^>]*class="market-price"[^>]*>[\s\S]*?<\/span>/g)||[])if(!new RegExp('^(?:'+price.source+')$').test(field))throw Error('Invalid quote price field');
+  for(const field of span.match(/<span\b[^>]*class='market-change [^']*'[^>]*>[\s\S]*?<\/span>/g)||[])if(!new RegExp('^(?:'+change.source+')$').test(field))throw Error('Invalid quote change field');
+  for(const item of span.matchAll(/class="market-item ([^"]*)"/g))if(!['up','down','flat'].includes(item[1]))throw Error('Invalid quote item direction');
+  const stable=span.replace(price,(_,open,value,marker,close)=>open+'PRICE'+(marker||'')+close)
+   .replace(change,(_,open,direction,end,number,close)=>open+'DIRECTION'+end+'CHANGE'+close)
    .replace(/class="market-item (?:up|down|flat)"/g,'class="market-item DIRECTION"');
   return {version:2,kind:'market-bar-numeric-quotes-v2',outside_sha256:await sha(encoder.encode(text.slice(0,m.index)+text.slice(m.index+span.length))),markup_sha256:await sha(encoder.encode(stable)),observed_sha256:await sha(raw),quote_sha256:await sha(encoder.encode(span))};
  }
