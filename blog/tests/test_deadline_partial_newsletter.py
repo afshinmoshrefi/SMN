@@ -32,7 +32,8 @@ class DeadlinePartialNewsletterTests(unittest.TestCase):
             with self.subTest(subjects=subjects):
                 root,web,_,_,urls=self.fixture(subjects)
                 self.assertIsNone(schedule.verified_reader_urls(root,DAY,web,current=SEVEN-timedelta(minutes=6)))
-                self.assertEqual(schedule.verified_reader_urls(root,DAY,web,current=SEVEN-timedelta(minutes=5)),urls)
+                self.assertIsNone(schedule.verified_reader_urls(root,DAY,web,current=SEVEN-timedelta(minutes=5)))
+                self.assertIsNone(schedule.verified_reader_urls(root,DAY,web,current=SEVEN-timedelta(seconds=1)))
                 self.assertEqual(schedule.verified_reader_urls(root,DAY,web,current=SEVEN),urls)
                 self.assertIsNone(schedule.verified_reader_urls(root,DAY,web,current=SEVEN+timedelta(days=1)))
 
@@ -50,5 +51,20 @@ class DeadlinePartialNewsletterTests(unittest.TestCase):
     def test_notice_without_any_qualified_article_does_not_send(self):
         root,web,_,_,_=self.fixture([])
         self.assertIsNone(schedule.verified_reader_urls(root,DAY,web,current=SEVEN))
+
+    def test_growing_subset_is_selected_at_cutoff_not_provider_lead(self):
+        import shutil
+        root,web,path,_,one=self.fixture(SYMBOLS[:1])
+        setting={'weekday_newsletter':{'time':'07:00','timezone':'America/New_York'}}
+        for instant in [SEVEN-timedelta(minutes=5),SEVEN-timedelta(seconds=1)]:
+            self.assertEqual(schedule.due(instant,'production',setting,newsletter_only=True),[])
+            self.assertIsNone(schedule.verified_reader_urls(root,DAY,web,current=instant))
+        grown_root,grown_web,grown_path,_,five=self.fixture(SYMBOLS[:5])
+        shutil.copytree(grown_web,web,dirs_exist_ok=True)
+        shutil.copytree(grown_root/DAY/'chatgpt/primary',root/DAY/'chatgpt/primary',dirs_exist_ok=True)
+        path.write_bytes(grown_path.read_bytes())
+        self.assertEqual(schedule.due(SEVEN,'production',setting,newsletter_only=True),[('weekday_newsletter',DAY)])
+        self.assertEqual(schedule.verified_reader_urls(root,DAY,web,current=SEVEN),five)
+        self.assertNotEqual(one,five)
 
 if __name__=='__main__':unittest.main()

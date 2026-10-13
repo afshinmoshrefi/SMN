@@ -64,7 +64,7 @@ class VerifiedNewsletterTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'partly reserved'):
                     module.daily_send(verified_urls={selected, extra})
             # Execute the real CLI body: scheduler eligibility and child gate
-            # must agree at the five-minute provider reservation window.
+            # must agree at the actual cutoff, rather than the provider lead.
             import ast
             from datetime import datetime,timezone
             import operational_schedule,operational_settings
@@ -72,15 +72,15 @@ class VerifiedNewsletterTest(unittest.TestCase):
             entry=next(node for node in tree.body if isinstance(node,ast.If) and ast.unparse(node.test)=="__name__ == '__main__'")
             program=compile(ast.Module(body=entry.body,type_ignores=[]),str(path),'exec')
             class Clock(datetime):
-                instant=datetime(2026,10,12,10,55,tzinfo=timezone.utc)
+                instant=datetime(2026,10,12,11,0,tzinfo=timezone.utc)
                 @classmethod
                 def now(cls,tz=None):return cls.instant.astimezone(tz) if tz else cls.instant.replace(tzinfo=None)
             setting={'time':'07:00','timezone':'America/New_York'}
             with patch.dict(module.__dict__,{'datetime':Clock,'_today':lambda:module.date(2026,10,12)}),patch.object(sys,'argv',[str(path),'--verified-reader-date','2026-10-12']),patch.object(operational_settings,'for_instant',return_value={'weekday_newsletter':setting}),patch.object(operational_schedule,'verified_reader_urls',return_value={selected}),patch.object(module,'daily_send') as actual_entry_send:
                 exec(program,module.__dict__)
                 actual_entry_send.assert_called_once()
-                self.assertEqual(module._schedule_fields(5,now=Clock.instant),('2026-10-12','07','00'))
-                actual_entry_send.reset_mock();Clock.instant=datetime(2026,10,12,10,54,tzinfo=timezone.utc)
+                self.assertEqual(module._schedule_fields(5,now=Clock.instant),('2026-10-12','07','05'))
+                actual_entry_send.reset_mock();Clock.instant=datetime(2026,10,12,10,59,tzinfo=timezone.utc)
                 with self.assertRaises(SystemExit):exec(program,module.__dict__)
                 actual_entry_send.assert_not_called()
 

@@ -336,5 +336,46 @@ class NewsletterSafeRetryTests(unittest.TestCase):
         self.assertNotIn('provider_counts', campaign)  # Queued acknowledgement is not delivery.
 
 
+    def test_growing_published_subset_reuses_same_date_campaign_after_restart(self):
+        self.sender.get_email_groups.side_effect=None
+        self.sender.get_email_groups.return_value={'SMN-DAILY':'group'}
+        self.sender.create_campaign.side_effect=None
+        self.sender.create_campaign.return_value=('123','now')
+        with patch.object(self.sender,'_build_email_html',return_value='<html/>'), \
+                patch.object(self.sender,'_schedule_campaign_explicit',return_value={'data':{'id':'123','status':'ready'}}) as provider:
+            first={self.posts[0]['url']}
+            self.sender.daily_send(verified_urls=first,edition_date=date.fromisoformat(DAY))
+            saved=self.sender.STATE_FILE.read_bytes()
+            # Each invocation reloads the disk journal; no in-memory receipt is used.
+            result=self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+            self.assertEqual(result['status'],'already_reserved')
+            self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+            self.sender.create_campaign.assert_called_once();provider.assert_called_once()
+
+    def test_unknown_or_sent_campaign_intent_blocks_growing_subset_without_provider_calls(self):
+        for phase in ['create_unknown','schedule_unknown','scheduled','provider_sent']:
+            with self.subTest(phase=phase):
+                self.state['campaigns']['daily:'+DAY]={'phase':phase,'campaign_id':None,'slugs':[self.posts[0]['slug']]}
+                self.save_state();saved=self.sender.STATE_FILE.read_bytes()
+                result=self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+                self.assertEqual(result['status'],'already_reserved')
+                self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+                self.sender.create_campaign.assert_not_called();self.sender.get_email_groups.assert_not_called()
+
+    def test_restart_before_cutoff_creates_no_scheduler_marker(self):
+        setting={'weekday_newsletter':{'time':'07:00','timezone':'UTC'}}
+        with patch.object(schedule.operational_settings,'for_instant',return_value=setting):
+            for instant in [NOW.replace(hour=6,minute=55),NOW.replace(hour=6,minute=59,second=59)]:
+                self.assertEqual(self.tick(instant),0)
+                self.assertFalse(self.marker.exists());self.child.assert_not_called()
+
+    def test_malformed_existing_campaign_intent_never_calls_provider(self):
+        self.state['campaigns']['daily:'+DAY]=None
+        self.save_state();saved=self.sender.STATE_FILE.read_bytes()
+        with self.assertRaisesRegex(RuntimeError,'intent is malformed'):
+            self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+        self.sender.create_campaign.assert_not_called();self.sender.get_email_groups.assert_not_called()
+        self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+
 if __name__ == '__main__':
     unittest.main()

@@ -302,6 +302,37 @@ def verify_generation(root,day):
         return {'complete':False,'verified_symbols':[],'reason':'Selected source-bound artifact proof is incomplete'}
 
 
+def reconcile_qualified_articles(day):
+    """Derive current continuity state from source-bound bytes, never old job flags.
+
+    A passing continuity fallback is not a passing AI visual review. Keep the
+    existing finalized flag and every old hold/failed job as historical evidence.
+    Revalidate on every invocation so changed content cannot reuse this summary.
+    """
+    if not getattr(day,'continuity',False):return set()
+    verification=verify_generation(day.root.parent.parent,day.date)
+    qualified=set();changed=False
+    for symbol,state in day.state['articles'].items():
+        proof=verification.get('qualified_hashes',{}).get(symbol)
+        valid=(symbol in verification.get('verified_symbols',[]) and isinstance(proof,dict)
+               and all(re.fullmatch(r'[0-9a-f]{64}',str(proof.get(key,''))) for key in ('article','review','html')))
+        if not valid:
+            if state.pop('continuity_qualification',None) is not None:changed=True
+            continue
+        qualified.add(symbol)
+        summary={'status':'verified','basis':'current_source_bound_continuity_artifacts',**proof}
+        if state.get('continuity_qualification')!=summary:
+            state['continuity_qualification']=summary;changed=True
+        hold=state.pop('held',None)
+        if hold is not None:
+            state.setdefault('retained_holds',[]).append({'hold':hold,
+                'resolved_by':'current_source_bound_continuity_artifacts',
+                'article_sha256':proof['article'],'review_sha256':proof['review']})
+            changed=True
+    if changed:day.save()
+    return qualified
+
+
 def supervise(root,day,current):
     """Existing reconcile phase repairs saved reader work under controller ownership."""
     root=Path(root);watch=watch_workers(root,day,current)
@@ -316,13 +347,17 @@ def supervise(root,day,current):
         reader=Day(edition,day,profile='chatgpt',
                    publication_origin=state.get('publication_origin'),max_jobs=DAILY_JOB_LIMIT)
         reader.continuity=True
+        qualified=reconcile_qualified_articles(reader)
         observations=[]
         for job in sorted((edition/'jobs').glob('*')):
             if not job.is_dir() or not (job/'job.json').is_file():continue
             try:
                 manifest=load_json(job/'job.json')
-                observed=reconcile_private_job(job,current);observations.append(observed)
                 symbol=job.name.split('-')[0]
+                if symbol in qualified:
+                    observations.append({'job':job.name,'status':'retained_for_qualified_article','new_dispatches':0})
+                    continue
+                observed=reconcile_private_job(job,current);observations.append(observed)
                 article=reader.state['articles'].get(symbol,{})
                 if (observed['status'] not in {'ready','verified_completed'} and manifest.get('stage')!='hero-check' and
                         not article.get('finalized')):

@@ -786,6 +786,18 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
     today = edition_date or _today()
 
     state = _load_state()
+    # One campaign intent owns this date even when the published subset grows.
+    # Preserve uncertain/accepted/sent records; a restart cannot create a second
+    # campaign or turn an already reserved digest into a partial-reservation error.
+    campaigns = state.get('campaigns', {})
+    key = _campaign_key('daily', today)
+    if key in campaigns:
+        existing = campaigns[key]
+        if not isinstance(existing, dict):
+            raise RuntimeError('Existing daily campaign intent is malformed; reconcile before retry')
+        print('Daily edition already reserved. No new campaign created.')
+        return {'status': 'already_reserved', 'campaign_id': existing.get('campaign_id'),
+                'phase': existing.get('phase')}
     posts = _load_posts()
 
     if verified_urls is not None:
@@ -990,10 +1002,9 @@ if __name__ == '__main__':
         setting = operational_settings.for_instant(datetime.now(timezone.utc))['weekday_newsletter']
         local_now = datetime.now(timezone.utc).astimezone(ZoneInfo(setting['timezone']))
         local_today = local_now.date()
-        from operational_schedule import NEWSLETTER_SCHEDULE_LEAD
         send_at=datetime.combine(local_today,datetime.strptime(setting['time'],'%H:%M').time(),ZoneInfo(setting['timezone']))
         if (args.test or args.force or args.verified_reader_date != local_today.isoformat() or
-                local_today.weekday() >= 5 or local_now < send_at-NEWSLETTER_SCHEDULE_LEAD):
+                local_today.weekday() >= 5 or local_now < send_at):
             parser.error('verified reader send requires the current weekday without --test or --force')
         from operational_schedule import CONTROLLER_ROOT, verified_reader_urls
         urls = verified_reader_urls(CONTROLLER_ROOT, args.verified_reader_date)

@@ -167,6 +167,8 @@ def run_profile(root, date, profile, canonical, publication_origin=ORIGIN, conti
         if profile != 'chatgpt' or publication_origin != ORIGIN:
             raise ValueError('Continuity progression requires the production ChatGPT origin')
         day.continuity = True
+        from smn_recovery import reconcile_qualified_articles
+        qualified=reconcile_qualified_articles(day)
     release_login_holds(day)
     day.release_transient_holds()
     if continuity:
@@ -174,6 +176,8 @@ def run_profile(root, date, profile, canonical, publication_origin=ORIGIN, conti
         try:
             for symbol in symbols:
                 day.symbols = [symbol]
+                if symbol in qualified:
+                    continue  # Retained source-qualified artifacts need no new model/vision attempt.
                 try:
                     from smn_recovery import checkpoint
                     checkpoint(day,symbol,'research','running')

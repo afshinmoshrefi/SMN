@@ -146,7 +146,7 @@ class SubscriptionDailyTests(unittest.TestCase):
             def authenticate(profile, _root):
                 calls['profiles'].append(profile)
 
-            def run_profile(_edition, date, profile, _canonical):
+            def run_profile(_edition, date, profile, _canonical, **_kwargs):
                 if date == '2026-09-30' and profile == 'claude':
                     raise RuntimeError('simulated provider failure')
                 return {'passed': True, 'status': 'ready'}

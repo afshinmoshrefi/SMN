@@ -266,6 +266,7 @@ class ContinuityScheduleTests(unittest.TestCase):
         calls = []
         class FakeDay:
             def __init__(self, *_args, **_kwargs):
+                self.root=Path(_args[0]);self.date=_args[1]
                 self.state = {'articles': {}}
             def save(self): pass
             def release_transient_holds(self): pass
@@ -276,7 +277,8 @@ class ContinuityScheduleTests(unittest.TestCase):
         with patch.object(smn_subscription_daily, 'Day', FakeDay), \
                 patch.object(smn_subscription_daily, 'authenticate'), \
                 patch.object(smn_subscription_daily, 'freeze_inputs'), \
-                patch.object(smn_subscription_daily, 'release_login_holds'),patch('smn_recovery.checkpoint'):
+                patch.object(smn_subscription_daily, 'release_login_holds'),patch('smn_recovery.checkpoint'), \
+                patch('smn_recovery.verify_generation',return_value={'verified_symbols':[]}):
             result = smn_subscription_daily.run_profile(
                 self.root, DAY, 'chatgpt', canonical, publication_origin=smn_subscription_daily.ORIGIN, continuity=True)
         self.assertTrue(result['passed'])

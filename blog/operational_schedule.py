@@ -25,7 +25,6 @@ CONTROLLER_ROOT = Path('/var/lib/tradewave/smn-daily/subscription-primary')
 WEB_ROOT = Path('/var/www/smn')
 MAX_NEWSLETTER_ATTEMPTS = 3
 NEWSLETTER_RETRY_DELAY = timedelta(minutes=5)
-NEWSLETTER_SCHEDULE_LEAD = timedelta(minutes=5)  # Native provider scheduling lead.
 
 
 def verified_reader_urls(root, day, web_root=WEB_ROOT, *, current=None):
@@ -86,7 +85,7 @@ def verified_reader_urls(root, day, web_root=WEB_ROOT, *, current=None):
         newsletter=bound.get('weekday_newsletter') or operational_settings.for_date(day)['weekday_newsletter']
         local=(current or datetime.now(timezone.utc)).astimezone(ZoneInfo(newsletter['timezone']))
         deadline=datetime.combine(datetime.fromisoformat(day).date(),datetime.strptime(newsletter['time'],'%H:%M').time(),ZoneInfo(newsletter['timezone']))
-        if local.date().isoformat()!=day or local<deadline-NEWSLETTER_SCHEDULE_LEAD:
+        if local.date().isoformat()!=day or local<deadline:
             return None
     start = datetime.combine(datetime.fromisoformat(day).date(),
                              datetime.strptime(morning['start_time'], '%H:%M').time(),
@@ -137,7 +136,7 @@ def due(now, target, settings, newsletter_only=False):
             raise ValueError('Subscriber email is production-only')
         local = _local_when(now, settings['weekday_newsletter'])
         deadline=datetime.combine(local.date(),datetime.strptime(settings['weekday_newsletter']['time'],'%H:%M').time(),ZoneInfo(settings['weekday_newsletter']['timezone']))
-        if local.weekday() < 5 and local >= deadline-NEWSLETTER_SCHEDULE_LEAD:
+        if local.weekday() < 5 and local >= deadline:
             return [('weekday_newsletter', local.date().isoformat())]
         return []
     daily = settings['daily_generation']
