@@ -16,7 +16,7 @@ def _snapshot(scan_root,date,registry,date_root=False):
     if original_scan.is_symlink() or original_registry.is_symlink():raise BudgetEvidenceError("Symlink daily scan/registry root")
     scan_root=original_scan.resolve();registry=original_registry.resolve()
     if not scan_root.is_dir():raise BudgetEvidenceError("Daily scan root missing")
-    receipts={};receipt_paths={};pending={};archives={};archive_identities={};running=[];namespaces=[]
+    receipts={};receipt_paths={};pending={};archives={};archive_identities={};running=[];namespaces=[];publication_copies={}
     def walk_error(exc):raise BudgetEvidenceError("Unreadable daily namespace:"+str(exc))
     for current,dirs,files in os.walk(str(scan_root),followlinks=False,onerror=walk_error):
         here=Path(current)
@@ -36,6 +36,11 @@ def _snapshot(scan_root,date,registry,date_root=False):
             if not job.is_dir():continue
             if job.is_symlink():raise BudgetEvidenceError("Symlink daily job directory")
             if any(p.is_symlink() for p in job.iterdir()):raise BudgetEvidenceError("Linked job evidence or archive is not countable safely")
+            from publication_job_copies import verified_copy
+            copied=verified_copy(job,date,registry,scan_root)
+            if copied:
+                publication_copies[str(job.resolve())]=copied
+                continue  # Original job and every genuine attempt remain charged.
             path=str(job.resolve());receipt=job/"receipt.json";manifest=job/"job.json"
             if receipt.exists():
                 if receipt.is_symlink():raise BudgetEvidenceError("Symlink receipt")
@@ -99,7 +104,7 @@ def _snapshot(scan_root,date,registry,date_root=False):
         if not target or (target not in pending and target not in receipt_paths):
             orphans[p.parent.name]={"classification":"durable reservation without certain matching job; never refunded","job_path":target}
     count=len(receipts)+len(pending)+len(archive_identities)+len(orphans)
-    return {"consumed_conservative":count,"completed_unique_receipts":len(receipts),"prepared_or_uncertain_paths":len(pending),"archived_attempt_paths":len(archives),"archived_unique_attempts":len(archive_identities),"archive_identity_union":archive_identities,"orphan_reservations":len(orphans),"namespaces":namespaces,"receipt_identity_union":receipts,"pending_paths":pending,"retry_archive_paths":archives,"reservation_without_job":orphans,"all_reservations":reservations,"running_or_claimed_without_receipt":running,"copied_receipts_deduplicated_by":"exact receipt SHA plus matching overlapping manifest/dispatch evidence; never job ID alone","copied_archives_deduplicated_by":"exact completed parent receipt, manifest, archive name and every archive file hash; uncertain parents remain charged per path","retirement_exclusions":[],"retirement_policy":"No unproven never-dispatched preparation is excluded; genuine retirement proof requires a new explicit versioned input."}
+    return {"consumed_conservative":count,"completed_unique_receipts":len(receipts),"prepared_or_uncertain_paths":len(pending),"archived_attempt_paths":len(archives),"archived_unique_attempts":len(archive_identities),"archive_identity_union":archive_identities,"orphan_reservations":len(orphans),"namespaces":namespaces,"receipt_identity_union":receipts,"pending_paths":pending,"retry_archive_paths":archives,"reservation_without_job":orphans,"all_reservations":reservations,"running_or_claimed_without_receipt":running,"verified_publication_copies":publication_copies,"copied_receipts_deduplicated_by":"exact receipt SHA plus matching overlapping manifest/dispatch evidence; never job ID alone","copied_archives_deduplicated_by":"exact completed parent receipt, manifest, archive name and every archive file hash; separately audited publication copies require all-byte/execution identity proofs","retirement_exclusions":[],"retirement_policy":"No genuine attempt is removed; separately proved publication artifacts reuse canonical attempt identities."}
 
 
 # Native normal runs share the recovery registry and its exact mkdir lease.

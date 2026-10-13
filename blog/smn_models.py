@@ -52,6 +52,8 @@ def prepare(roles, role, *args, **kwargs):
     # shared normal/recovery lease through that persistence, never a model call.
     job_root = Path(args[0] if args else kwargs['root'])
     job_id = args[1] if len(args) > 1 else kwargs['job_id']
+    from publication_job_copies import prevent_dispatch
+    prevent_dispatch(job_root/job_id)
     if job_root.name != 'jobs':
         raise ValueError('SMN job preparation requires an edition jobs directory')
     return budget_prepare(job_root.parent, kwargs.get('as_of'), job_id,
@@ -64,6 +66,8 @@ def module_for_job(job):
 
 
 def run(job, clis):
+    from publication_job_copies import prevent_dispatch
+    if not (Path(job)/'receipt.json').is_file():prevent_dispatch(job)
     module = module_for_job(job)
     return module.run_job(job, clis['claude' if module is claude_subscription_writer else 'codex'])
 

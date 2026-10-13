@@ -258,6 +258,8 @@ def run_job(job, codex, *, timeout=900):
     # One completed receipt is immutable. A second scheduler cannot rerun it.
     if (job / 'receipt.json').exists():
         return load_json(job / 'receipt.json')
+    from publication_job_copies import prevent_dispatch
+    prevent_dispatch(job)
     validate_strict_output_schema(load_json(job / 'schema.json'))
     state = load_json(job / 'state.json')
     if state.get('status') != 'ready':
