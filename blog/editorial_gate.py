@@ -420,6 +420,20 @@ severity. Optional omissions are not factual defects. Do not mark a factual corr
 This audit does not authorize guessing missing facts or declaring unverified claims safe.'''
 
 
+def quoted_event_date(quote,event,*,allow_yearless=False):
+    """Match literal calendar dates, including source abbreviations/DOM spacing."""
+    if re.search(r'(?<!\d)'+re.escape(event.isoformat())+r'(?!\d)',quote):return True
+    months='(?:'+re.escape(event.strftime('%B'))+'|'+re.escape(event.strftime('%b'))+r'\.?)'
+    day=(r'0?' if event.day<10 else '')+str(event.day)
+    pattern=r'\b'+months+r'\s*'+day+r'(?!\d)(?:\s*,?\s*(\d{4})(?!\d))?'
+    for match in re.finditer(pattern,quote,re.I):
+        year=match.group(1)
+        if year is not None:
+            if int(year)==event.year:return True
+        elif allow_yearless and not re.match(r'^[,\s]*\d{4}',quote[match.end():]):return True
+    return False
+
+
 def problems(article, bundle, ctx, review, result=None, *, advisory_issue_ids=()):
     from seasonal_edition import check_temporal_instrument_copy
     issues = []
@@ -473,10 +487,8 @@ def problems(article, bundle, ctx, review, result=None, *, advisory_issue_ids=()
                 re.search(r'\b(if|may|might|could|would|whether)\b',req['text'],re.I)):
             try:
                 event = date.fromisoformat(row.get('event_date',''))
-                forms = [event.isoformat(), event.strftime('%B %d, %Y').replace(' 0',' ')]
-                if doc and event.year == date.fromisoformat(ctx['edition']).year == date.fromisoformat(doc['date']).year:
-                    forms.append(event.strftime('%B %d').replace(' 0',' '))
-                if event <= date.fromisoformat(ctx['edition']) or not doc or len(quote)<12 or quote not in spaced(doc['text']) or not any(f.lower() in quote.lower() for f in forms):
+                yearless=bool(doc and event.year == date.fromisoformat(ctx['edition']).year == date.fromisoformat(doc['date']).year)
+                if event <= date.fromisoformat(ctx['edition']) or not doc or len(quote)<12 or quote not in spaced(doc['text']) or not quoted_event_date(quote,event,allow_yearless=yearless):
                     raise ValueError()
             except ValueError:
                 issues.append(prefix+'upcoming event has no explicit future date supported by captured primary evidence')
