@@ -82,6 +82,9 @@ def update_volume_lists():
             real_ip=request.headers.get('X-Real-IP'),
             producer_ip=config.appserver_ip,
             expected_producer_commit=os.environ.get('SMN_VOLUME_PRODUCER_COMMIT',''),
+            proxy_transport=os.environ.get('SMN_VOLUME_PROXY_TRANSPORT','direct'),
+            proxy_uid=os.environ.get('SMN_VOLUME_PROXY_UID'),
+            peer_socket=request.environ.get('gunicorn.socket'),
             directory='/home/flask/blog/volume_lists')
         return jsonify(result), status
 

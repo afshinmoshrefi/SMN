@@ -126,12 +126,17 @@ def validate_bundle(bundle, *, now):
         raise ValueError('Feed generation/session identities differ')
     return rows
 
-def verified_peer(remote, header, expected):
+def verified_peer(remote, header, expected, *, proxy_transport='direct',verified_unix_peer=False):
     """Use a verified fixed-header loopback proxy, never arbitrary forwarding."""
     try:
-        actual = ipaddress.ip_address(remote); producer = ipaddress.ip_address(expected)
+        producer = ipaddress.ip_address(expected)
+        if remote in {None,''}:
+            # Opt-in only after proving the existing private nginx Unix-socket
+            # path overwrites X-Real-IP from its allowlisted TCP socket peer.
+            return proxy_transport=='unix' and verified_unix_peer is True and ipaddress.ip_address(header)==producer
+        actual = ipaddress.ip_address(remote)
         if actual.is_loopback:
-            actual = ipaddress.ip_address(header)
+            return proxy_transport=='unix' and verified_unix_peer is True and ipaddress.ip_address(header)==producer
         return actual == producer
     except (TypeError, ValueError):
         return False
@@ -140,6 +145,7 @@ def atomic(path, raw):
     path = Path(path)
     with tempfile.NamedTemporaryFile(prefix=path.name+'.tmp-',dir=path.parent,delete=False) as stream:
         temp=Path(stream.name)
+        os.chmod(temp,0o644)  # non-secret feed/receipt data, like existing CSVs
         stream.write(raw); stream.flush(); os.fsync(stream.fileno())
     os.replace(temp, path)
     sync_directory(path.parent)
@@ -187,13 +193,18 @@ def generation_path(directory, identifier):
 
 def resolve_feed(path):
     path = Path(path); pointer = path.parent / 'current-volume-delivery.json'
+    if pointer.is_symlink():
+        raise ValueError('Unsafe volume pointer')
     if not pointer.exists():
         return path
     if pointer.is_symlink() or path.name not in FILES:
         raise ValueError('Unsafe volume pointer')
     value = json.loads(pointer.read_text())
     generation = generation_path(path.parent, value['delivery_id'])
-    bundle = json.loads((generation / 'delivery.json').read_text())
+    manifest=generation / 'delivery.json'
+    if manifest.is_symlink():
+        raise ValueError('Unsafe volume manifest')
+    bundle = json.loads(manifest.read_text())
     if bundle['delivery_id'] != value['delivery_id'] or digest(canonical({k:v for k,v in bundle.items() if k!='delivery_id'})) != value['delivery_id']:
         raise ValueError('Volume pointer/generation binding mismatch')
     target = generation / path.name
@@ -201,6 +212,15 @@ def resolve_feed(path):
         raise ValueError('Unsafe volume generation file')
     if target.read_bytes() != bundle['files'][path.name]['csv'].encode() or json.loads(target.with_name(target.name + '.provenance.json').read_text()) != bundle['files'][path.name]['provenance']:
         raise ValueError('Volume generation files changed')
+    receipt_path=generation/'receipt.json'
+    if receipt_path.is_symlink():
+        raise ValueError('Unsafe volume receipt')
+    receipt=json.loads(receipt_path.read_text())
+    timestamp(receipt['received_at'])
+    if (receipt.get('status')!='verified' or receipt.get('delivery_id')!=value['delivery_id']
+            or receipt.get('csv_sha256')!={name:item['provenance']['csv_sha256'] for name,item in bundle['files'].items()}
+            or receipt.get('row_counts')!={name:len(item['provenance']['observations']) for name,item in bundle['files'].items()}):
+        raise ValueError('Volume receipt/generation binding mismatch')
     return target
 
 def install_bundle(directory, bundle, *, now, attribution=None, failure=lambda stage: None):
@@ -216,7 +236,8 @@ def install_bundle(directory, bundle, *, now, attribution=None, failure=lambda s
         current = json.loads(pointer.read_text()) if pointer.exists() else None
         if current:
             # Resolve current binding before replacing anything.
-            resolve_feed(directory / FILES[0]); resolve_feed(directory / FILES[1])
+            if current['delivery_id']!=identifier:
+                resolve_feed(directory / FILES[0]); resolve_feed(directory / FILES[1])
             old = json.loads((generation_path(directory,current['delivery_id'])/'delivery.json').read_text())
             previous = timestamp(old['files'][FILES[0]]['provenance']['generated_at'])
             incoming = timestamp(bundle['files'][FILES[0]]['provenance']['generated_at'])
@@ -251,8 +272,12 @@ def install_bundle(directory, bundle, *, now, attribution=None, failure=lambda s
         accepted=saved['received_at'] if saved else now.isoformat()
         if timestamp(accepted)>now:
             raise ValueError('Future receiver receipt')
+        first_attribution=saved['attribution'] if saved else attribution
+        if saved and attribution is not None:
+            if not isinstance(first_attribution,dict) or first_attribution.get('source_peer_ip')!=attribution.get('source_peer_ip'):
+                raise ValueError('Saved receiver provenance differs from source peer')
         receipt = {'status': 'verified', 'delivery_id': identifier,
-            'received_at':accepted,'attribution':attribution,
+            'received_at':accepted,'attribution':first_attribution,
             'csv_sha256': {name:item['provenance']['csv_sha256'] for name,item in bundle['files'].items()},
             # Immutable received counts, not a promise of freshness at every
             # later read. Consumer qualification applies its clock separately.

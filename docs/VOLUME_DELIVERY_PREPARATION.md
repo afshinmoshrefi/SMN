@@ -15,9 +15,12 @@ old observations current. Original supplied financial values are unchanged.
 
 The receiver requires the configured `config.appserver_ip` and an exact non-secret
 `SMN_VOLUME_PRODUCER_COMMIT` pin. Direct foreign socket peers cannot authorize
-themselves using X-Real-IP. Before activation, prove the existing loopback nginx
-listener overwrites that header from its real socket peer; otherwise this trust
-path must not be enabled. No new credentials or access grants are introduced.
+themselves using X-Real-IP. The actual private listener uses a Unix socket, so its
+planned single-header correction overwrites X-Real-IP from the allowlisted TCP
+peer. Unix authorization additionally requires SO_PEERCRED for the configured
+existing nginx worker UID, the nginx executable and its existing master parent.
+`SMN_VOLUME_PROXY_TRANSPORT=unix` and `SMN_VOLUME_PROXY_UID` are non-secret pins,
+not credentials or new access grants. Empty/loopback peers alone are never enough.
 Generation files remain immutable and receipt/hash bound; the selector reads the
 new pointer only when present. Invalid/incomplete inputs still produce omission,
 never an article-publication hold. Legacy uploads cannot rewrite immutable
@@ -27,4 +30,6 @@ Preparation tests cover source/value fidelity, date/hash/session mismatch,
 interrupted commit/acknowledgement, repeat identity and source-peer/revision
 validation. A passing local suite is not independent acceptance or an authorized
 production release. Pair packaging, final failure tests, native qualification and
-bounded target-specific release/rollback plan remain pending at this checkpoint.
+bounded target-specific release/rollback plan are packaged separately. Preparation
+qualification does not imply staging or production activation. The current global
+EOD proof fails ETF coverage/completion; no readiness threshold is changed here.
