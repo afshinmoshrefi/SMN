@@ -79,4 +79,20 @@ class QualifiedStateTests(unittest.TestCase):
         self.assertEqual(first['passed_count'],5);self.assertEqual(second['held'],['FFF'])
         self.assertEqual(calls,['FFF','FFF']);model.assert_not_called()
 
+    def test_old_failed_job_does_not_replace_pending_current_factual_hold(self):
+        latest={'utc':'2026-10-13T13:00:00Z','reason':'Current essential source quote does not match'}
+        state=load_json(self.day.state_path);state['roles']=smn_daily.smn_models.load(None,'chatgpt')
+        state['articles']['FFF']['held']=latest;save_json(self.day.state_path,state)
+        job=self.edition/'jobs/FFF-20261013-research';save_json(job/'job.json',{'stage':'research'})
+        save_json(job/'state.json',{'status':'failed_needs_review','reason':'Old private turn failed'})
+        from contextlib import contextmanager
+        @contextmanager
+        def locked(*_):yield True
+        with patch('production_continuity_schedule._lock',locked),patch.object(recovery,'watch_workers',return_value={}), \
+                patch.object(recovery,'verify_generation',return_value=self.proof()), \
+                patch.object(recovery,'reconcile_private_job',return_value={'status':'failed_private_turn'}), \
+                patch.object(recovery,'repair_held_articles',return_value=[]):
+            recovery.supervise(self.root,DAY,NOW)
+        self.assertEqual(load_json(self.day.state_path)['articles']['FFF']['held'],latest)
+
 if __name__=='__main__':unittest.main()

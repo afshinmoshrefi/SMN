@@ -360,7 +360,7 @@ def supervise(root,day,current):
                 observed=reconcile_private_job(job,current);observations.append(observed)
                 article=reader.state['articles'].get(symbol,{})
                 if (observed['status'] not in {'ready','verified_completed'} and manifest.get('stage')!='hero-check' and
-                        not article.get('finalized')):
+                        not article.get('finalized') and not article.get('held')):
                     reader.state['articles'].setdefault(symbol,{})['held']={'utc':current.isoformat(),
                         'reason':load_json(job/'state.json').get('reason','Private job completion requires reconciliation')}
                     reader.save()
