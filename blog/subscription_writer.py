@@ -194,6 +194,31 @@ def verify_job(job):
     return manifest
 
 
+def validate_strict_output_schema(schema, where='$'):
+    """Catch required-field omissions in explicitly closed output objects.
+
+    This is an offline provider-contract check, not output/content approval.
+    No saved schema, receipt or attempt is rewritten.
+    """
+    if not isinstance(schema, dict):
+        raise ValueError('invalid_json_schema: non-object schema at ' + where)
+    props = schema.get('properties', {})
+    if schema.get('additionalProperties') is False and props:
+        required = schema.get('required', [])
+        if (not isinstance(required, list) or any(not isinstance(k, str) for k in required)
+                or len(required) != len(set(required)) or set(required) != set(props)):
+            raise ValueError('invalid_json_schema: required must include every property at ' + where)
+    for name, value in schema.items():
+        if name in ('properties', '$defs', 'definitions') and isinstance(value, dict):
+            for key, child in value.items():
+                validate_strict_output_schema(child, where + '.' + name + '.' + key)
+        elif name in ('items', 'additionalProperties') and isinstance(value, dict):
+            validate_strict_output_schema(value, where + '.' + name)
+        elif name in ('anyOf', 'oneOf', 'allOf') and isinstance(value, list):
+            for i, child in enumerate(value):
+                validate_strict_output_schema(child, where + '.' + name + f'[{i}]')
+
+
 def validate_schema(value, schema, where='$'):
     """Validate the deliberately small output-schema subset used by this bridge."""
     types = schema.get('type')
@@ -233,6 +258,7 @@ def run_job(job, codex, *, timeout=900):
     # One completed receipt is immutable. A second scheduler cannot rerun it.
     if (job / 'receipt.json').exists():
         return load_json(job / 'receipt.json')
+    validate_strict_output_schema(load_json(job / 'schema.json'))
     state = load_json(job / 'state.json')
     if state.get('status') != 'ready':
         raise RuntimeError('Job is not ready; preserve it for explicit recovery')

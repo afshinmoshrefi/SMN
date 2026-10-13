@@ -45,6 +45,8 @@ def role_of(stage):
 def prepare(roles, role, *args, **kwargs):
     from daily_budget import prepare as budget_prepare
     cfg = roles[role]
+    if cfg['provider'] == 'codex':
+        subscription_writer.validate_strict_output_schema(args[3] if len(args) > 3 else kwargs['schema'])
     extra = {'effort': cfg['effort'], 'model': cfg['model']}
     # The immutable provider bridge only persists files here. Reserve under the
     # shared normal/recovery lease through that persistence, never a model call.

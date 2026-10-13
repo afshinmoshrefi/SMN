@@ -26,6 +26,8 @@ def classify(error):
     text=str(error).lower()
     if re.search(r'unexpected tool|unsafe|symlink|different inputs|receipt.*changed|custody.*changed|hash.*differ|source.*changed',text):
         category='security'
+    elif 'invalid_json_schema' in text or 'invalid schema for response_format' in text:
+        category='configuration'
     elif re.search(r'oauth.*(?:race|refresh)|rate.?limit|\b429\b|overload|temporar|econnreset|etimedout|timed? ?out|backoff',text):
         category='transient'
     elif re.search(r'budget|quota|usage limit',text):category='budget'

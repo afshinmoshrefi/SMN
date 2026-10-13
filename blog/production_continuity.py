@@ -222,7 +222,13 @@ def publish_available(root: Path, date: str, target: str, *, repo: Path | None =
         if prior:
             published=prior.get('published_symbols',[])
             pending=prior.get('pending_symbols',[])
-            if (prior.get('edition_date')!=date or not isinstance(published,list) or
+            first_freeze = (bool(expected) and prior.get('edition_date') == date and
+                            prior.get('selection_status') == 'pending' and
+                            prior.get('selection_fingerprint') is None and
+                            prior.get('expected_symbols') == [] and published == [] and pending == [] and
+                            prior.get('complete') is False and prior.get('coverage_status') == 'notice' and
+                            prior.get('review_stages', {}) == {})
+            if not first_freeze and (prior.get('edition_date')!=date or not isinstance(published,list) or
                     not isinstance(pending,list) or len(set(published+pending))!=len(published+pending) or
                     published!=[s for s in expected if s in published] or
                     pending!=[s for s in expected if s not in published] or

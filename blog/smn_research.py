@@ -28,7 +28,7 @@ SCHEMA = {
         'hero_alt': {'type': 'string'},
         'material_context': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {
             'type': 'object', 'additionalProperties': False,
-            'required': ['id','kind','source_id','quote','summary','required','event_date'],
+            'required': ['id','kind','source_id','quote','summary','required','event_date','alternative_sources'],
             'properties': {'id': {'type':'string'},
                 'kind': {'type':'string','enum':['cause','counterpoint','event','fact']},
                 'source_id': {'type':'string'}, 'quote': {'type':'string'},
@@ -95,6 +95,7 @@ and recent, dated news. Pick 2-4 sources.
   Do not require the same fact in several source-specific paragraphs. When a newer selected primary
   page explicitly restates the SAME fact, period, measure and accounting basis, optionally provide
   alternative_sources: source_id, exact captured quote, and same_fact_reason explaining that identity.
+  Always return alternative_sources as an array; use [] when there is no verified equivalent source.
   A revised forecast, different quarter or different accounting basis is not an equivalent restatement.
   Preserve ALL material management explanations of the story, including execution or deal delays and
   offsetting strength, not only a convenient external-demand explanation. Causes require captured primary
