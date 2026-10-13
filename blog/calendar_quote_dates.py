@@ -54,10 +54,18 @@ def contains_date(text,event,*,allow_yearless=False):
                 return 'invalid',None
             if token[0].isalpha():
                 if token.lower() in {'in','of','year'}:
+                    connector=token.lower()
                     i=space(i+1)
                     if value(i).lower()=='the':i=space(i+1)
-                    if value(i).lower()=='year':i=space(i+1)
+                    explicit_year=value(i).lower()=='year'
+                    if explicit_year:i=space(i+1)
                     if value(i).isdigit():continue
+                    if connector=='in' and not explicit_year:
+                        # "in New York/the morning/person" is ordinary prose.
+                        # Punctuation may still introduce an explicit numeric
+                        # year; keep parsing it rather than using yearless.
+                        if value(i) and not value(i)[0].isalpha():continue
+                        return 'none',None
                     return 'invalid',None
                 return 'none',None
             apostrophe|=token in QUOTES;slash|=token=='/'

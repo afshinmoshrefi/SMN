@@ -86,5 +86,20 @@ class PrimaryEventDates(unittest.TestCase):
     def test_range_endpoints_must_be_calendar_dates(self):
         self.assertFalse(quoted_event_date('Conference April 30-31, 2026.',date(2026,4,30)))
         self.assertFalse(quoted_event_date('Conference April 30-31.',date(2026,4,30),allow_yearless=True))
+    def test_in_ordinary_prose_keeps_confirmed_yearless_date(self):
+        for rendered in ['October 21','Oct 21','Oct. 21','Oct.21','October21','Oct. 21st','Oct.21st']:
+            for prose in ['in New York','in the morning','in person']:
+                with self.subTest(rendered=rendered,prose=prose):
+                    text='Release on '+rendered+' '+prose+'.'
+                    self.assertTrue(quoted_event_date(text,self.event,allow_yearless=True))
+                    self.assertFalse(quoted_event_date(text,self.event))
+    def test_in_explicit_wrong_or_malformed_year_is_not_prose(self):
+        for suffix in ['in 2025','in 20260','in 202','in (2025)',"in '25",'in \u201925','in / 25','in the year 2025','in year 20260','in year unspecified']:
+            with self.subTest(suffix=suffix):
+                self.assertFalse(quoted_event_date('Release Oct.21 '+suffix+'.',self.event,allow_yearless=True))
+    def test_in_explicit_current_year_still_matches(self):
+        for suffix in ['in 2026','in (2026)',"in '26",'in the year 2026']:
+            with self.subTest(suffix=suffix):
+                self.assertTrue(quoted_event_date('Release Oct.21 '+suffix+'.',self.event,allow_yearless=True))
 
 if __name__=='__main__':unittest.main()
