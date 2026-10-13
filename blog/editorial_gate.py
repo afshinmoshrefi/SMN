@@ -595,6 +595,11 @@ def verify_review(result, review_path):
     return proof
 
 
+def valid_review_stage(stage):
+    """A bounded ASCII job stage, including dated recovery suffixes, never a path."""
+    return isinstance(stage,str) and re.fullmatch(r'[a-z][a-z0-9-]{0,79}',stage) is not None
+
+
 def verify_content(result, *, allow_held_binding=False):
     """Verify immutable article/review/engine evidence without presentation approval."""
     result = Path(result); root = result.parent.parent
@@ -603,7 +608,7 @@ def verify_content(result, *, allow_held_binding=False):
         binding_path = result/'review-binding.held.json'
     binding = load_json(binding_path)
     stage = binding.get('review_stage','')
-    if not re.fullmatch('[a-z-]+',stage): raise ValueError('Final review stage missing')
+    if not valid_review_stage(stage): raise ValueError('Final review stage missing')
     edition = load_json(root/'smn-daily-state.json')['date'] if (root/'smn-daily-state.json').exists() else load_json(root/'daily-state.json')['date']
     path = root/'jobs'/(result.name+'-'+edition.replace('-','')+'-'+stage)/'output.json'
     proof = verify_review(result,path)
