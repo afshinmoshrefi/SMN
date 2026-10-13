@@ -31,5 +31,18 @@ class PrimaryEventDates(unittest.TestCase):
         self.assertFalse(quoted_event_date("Release on Oct. 21, '26.",self.event))
         self.assertTrue(quoted_event_date("Release on Oct. 21, '26.",self.event,allow_yearless=True))
     def test_time_is_not_a_short_year(self):self.assertTrue(quoted_event_date('Release on Oct. 21 13:00.',self.event,allow_yearless=True))
+    def test_wrong_year_across_ascii_and_unicode_punctuation(self):
+        separators=['(', ' (', ' [', ' / ', ' - ', '\u2013', ' \u2013 ', '\u2014', ' \u2014 ', "'", '\u2019', ' | ', ' _ ', ' : ', ' , ', ' / (', ' \u00a0[', ' \u2022 ']
+        for sep in separators:
+            with self.subTest(separator=sep):
+                self.assertFalse(quoted_event_date('Release on Oct. 21'+sep+'2025).',self.event,allow_yearless=True))
+    def test_correct_year_across_punctuation(self):
+        for sep in ['(', ' (', ' / ', '\u2013', '\u2014', ' [', ' | ']:
+            with self.subTest(separator=sep):
+                self.assertTrue(quoted_event_date('Release on Oct. 21'+sep+'2026).',self.event))
+    def test_ambiguous_numeric_suffix_is_not_yearless(self):
+        for token in ['2','202','20260','202600']:
+            with self.subTest(token=token):
+                self.assertFalse(quoted_event_date('Release on Oct. 21('+token+').',self.event,allow_yearless=True))
 
 if __name__=='__main__':unittest.main()
