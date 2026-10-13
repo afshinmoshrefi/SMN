@@ -22,5 +22,14 @@ class PrimaryEventDates(unittest.TestCase):
     def test_wrong_month(self):self.assertFalse(quoted_event_date('Release on November 21, 2026.',self.event,allow_yearless=True))
     def test_missing_date(self):self.assertFalse(quoted_event_date('Earnings will be announced shortly.',self.event,allow_yearless=True))
     def test_malformed_year_is_not_yearless(self):self.assertFalse(quoted_event_date('Release on Oct. 21, 20260.',self.event,allow_yearless=True))
+    def test_slash_wrong_year_is_explicit(self):self.assertFalse(quoted_event_date('Release on Oct. 21 / 2025.',self.event,allow_yearless=True))
+    def test_short_wrong_year_is_explicit(self):
+        self.assertFalse(quoted_event_date("Release on Oct. 21, '25.",self.event,allow_yearless=True))
+        self.assertFalse(quoted_event_date('Release on Oct. 21,\u201925.',self.event,allow_yearless=True))
+    def test_slash_current_year(self):self.assertTrue(quoted_event_date('Release on Oct. 21 / 2026.',self.event))
+    def test_short_year_requires_confirmed_current_year_context(self):
+        self.assertFalse(quoted_event_date("Release on Oct. 21, '26.",self.event))
+        self.assertTrue(quoted_event_date("Release on Oct. 21, '26.",self.event,allow_yearless=True))
+    def test_time_is_not_a_short_year(self):self.assertTrue(quoted_event_date('Release on Oct. 21 13:00.',self.event,allow_yearless=True))
 
 if __name__=='__main__':unittest.main()

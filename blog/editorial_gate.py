@@ -425,12 +425,13 @@ def quoted_event_date(quote,event,*,allow_yearless=False):
     if re.search(r'(?<!\d)'+re.escape(event.isoformat())+r'(?!\d)',quote):return True
     months='(?:'+re.escape(event.strftime('%B'))+'|'+re.escape(event.strftime('%b'))+r'\.?)'
     day=(r'0?' if event.day<10 else '')+str(event.day)
-    pattern=r'\b'+months+r'\s*'+day+r'(?!\d)(?:\s*,?\s*(\d{4})(?!\d))?'
+    pattern=r'\b'+months+r'\s*'+day+r'(?!\d)(?:\s*[,/\-]?\s*[\'\u2019]?(\d{4}(?!\d)|\d{2}(?![\d:])))?'
     for match in re.finditer(pattern,quote,re.I):
         year=match.group(1)
         if year is not None:
-            if int(year)==event.year:return True
-        elif allow_yearless and not re.match(r'^[,\s]*\d{4}',quote[match.end():]):return True
+            if len(year)==4 and int(year)==event.year:return True
+            if len(year)==2 and allow_yearless and int(year)==event.year%100:return True
+        elif allow_yearless and not re.match(r'^[,/\-\s\'\u2019]*\d{2,}(?![\d:])',quote[match.end():]):return True
     return False
 
 
