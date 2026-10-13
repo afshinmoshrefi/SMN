@@ -14,6 +14,8 @@ from unittest.mock import Mock, patch
 BLOG = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BLOG))
 import operational_schedule as schedule
+import newsletter_reader_snapshot as snapshot
+from tests.newsletter_publication_fixture import publication
 
 NOW = datetime(2026, 10, 9, 18, 30, tzinfo=timezone.utc)
 DAY = '2026-10-09'
@@ -72,6 +74,10 @@ class NewsletterSafeRetryTests(unittest.TestCase):
         self.stack.enter_context(patch.dict(sys.modules, modules))
         self.stack.enter_context(patch.object(schedule, 'MARKERS', self.root/'markers'))
         self.stack.enter_context(patch.object(schedule, 'CONTROLLER_ROOT', self.root/'controller'))
+        self.stack.enter_context(patch.object(snapshot,'CATALOG_LOCK',self.root/'catalog/posts.lock'))
+        self.stack.enter_context(patch.object(snapshot,'RELEASE_STATE',self.root/'release-state'))
+        self.stack.enter_context(patch.object(self.sender,'datetime',FixedClock))
+        publication(self.root/'controller',self.root,self.root/'release-state',DAY,self.posts)
         self.stack.enter_context(patch.object(schedule, 'datetime', FixedClock))
         self.stack.enter_context(patch.object(schedule.operational_settings, 'for_instant', return_value={
             'weekday_newsletter': {'time': '07:00', 'timezone': 'UTC'}}))
@@ -341,9 +347,11 @@ class NewsletterSafeRetryTests(unittest.TestCase):
         self.sender.get_email_groups.return_value={'SMN-DAILY':'group'}
         self.sender.create_campaign.side_effect=None
         self.sender.create_campaign.return_value=('123','now')
+        publication(self.root/'controller',self.root,self.root/'release-state',DAY,self.posts,published=[self.posts[0]['symbol']])
         with patch.object(self.sender,'_build_email_html',return_value='<html/>'), \
                 patch.object(self.sender,'_schedule_campaign_explicit',return_value={'data':{'id':'123','status':'ready'}}) as provider:
             first={self.posts[0]['url']}
+            self.verified.return_value=first
             self.sender.daily_send(verified_urls=first,edition_date=date.fromisoformat(DAY))
             saved=self.sender.STATE_FILE.read_bytes()
             # Each invocation reloads the disk journal; no in-memory receipt is used.
@@ -376,6 +384,99 @@ class NewsletterSafeRetryTests(unittest.TestCase):
             self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
         self.sender.create_campaign.assert_not_called();self.sender.get_email_groups.assert_not_called()
         self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+
+    def test_catalog_replacement_after_url_verification_never_reaches_campaign_intent(self):
+        self.verified.return_value=self.urls
+        # Exact independent finding: valid URLs, then an invalid replacement row
+        # on the old sender's next catalog read. The new path never uses that read.
+        invalid=[{**row,'source_commit':'f'*40,'publish_status':'false'} for row in self.posts]
+        self.sender.get_email_groups.side_effect=None;self.sender.get_email_groups.return_value={'SMN-DAILY':'group'}
+        self.sender.create_campaign.side_effect=None;self.sender.create_campaign.return_value=('123','now')
+        with patch.object(self.sender,'_load_posts',return_value=invalid) as reload, \
+                patch.object(self.sender,'_build_email_html',return_value='<html/>'), \
+                patch.object(self.sender,'_schedule_campaign_explicit',return_value={'data':{'id':'123','status':'ready'}}):
+            self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+        reload.assert_not_called()
+        frozen=json.loads(self.sender.STATE_FILE.read_text())['campaigns']['daily:'+DAY]['reader_snapshot']
+        self.assertTrue(all(row['source_commit']=='a'*40 and row['publish_status']=='true' for row in frozen['article_data']))
+
+    def test_replaced_or_withdrawn_article_during_composition_leaves_no_intent(self):
+        saved=self.sender.STATE_FILE.read_bytes()
+        def replace_row():
+            changed=[dict(row) for row in self.posts]
+            changed[0].update(source_commit='f'*40,publish_status='false')
+            self.sender.POSTS_JSON.write_text(json.dumps(changed))
+            return {'SMN-DAILY':'group'}
+        self.sender.get_email_groups.side_effect=replace_row
+        with self.assertRaisesRegex(ValueError,'no longer belongs'):
+            self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+        self.sender.create_campaign.assert_not_called();self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+
+    def test_changed_catalog_copy_with_same_identity_is_not_receipt_bound(self):
+        self.posts[0]['title']='Changed after publication'
+        self.sender.POSTS_JSON.write_text(json.dumps(self.posts))
+        saved=self.sender.STATE_FILE.read_bytes()
+        with self.assertRaisesRegex(ValueError,'immutable publication entries'):
+            self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+        self.sender.get_email_groups.assert_not_called();self.sender.create_campaign.assert_not_called()
+        self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+
+    def test_changed_receipt_or_article_between_capture_and_intent_is_rejected(self):
+        for kind in ['receipt','article']:
+            with self.subTest(kind=kind):
+                publication(self.root/'controller',self.root,self.root/'release-state',DAY,self.posts)
+                def mutate():
+                    if kind=='receipt':
+                        path=self.root/'controller'/DAY/'chatgpt/production-publication-receipt.json'
+                        row=json.loads(path.read_text());row['latest_update']='new revision';path.write_text(json.dumps(row))
+                    else:(self.root/'editions'/DAY/self.posts[0]['symbol']/'article.html').write_text('Withdrawn or replaced content')
+                    return {'SMN-DAILY':'group'}
+                self.sender.get_email_groups.side_effect=mutate
+                saved=self.sender.STATE_FILE.read_bytes()
+                with self.assertRaisesRegex(ValueError,'changed'):
+                    self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+                self.sender.create_campaign.assert_not_called();self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+
+    def test_provider_creation_runs_after_publication_locks_are_released(self):
+        self.sender.get_email_groups.side_effect=None;self.sender.get_email_groups.return_value={'SMN-DAILY':'group'}
+        def create(*args):
+            with snapshot.coordinated(self.root/'controller',DAY):pass
+            record=json.loads(self.sender.STATE_FILE.read_text())['campaigns']['daily:'+DAY]
+            self.assertEqual(record['phase'],'create_unknown');self.assertIn('reader_snapshot',record)
+            return '123','now'
+        self.sender.create_campaign.side_effect=create
+        with patch.object(self.sender,'_build_email_html',return_value='<html/>'), \
+                patch.object(self.sender,'_schedule_campaign_explicit',return_value={'data':{'id':'123','status':'ready'}}):
+            self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+
+    def test_mutating_snapshot_copy_does_not_change_immutable_reservation(self):
+        frozen=snapshot.capture(self.root/'controller',DAY,self.root,current=NOW)
+        copy=frozen.articles;copy[0]['source_commit']='f'*40
+        self.assertEqual(frozen.articles[0]['source_commit'],'a'*40)
+        with self.assertRaisesRegex(ValueError,'immutable verified snapshot'):
+            snapshot.reserve(frozen,copy,lambda *_:self.fail('No modified data may be reserved'),current=NOW)
+
+    def test_complete_edition_cannot_reserve_before_cutoff(self):
+        with self.assertRaisesRegex(ValueError,'cutoff'):
+            snapshot.capture(self.root/'controller',DAY,self.root,current=NOW.replace(hour=10,minute=59))
+
+    def test_changed_native_package_cannot_supply_digest_data(self):
+        root=self.root/'controller'/DAY/'chatgpt/publication-revisions'
+        entries=next(root.glob('*/attempt-1/publication-package/entries.json'))
+        entries.write_text(json.dumps([{'url':self.posts[0]['url'],'title':'Unreviewed replacement'}]))
+        with self.assertRaisesRegex(ValueError,'publication entries changed'):
+            self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+        self.sender.create_campaign.assert_not_called()
+
+    def test_live_publication_lease_leaves_no_campaign_intent(self):
+        if sys.platform=='win32':self.skipTest('The Linux publication flock is qualified natively')
+        from production_continuity import _lock
+        saved=self.sender.STATE_FILE.read_bytes()
+        with _lock(self.root/'controller'/DAY/'chatgpt'):
+            with self.assertRaises(BlockingIOError):
+                self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
+        self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
+        self.sender.create_campaign.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

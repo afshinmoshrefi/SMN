@@ -5,6 +5,9 @@ import sys
 import tempfile
 import types
 import unittest
+import newsletter_reader_snapshot as snapshot
+import operational_schedule
+from tests.newsletter_publication_fixture import publication
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,11 +43,15 @@ class VerifiedNewsletterTest(unittest.TestCase):
             module.POSTS_JSON.write_text(json.dumps([
                 {'url': selected, 'slug': 'aaa', 'symbol': 'AAA', 'published_date': day+'T12:00:00Z'},
                 {'url': extra, 'slug': 'other', 'symbol': 'BBB', 'published_date': day+'T12:00:00Z'}]))
+            publication(root/'controller',root,root/'release-state',day,[{'url':selected,'slug':'aaa','symbol':'AAA','published_date':day+'T12:00:00Z'}])
             with patch.object(module, 'get_email_groups', return_value={'SMN-DAILY': 'group'}), \
                     patch.object(module, '_generate_daily_narrative', side_effect=AssertionError('Article model budget exhausted')) as narrative_model, \
                     patch.object(module, '_build_email_html', return_value='<html/>'), \
                     patch.object(module, 'create_campaign', return_value=('campaign', 'now')) as send, \
-                    patch.object(module, '_schedule_campaign_explicit', return_value={'data': {'id': 'campaign', 'status': 'ready'}}):
+                    patch.object(module, '_schedule_campaign_explicit', return_value={'data': {'id': 'campaign', 'status': 'ready'}}), \
+                    patch.object(operational_schedule,'CONTROLLER_ROOT',root/'controller'), \
+                    patch.object(snapshot,'CATALOG_LOCK',root/'catalog/posts.lock'), \
+                    patch.object(snapshot,'RELEASE_STATE',root/'release-state'):
                 module.daily_send(verified_urls={selected})
                 self.assertEqual(send.call_count, 1)
                 narrative_model.assert_not_called()
@@ -61,13 +68,13 @@ class VerifiedNewsletterTest(unittest.TestCase):
                 module.daily_send(verified_urls={selected})
                 send.assert_not_called()
                 module.STATE_FILE.write_text(json.dumps({'daily_sent': ['aaa']}))
-                with self.assertRaisesRegex(ValueError, 'partly reserved'):
+                with self.assertRaisesRegex(ValueError, 'coverage changed'):
                     module.daily_send(verified_urls={selected, extra})
             # Execute the real CLI body: scheduler eligibility and child gate
             # must agree at the actual cutoff, rather than the provider lead.
             import ast
             from datetime import datetime,timezone
-            import operational_schedule,operational_settings
+            import operational_settings
             tree=ast.parse(path.read_text())
             entry=next(node for node in tree.body if isinstance(node,ast.If) and ast.unparse(node.test)=="__name__ == '__main__'")
             program=compile(ast.Module(body=entry.body,type_ignores=[]),str(path),'exec')

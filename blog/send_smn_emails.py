@@ -631,15 +631,22 @@ def _campaign_name(kind, day):
     return f'SMN-{kind.title()}-{day.isoformat()}'
 
 
-def _create_and_schedule(group_id, subject, html, campaign_name, state, kind, day, articles):
+def _create_and_schedule(group_id, subject, html, campaign_name, state, kind, day, articles, *, reader_snapshot=None):
     """Journal intent before any POST; an uncertain result must be reconciled."""
     key = _campaign_key(kind, day)
     if key in state.setdefault('campaigns', {}):
         raise ValueError(f'Campaign {key} already attempted; reconcile provider status before retry')
     record = {'name': campaign_name, 'slugs': [a['slug'] for a in articles],
               'phase': 'create_unknown', 'campaign_id': None, 'provider_status': None}
-    state['campaigns'][key] = record
-    _save_state(state)
+    def persist_intent(binding=None):
+        if binding is not None:record['reader_snapshot']=binding
+        state['campaigns'][key] = record
+        _save_state(state)
+    if reader_snapshot is not None:
+        from newsletter_reader_snapshot import reserve
+        reserve(reader_snapshot,articles,persist_intent,current=datetime.now(timezone.utc))
+    else:persist_intent()
+    # Publication locks are released before any provider mutation.
     campaign_id, _ = create_campaign(campaign_name, subject, FROM_NAME, FROM_EMAIL, group_id, html)
     record['campaign_id'] = str(campaign_id)
     record['phase'] = 'schedule_unknown'
@@ -798,12 +805,14 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
         print('Daily edition already reserved. No new campaign created.')
         return {'status': 'already_reserved', 'campaign_id': existing.get('campaign_id'),
                 'phase': existing.get('phase')}
-    posts = _load_posts()
-
+    reader_snapshot = None
     if verified_urls is not None:
-        selected = [p for p in posts if p.get('url') in verified_urls]
-        if len(selected) != len(verified_urls) or {p.get('url') for p in selected} != verified_urls:
-            raise ValueError('Verified reader lineup is missing from the email catalog')
+        from newsletter_reader_snapshot import capture
+        from operational_schedule import CONTROLLER_ROOT
+        reader_snapshot=capture(CONTROLLER_ROOT,today.isoformat(),NEWS_ROOT,current=datetime.now(timezone.utc))
+        if reader_snapshot.urls!=verified_urls:
+            raise ValueError('Verified reader coverage changed before digest capture')
+        selected=reader_snapshot.articles
         sent = _reserved_slugs(state, 'daily')
         remaining = [p for p in selected if p.get('slug') not in sent]
         if not remaining:
@@ -813,12 +822,14 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
             raise ValueError('Verified reader edition was partly reserved; inspect before retry')
         articles = sorted(remaining, key=lambda x: x.get('published_date', ''), reverse=True)
     elif force:
+        posts = _load_posts()
         # Dev/test: grab most recent unsent articles regardless of date
         sent     = _reserved_slugs(state, 'daily')
         articles = [p for p in posts if p.get('slug') not in sent]
         articles.sort(key=lambda x: x.get('published_date', ''), reverse=True)
         articles = articles[:MAX_DAILY_ARTICLES]
     else:
+        posts = _load_posts()
         articles = _filter_daily(posts, state)
 
     if not articles:
@@ -850,7 +861,8 @@ def daily_send(force=False, verified_urls=None, edition_date=None):
     html = _build_email_html('daily', narrative, articles, today)
     name = f"SMN-Daily-{today.isoformat()}"
 
-    record = _create_and_schedule(group_id, subject, html, name, state, 'daily', today, articles)
+    record = _create_and_schedule(group_id, subject, html, name, state, 'daily', today, articles,
+                                  reader_snapshot=reader_snapshot)
     state['last_daily_narrative'] = narrative
     _save_state(state)
 
