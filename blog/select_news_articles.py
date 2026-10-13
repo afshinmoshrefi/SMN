@@ -34,6 +34,9 @@ import config
 import csv
 import os
 import redis
+from volume_evidence import (read_verified_volume_csv, bind_verified_volume,
+                             bind_news_evidence, volume_lookup, volume_context,
+                             merge_volume_candidates)
 
 from blog_tools import get_company_name
 from AI_tools import (search_tavily, send_grok_prompt, send_openai_prompt,
@@ -571,33 +574,14 @@ def days_since_last_article(ticker, ticker_latest):
 # VOLUME DATA
 # ============================================================
 
-def load_volume_data():
+def load_volume_data(*, now=None):
     """
-    Load both volume CSVs.
+    Load independently verified dated volume CSVs; unavailable feeds are optional.
     Returns (volume_list, volume_spikes) — each a list of dicts with
     keys: ticker, avg_volume_30d, today_volume, rvol
     """
-    def _read_csv(path):
-        rows = []
-        try:
-            with open(path, newline='') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        rows.append({
-                            'ticker': row['ticker'].upper().strip(),
-                            'avg_volume_30d': int(row['avg_volume_30d']),
-                            'today_volume':   int(row['today_volume']),
-                            'rvol':           float(row['rvol']),
-                        })
-                    except Exception:
-                        continue
-        except Exception as e:
-            print(f'  Warning: could not load {path}: {e}')
-        return rows
-
-    volume_list   = _read_csv(VOLUME_LIST_PATH)
-    volume_spikes = _read_csv(VOLUME_SPIKES_PATH)
+    volume_list   = read_verified_volume_csv(VOLUME_LIST_PATH, now=now)
+    volume_spikes = read_verified_volume_csv(VOLUME_SPIKES_PATH, now=now)
 
     # Only keep genuine spikes
     volume_spikes = [r for r in volume_spikes if r['rvol'] >= VOLUME_SPIKE_MIN_RVOL]
@@ -1195,26 +1179,11 @@ def news_context_from_item(item):
 def extract_tickers_with_grok(news_results, earnings_results,
                               volume_spikes=None, volume_list=None):
     """
-    Grok extracts structured {ticker, company, asset_type, news_reason,
-    earnings_date, earnings_type, rvol} from raw Tavily results + volume data.
+    Extract news/earnings subjects. Qualified volume is attached separately.
     """
-    # Volume data FIRST — placed before news so it is never cut off by the
-    # token limit.  News articles alone exceed 8 k chars, which would truncate
-    # volume spikes if they appeared at the end of the blob.
+    # Do not expose optional volume data to news prose extraction.
+    volumes = volume_lookup(list(volume_spikes or [])[:25] + list(volume_list or [])[:15])
     lines = []
-    if volume_spikes:
-        lines.append('=== UNUSUAL VOLUME SPIKES TODAY (MUST INCLUDE ALL) ===')
-        lines.append('These stocks have anomalous trading volume right now (rvol = today÷30d_avg).')
-        lines.append('Include every ticker below even if you have no news reason for it.')
-        for row in volume_spikes[:25]:
-            lines.append(f"  {row['ticker']}: rvol={row['rvol']:.2f}x  "
-                         f"(today {row['today_volume']:,} vs avg {row['avg_volume_30d']:,})")
-
-    if volume_list:
-        lines.append('\n=== HIGH ABSOLUTE VOLUME TODAY (include if rvol notable) ===')
-        for row in volume_list[:15]:
-            lines.append(f"  {row['ticker']}: rvol={row['rvol']:.2f}x")
-
     lines.append('\n=== MARKET NEWS (last 7 days) ===')
     for r in news_results[:25]:
         lines.append(f"[{str(r.get('published_date',''))[:10]}] {r.get('title','')}")
@@ -1228,7 +1197,7 @@ def extract_tickers_with_grok(news_results, earnings_results,
 
     prompt = f"""Today: {TODAY.isoformat()}
 
-From the market data below (news + earnings + volume), identify ALL publicly
+From the market news below (news + earnings), identify ALL publicly
 traded securities that should be considered for a financial news article.
 
 For each unique security return JSON with:
@@ -1236,18 +1205,18 @@ For each unique security return JSON with:
 - company       : full official name
 - asset_type    : "stock" | "etf" | "index" | "futures" | "commodity" | "forex"
 - news_reason   : one sentence – why is this security notable RIGHT NOW?
-                  For volume-spike-only names: "Unusual volume spike: Xr normal"
+                  Use the supplied news only. Optional trading-volume metadata is
+                  handled separately; do not infer RVOL or average turnover.
 - earnings_date : ISO date if earnings just announced OR scheduled next 7 days; else null
 - earnings_type : "recent" (reported last 4 days) | "upcoming" (next 7 days) | null
-- rvol          : relative volume float if from volume data, else null
+- rvol          : null; verified engine volume is bound after extraction
 - news_headline : the EXACT title of the single MARKET/EARNINGS NEWS item that
-                  makes this security notable; "" if it comes from volume data only
+                  makes this security notable; "" if there is no supplied news item
 - news_date     : the published date (YYYY-MM-DD) of that news item; "" if unknown
 - news_sentiment: "bullish" | "bearish" | "neutral" — that item's implication for
                   THIS security's price; "" if unclear or volume-only
 
 INCLUDE:
-- ALL tickers from the UNUSUAL VOLUME SPIKES section (mandatory)
 - Major indices: SPX, NDX, DJI, RUT, VIX, FTSE, DAX
 - Major ETFs: SPY, QQQ, GLD, SLV, TLT, XLF, XLK, XLE, XLV, IWM, ARKK
 - Commodity futures: CL (crude oil), GC (gold), SI (silver), NG (natural gas),
@@ -1261,8 +1230,7 @@ INPUT DATA:
 
 Return format:
 [
-  {{"ticker":"AAPL","company":"Apple Inc","asset_type":"stock","news_reason":"Beat Q1 earnings by 8%","earnings_date":"2026-02-18","earnings_type":"recent","rvol":null,"news_headline":"Apple beats Q1 estimates on strong iPhone demand","news_date":"2026-02-18","news_sentiment":"bullish"}},
-  {{"ticker":"DASH","company":"DoorDash Inc","asset_type":"stock","news_reason":"Unusual volume spike: 2.8x normal volume","earnings_date":null,"earnings_type":null,"rvol":2.79,"news_headline":"","news_date":"","news_sentiment":""}}
+  {{"ticker":"AAPL","company":"Apple Inc","asset_type":"stock","news_reason":"Beat Q1 earnings by 8%","earnings_date":"2026-02-18","earnings_type":"recent","rvol":null,"news_headline":"Apple beats Q1 estimates on strong iPhone demand","news_date":"2026-02-18","news_sentiment":"bullish"}}
 ]"""
 
     for _attempt in range(2):
@@ -1273,10 +1241,11 @@ Return format:
             if s >= 0 and e > s:
                 data = json.loads(clean[s:e])
                 if isinstance(data, list) and data:
-                    return data
+                    bind_news_evidence(data, news_results[:25], earnings_results[:15])
+                    return merge_volume_candidates(data, volumes)
         except Exception as ex:
             print(f'  ticker extraction error (attempt {_attempt+1}): {ex}')
-    return []
+    return merge_volume_candidates([], volumes)
 
 
 # ============================================================
@@ -1305,7 +1274,8 @@ def rank_ideas_with_llm(candidates, pub_start=None, pub_end=None):
             'earn_type':      c.get('earnings_type'),
             'earn_date':      c.get('earnings_date'),
             'in_news':        c['in_news'],
-            'rvol':           round(c['rvol'], 1) if c.get('rvol') else None,
+            'rvol':           c.get('rvol'),
+            'volume_context': c.get('volume_context'),
             'days_ago':       c.get('days_since_article', 999),
             'patterns': [
                 {
@@ -1363,7 +1333,10 @@ The pattern may start today or up to 30 days ahead — this is a forward-looking
 readers can act before the pattern starts.
 
 Candidate context fields:
-  rvol       : relative volume (today ÷ 30-day avg); null if not in volume data
+  rvol       : verified current-session TradeWave RVOL; null if unavailable
+  volume_context : optional engine values with observation_date and scope.
+                   Prior completed sessions are dated context, never today's
+                   activity or a current news peg. Do not relabel them as current.
   days_ago   : days since last article on this ticker (999 = never written); prefer fresher tickers
   patterns[].med  : median return (more robust than AvgP for expected outcome)
   patterns[].pyrs : profitable years count (how many of the yrs lookback were profitable)
@@ -1613,7 +1586,7 @@ def main():
     print('=' * 72)
 
     # ------------------------------------------------------------------
-    # 1. Load static data — article history (published + queued) + volume
+    # 1. Load article history and optional verified current volume context
     # ------------------------------------------------------------------
     print('\n[1/7] Loading article history & volume data...')
     published = load_published_articles()
@@ -1631,10 +1604,9 @@ def main():
           f'{len(vol_list)} tickers')
 
     # Build rvol lookup for quick access
-    rvol_map = {}
-    for r in vol_spikes + vol_list:
-        if r['ticker'] not in rvol_map or r['rvol'] > rvol_map[r['ticker']]:
-            rvol_map[r['ticker']] = r['rvol']
+    volume_map = volume_lookup(vol_spikes + vol_list)
+    rvol_map = {symbol: row['rvol'] for symbol, row in volume_map.items()
+                if row['volume_provenance']['scope'] == 'current_session'}
 
     # ------------------------------------------------------------------
     # 2. Login to appserver
@@ -1703,10 +1675,8 @@ def main():
         volume_spikes=vol_spikes,
         volume_list=vol_list
     )
-    # Patch in rvol from our volume map for any ticker that has it
-    for item in news_tickers:
-        if item.get('rvol') is None and item['ticker'] in rvol_map:
-            item['rvol'] = rvol_map[item['ticker']]
+    # The model cannot supply/revive RVOL without the verified engine feed.
+    bind_verified_volume(news_tickers, volume_map)
     print(f'  Extracted {len(news_tickers)} securities')
 
     # ------------------------------------------------------------------
@@ -1806,10 +1776,13 @@ def main():
             'earnings_date':       item.get('earnings_date'),
             'earnings_type':       item.get('earnings_type'),
             'rvol':                rvol,
+            'volume_context':      item.get('volume_context'),
+            'unverified_extraction': item.get('unverified_extraction'),
+            'news_source_url':     item.get('news_source_url', ''),
             'days_since_article':  since,
             'patterns':            all_pats,
             'pre_score':           ps,
-            'in_news':             True,
+            'in_news':             bool(item.get('news_headline')),
             'in_weekly_patterns':  bool(weekly_pats),
             **news_context_from_item(item),   # news_headline/news_date/news_direction
         }
@@ -1870,10 +1843,11 @@ def main():
             'ticker':             sym,
             'company':            company,
             'asset_type':         _atype,
-            'news_reason':        f'Volume spike: {rvol:.1f}x normal' if rvol else '',
+            'news_reason':        '',
             'earnings_date':      None,
             'earnings_type':      None,
             'rvol':               rvol,
+            'volume_context':     volume_context(volume_map.get(sym)),
             'days_since_article': since,
             'patterns':           pats[:8],
             'pre_score':          ps,
@@ -2033,6 +2007,7 @@ def main():
         'article_angle', 'news_reason',
         # Angle-engine news context (Phase 4) — empty for pattern-only ideas
         'news_headline', 'news_date', 'news_direction',
+        'volume_observation_date', 'volume_scope',
     ]
     with open(csv_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction='ignore')
@@ -2050,7 +2025,9 @@ def main():
                 'in_news':            int(idea['in_news']),
                 'earnings_type':      idea.get('earnings_type') or '',
                 'earnings_date':      idea.get('earnings_date') or '',
-                'rvol':               round(idea['rvol'], 2) if idea.get('rvol') else '',
+                'rvol':               idea.get('rvol') if idea.get('rvol') is not None else '',
+                'volume_observation_date': (idea.get('volume_context') or {}).get('observation_date', ''),
+                'volume_scope': (idea.get('volume_context') or {}).get('scope', ''),
                 'days_since_article': idea.get('days_since_article', 999),
                 'pat_start_date':     fp.get('start_date', ''),
                 'pat_direction':      fp.get('direction', ''),
