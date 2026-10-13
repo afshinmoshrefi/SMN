@@ -49,12 +49,13 @@ def _lock(root):
 def _eligible(root,date,expected):
     """A failed or incomplete subject stays pending; no approval is inferred."""
     stages={};hashes={}
+    from editorial_gate import valid_review_stage
     for symbol in expected:
         result=root/'results'/symbol
         try:
             binding=next(p for p in (result/'review-binding.json',result/'review-binding.held.json') if p.is_file())
             stage=read(binding)['review_stage']
-            if not isinstance(stage,str) or not stage.replace('-','').isalpha():
+            if not valid_review_stage(stage):
                 continue
             review=root/'jobs'/(symbol+'-'+date.replace('-','')+'-'+stage)/'output.json'
             html,proof,_=qualified_html(result,review,continuity=True)
