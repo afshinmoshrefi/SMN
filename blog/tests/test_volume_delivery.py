@@ -207,14 +207,49 @@ class VolumeDeliveryTests(unittest.TestCase):
         first=install_bundle(self.root,self.bundle,now=NOW,attribution=before)
         again=install_bundle(self.root,self.bundle,now=NOW+timedelta(seconds=1),attribution={**before,'receiver_module_sha256':'b'*64})
         self.assertEqual(first,again);self.assertEqual(again['attribution'],before)
-    def test_pointer_without_acknowledged_receipt_is_omitted_until_recovered(self):
+    def test_pointer_switch_already_has_durable_receipt_after_interruption(self):
         def fail(stage):
             if stage=='after_pointer':raise RuntimeError('synthetic process loss')
         with self.assertRaises(RuntimeError):install_bundle(self.root,self.bundle,now=NOW,failure=fail)
-        warnings=[];self.assertEqual(read_verified_volume_csv(self.root/FILES[0],now=NOW,warn=warnings.append),[])
-        self.assertTrue(warnings)
+        self.assertTrue((resolve_feed(self.root/FILES[0]).parent/'receipt.json').is_file())
+        self.assertEqual(len(read_verified_volume_csv(self.root/FILES[0],now=NOW)),1)
         install_bundle(self.root,self.bundle,now=NOW)
         self.assertEqual(len(read_verified_volume_csv(self.root/FILES[0],now=NOW)),1)
+    def test_newer_bundle_replaces_generation_after_pointer_crash(self):
+        def fail(stage):
+            if stage=='after_pointer':raise RuntimeError('lost process')
+        with self.assertRaises(RuntimeError):install_bundle(self.root,self.bundle,now=NOW,failure=fail)
+        later=fixture(NOW+timedelta(minutes=1))
+        receipt=install_bundle(self.root,later,now=NOW+timedelta(minutes=1))
+        self.assertEqual(receipt['delivery_id'],later['delivery_id'])
+        self.assertEqual(resolve_feed(self.root/FILES[0]).parent.name,later['delivery_id'])
+    def test_newer_bundle_recovers_after_interrupted_bundle_expires(self):
+        def fail(stage):
+            if stage=='after_pointer':raise RuntimeError('lost process')
+        with self.assertRaises(RuntimeError):install_bundle(self.root,self.bundle,now=NOW,failure=fail)
+        clock=NOW+timedelta(hours=25)
+        with self.assertRaises(ValueError):install_bundle(self.root,self.bundle,now=clock)
+        later=fixture(clock);install_bundle(self.root,later,now=clock)
+        self.assertEqual(resolve_feed(self.root/FILES[0]).parent.name,later['delivery_id'])
+        self.assertEqual(len(read_verified_volume_csv(self.root/FILES[0],now=clock)),1)
+    def test_receipt_crash_boundaries_never_publish_incomplete_generation(self):
+        install_bundle(self.root,self.bundle,now=NOW)
+        previous=(self.root/'current-volume-delivery.json').read_bytes()
+        for stage in ('before_receipt','after_receipt','before_pointer'):
+            with self.subTest(stage=stage):
+                later=fixture(NOW+timedelta(minutes=1))
+                def fail(actual):
+                    if actual==stage:raise RuntimeError('lost process')
+                with self.assertRaises(RuntimeError):install_bundle(self.root,later,now=NOW+timedelta(minutes=1),failure=fail)
+                self.assertEqual((self.root/'current-volume-delivery.json').read_bytes(),previous)
+                self.assertEqual(len(read_verified_volume_csv(self.root/FILES[0],now=NOW)),1)
+        clock=NOW+timedelta(hours=25)
+        later=fixture(clock);install_bundle(self.root,later,now=clock)
+        self.assertEqual(resolve_feed(self.root/FILES[0]).parent.name,later['delivery_id'])
+    def test_missing_receipt_from_external_corruption_still_omits(self):
+        install_bundle(self.root,self.bundle,now=NOW)
+        receipt=resolve_feed(self.root/FILES[0]).parent/'receipt.json';receipt.unlink()
+        self.assertEqual(read_verified_volume_csv(self.root/FILES[0],now=NOW,warn=lambda _:None),[])
     def test_unknown_revision_pin_type_returns_configuration_failure(self):
         result,status=receive_dated_volume(self.bundle,remote_addr='10.0.0.96',real_ip=None,producer_ip='10.0.0.96',directory=self.root,expected_producer_commit=None,now=NOW)
         self.assertEqual(status,503)
@@ -279,9 +314,11 @@ install_bundle(Path(sys.argv[2]),bundle,now=datetime.fromisoformat(sys.argv[4]),
 """
         result=subprocess.run([sys.executable,'-B','-c',code,str(Path(__file__).resolve().parents[1]),str(self.root),str(payload),NOW.isoformat()],capture_output=True,timeout=15)
         self.assertEqual(result.returncode,73)
-        self.assertEqual(read_verified_volume_csv(self.root/FILES[0],now=NOW,warn=lambda _:None),[])
-        install_bundle(self.root,self.bundle,now=NOW)
         self.assertEqual(len(read_verified_volume_csv(self.root/FILES[0],now=NOW)),1)
+        clock=NOW+timedelta(hours=25);later=fixture(clock)
+        install_bundle(self.root,later,now=clock)
+        self.assertEqual(resolve_feed(self.root/FILES[0]).parent.name,later['delivery_id'])
+        self.assertEqual(len(read_verified_volume_csv(self.root/FILES[0],now=clock)),1)
     @unittest.skipUnless(os.name=='posix','Requires native Linux process locks')
     def test_native_concurrent_duplicate_uploads_share_one_generation(self):
         payload=self.root/'payload.json';payload.write_bytes(canonical(self.bundle))

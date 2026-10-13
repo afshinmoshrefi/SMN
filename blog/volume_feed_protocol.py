@@ -285,10 +285,15 @@ def install_bundle(directory, bundle, *, now, attribution=None, failure=lambda s
         if receipt_path.exists():
             if receipt_path.is_symlink() or receipt_path.read_bytes() != canonical(receipt):
                 raise ValueError('Immutable delivery receipt collision')
+        failure('before_receipt')
+        if not receipt_path.exists():
+            atomic(receipt_path,canonical(receipt))
+        failure('after_receipt')
+        # Publish only a complete durable generation, including its receipt.
+        # A lost response must never expose an incomplete current generation
+        # that prevents the next dated bundle from replacing it.
         failure('before_pointer')
         atomic(pointer, canonical({'delivery_id': identifier}))
         failure('after_pointer')
-        if not receipt_path.exists():
-            atomic(receipt_path,canonical(receipt))
         failure('before_ack')
         return receipt

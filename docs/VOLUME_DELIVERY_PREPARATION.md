@@ -33,3 +33,24 @@ production release. Pair packaging, final failure tests, native qualification an
 bounded target-specific release/rollback plan are packaged separately. Preparation
 qualification does not imply staging or production activation. The current global
 EOD proof fails ETF coverage/completion; no readiness threshold is changed here.
+
+## Independent review corrections - October 13, 2026
+
+Reviewer 01a13053-630c-7117-b347-d91f06b0a026 identified three missing
+transaction cases. The complete immutable generation and receipt are now
+fsynced before switching the current pointer. Crashes before that switch retain
+the old pointer; crashes afterward leave a fully readable generation. A newer
+bundle remains installable even after the interrupted export has expired.
+
+The producer requires non-secret `TW2_VOLUME_SOURCE_PEER_IP` and
+`TW2_VOLUME_RECEIVER_MODULE_SHA256` pins from the intended release contract.
+It validates received time, exact peer and module hash along with identity, CSV
+hashes and integer row counts. A validated saved acknowledgement returns
+completed without reserving or dispatching again, including at the ninth attempt
+and after payload expiry. A receipt saved before the journal completion repairs
+that local boundary without another dispatch. Corrupt saved evidence fails closed.
+
+Only `csv/US` supplies the existing volume calculation. The existing global
+US/ETF EOD validator is intentionally retained pending an authoritative US-scoped
+completion contract from the engine owner; no threshold or calculation is changed.
+This corrected candidate still requires independent re-review and remains inactive.
