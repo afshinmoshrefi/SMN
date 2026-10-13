@@ -220,6 +220,7 @@ class DailyBudgetTests(unittest.TestCase):
     def test_scheduled_reader_and_reconciler_receive_same_explicit_limit(self):
         save_json(self.edition/'production/posts.json', [{'symbol': 'AAA'}])
         reader = Mock()
+        reader.root=self.edition;reader.date=DAY
         reader.state = {'articles': {}}
         reader.check.return_value = {'passed': True}
         with patch.object(controller, 'Day', return_value=reader) as build, \
