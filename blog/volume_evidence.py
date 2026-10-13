@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from volume_feed_protocol import parse_feed, resolve_feed, SCHEMA as DATED_SCHEMA
 
 
 def read_verified_volume_csv(path, *, now=None, warn=print):
@@ -24,8 +25,11 @@ def read_verified_volume_csv(path, *, now=None, warn=print):
         now = now or datetime.now(timezone.utc)
         if now.tzinfo is None:
             raise ValueError('verification clock must include its timezone')
+        path = resolve_feed(path)
         raw = path.read_bytes()
         proof = json.loads(Path(str(path) + '.provenance.json').read_text(encoding='utf-8'))
+        if isinstance(proof, dict) and proof.get('schema') == DATED_SCHEMA:
+            return parse_feed(raw, proof, now=now, warn=warn)
         if not isinstance(proof, dict) or proof.get('schema') != 'tradewave-volume-v1' or proof.get('source') != 'tradewave':
             raise ValueError('missing TradeWave provenance identity')
         if str(proof.get('csv_sha256', '')).lower() != hashlib.sha256(raw).hexdigest():
@@ -70,11 +74,20 @@ def volume_lookup(rows):
         proof = row.get('volume_provenance')
         if not proof or proof.get('scope') not in {'current_session', 'prior_session'}:
             continue
-        key = (datetime.fromisoformat(proof['observed_at']), row['rvol'])
+        key = _observation_order(row)
         old = result.get(row['ticker'])
-        if old is None or key > (datetime.fromisoformat(old['volume_provenance']['observed_at']), old['rvol']):
+        if old is None or key > _observation_order(old):
             result[row['ticker']] = row
     return result
+
+
+def _observation_order(row):
+    proof = row['volume_provenance']
+    # Export time orders retries only within the same source session. It is
+    # never presented as a market observation timestamp or a current RVOL peg.
+    actual = proof.get('observed_at')
+    return (proof['observation_date'], bool(actual),
+            datetime.fromisoformat(actual or proof['generated_at']), row['rvol'])
 
 
 def volume_context(row):

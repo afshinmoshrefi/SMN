@@ -29,6 +29,7 @@ from publish_article import publish_article_web,load_article_from_folder,delete_
 import sys
 sys.path.insert(0, '/home/flask')
 import config  # exposes config.available_resources
+from volume_feed_receiver import receive_dated_volume
 stream_name = 'date_range_opp_queue'
 
 
@@ -74,6 +75,15 @@ def home():
 @app.route("/update_volume_lists", methods=["POST"])
 def update_volume_lists():
     data = request.get_json(force=True)
+
+    if isinstance(data, dict) and data.get('schema') == 'tradewave-volume-delivery-v1':
+        result, status = receive_dated_volume(
+            data, remote_addr=request.remote_addr,
+            real_ip=request.headers.get('X-Real-IP'),
+            producer_ip=config.appserver_ip,
+            expected_producer_commit=os.environ.get('SMN_VOLUME_PRODUCER_COMMIT',''),
+            directory='/home/flask/blog/volume_lists')
+        return jsonify(result), status
 
     hv = data.get("highest_volume", [])
     hs = data.get("highest_spikes", [])
