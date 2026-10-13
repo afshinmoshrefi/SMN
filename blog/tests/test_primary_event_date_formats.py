@@ -44,5 +44,47 @@ class PrimaryEventDates(unittest.TestCase):
         for token in ['2','202','20260','202600']:
             with self.subTest(token=token):
                 self.assertFalse(quoted_event_date('Release on Oct. 21('+token+').',self.event,allow_yearless=True))
+    def test_ordinal_cannot_hide_explicit_wrong_year(self):
+        self.assertFalse(quoted_event_date('Release on Oct. 21st, 2025.',self.event,allow_yearless=True))
+        self.assertTrue(quoted_event_date('Release on Oct. 21st, 2026.',self.event))
+    def test_range_end_is_not_a_short_year(self):
+        self.assertFalse(quoted_event_date('Release on Oct. 21\u201326, 2025.',self.event,allow_yearless=True))
+        self.assertTrue(quoted_event_date('Conference Oct. 21\u201326, 2026.',self.event))
+        self.assertFalse(quoted_event_date('Conference Oct. 21\u201326.',self.event))
+    def test_sentence_boundary_stops_numeric_suffix(self):
+        for punctuation in ['.','!','?']:
+            with self.subTest(punctuation=punctuation):
+                self.assertTrue(quoted_event_date('Release on Oct. 21'+punctuation+' 2 speakers will present.',self.event,allow_yearless=True))
+    def test_ranges_ordinals_and_years_matrix(self):
+        for separator in ['-','\u2013','\u2014',' to ',' through ']:
+            for ordinal in ['', 'st']:
+                with self.subTest(separator=separator,ordinal=ordinal):
+                    self.assertFalse(quoted_event_date('Conference Oct. 21'+ordinal+separator+'26th (2025).',self.event,allow_yearless=True))
+                    self.assertTrue(quoted_event_date('Conference Oct. 21'+ordinal+separator+'26th (2026).',self.event))
+    def test_invalid_or_reversed_range(self):
+        self.assertFalse(quoted_event_date('Conference Oct. 21-36, 2026.',self.event,allow_yearless=True))
+        self.assertFalse(quoted_event_date('Conference Oct. 21-20, 2026.',self.event,allow_yearless=True))
+    def test_range_does_not_invent_interior_date(self):
+        self.assertFalse(quoted_event_date('Conference Oct. 21-26, 2026.',date(2026,10,23)))
+    def test_invalid_ordinal_and_word_boundary(self):
+        self.assertFalse(quoted_event_date('Release Oct. 21th, 2026.',self.event,allow_yearless=True))
+        self.assertFalse(quoted_event_date('Office Oct. 21street, 2025.',self.event,allow_yearless=True))
+    def test_explicit_year_stays_in_its_sentence(self):
+        self.assertTrue(quoted_event_date('Release Oct. 21st. 2025 results will be discussed.',self.event,allow_yearless=True))
+    def test_explicit_year_connector(self):
+        for connector in ['in','of','year','of the year']:
+            with self.subTest(connector=connector):
+                self.assertFalse(quoted_event_date('Release Oct. 21st '+connector+' 2025.',self.event,allow_yearless=True))
+                self.assertTrue(quoted_event_date('Release Oct. 21st '+connector+' 2026.',self.event))
+    def test_number_in_concatenated_next_sentence(self):
+        self.assertTrue(quoted_event_date('Release Oct. 21.2 speakers will present.',self.event,allow_yearless=True))
+    def test_iso_date_requires_token_boundaries(self):
+        for text in ['x2026-10-21','2026-10-21x','2026-10-210','2026-10-21-01']:
+            with self.subTest(text=text):self.assertFalse(quoted_event_date(text,self.event))
+    def test_year_requires_token_boundary(self):
+        self.assertFalse(quoted_event_date('Release Oct. 21, 2026wrong.',self.event,allow_yearless=True))
+    def test_range_endpoints_must_be_calendar_dates(self):
+        self.assertFalse(quoted_event_date('Conference April 30-31, 2026.',date(2026,4,30)))
+        self.assertFalse(quoted_event_date('Conference April 30-31.',date(2026,4,30),allow_yearless=True))
 
 if __name__=='__main__':unittest.main()

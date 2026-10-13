@@ -421,26 +421,9 @@ This audit does not authorize guessing missing facts or declaring unverified cla
 
 
 def quoted_event_date(quote,event,*,allow_yearless=False):
-    """Match literal calendar dates, including source abbreviations/DOM spacing."""
-    if re.search(r'(?<!\d)'+re.escape(event.isoformat())+r'(?!\d)',quote):return True
-    months='(?:'+re.escape(event.strftime('%B'))+'|'+re.escape(event.strftime('%b'))+r'\.?)'
-    day=(r'0?' if event.day<10 else '')+str(event.day)
-    pattern=r'\b'+months+r'\s*'+day+r'(?!\d)'
-    for match in re.finditer(pattern,quote,re.I):
-        # Consume the suffix separately. An unrecognized separator must never
-        # turn an explicit past year into a yearless current-year date.
-        suffix=quote[match.end():]
-        explicit=re.match(r'^[\W_]*(\d+)',suffix)
-        if explicit:
-            year=explicit.group(1)
-            following=suffix[explicit.end():]
-            if len(year)<=2 and re.match(r'^:\d{2}',following):
-                if allow_yearless:return True  # Clock time, not a year.
-                continue
-            if len(year)==4 and int(year)==event.year:return True
-            if len(year)==2 and allow_yearless and int(year)==event.year%100:return True
-        elif allow_yearless:return True
-    return False
+    """Recognize literal dates structurally; semantic source checks stay separate."""
+    from calendar_quote_dates import contains_date
+    return contains_date(quote,event,allow_yearless=allow_yearless)
 
 
 def problems(article, bundle, ctx, review, result=None, *, advisory_issue_ids=()):
