@@ -74,6 +74,14 @@ def _copy_subject(source,target,symbol,date,stage):
         raise ValueError('Bound review job missing from subject snapshot')
     for job in names:
         if job.is_dir() and not job.is_symlink():
+            # Historical failed/prepared jobs remain in the canonical reader.
+            # A publication snapshot is evidence reuse, not another dispatch.
+            # Copy only completed model effects and the selected bound review;
+            # copying unrelated unfinished jobs creates false reservations,
+            # duplicate retry charges, and stale running-claim evidence.
+            bound_review=source/'jobs'/(symbol+'-'+date.replace('-','')+'-'+stage)
+            if job != bound_review and not (job/'receipt.json').is_file():
+                continue
             (target/'jobs').mkdir(exist_ok=True)
             shutil.copytree(job,target/'jobs'/job.name)
     if (source/'primary').is_dir():
