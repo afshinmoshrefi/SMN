@@ -30,18 +30,27 @@ def contract(raw):
         if not re.fullmatch(change,field):raise ValueError('Invalid quote change field')
     for direction in re.findall(rb'class="market-item ([^"]*)"',span):
         if direction not in {b'up',b'down',b'flat'}:raise ValueError('Invalid quote item direction')
-    items=list(re.finditer(rb'<(?:a|span)\b[^>]*class="market-item (up|down|flat)"[^>]*>',span))
+    items=list(re.finditer(rb'<(a|span)\b[^>]*class="market-item (up|down|flat)"[^>]*>',span))
     prices=list(re.finditer(price,span));changes=list(re.finditer(change,span))
     if not items or len(prices)!=len(items):raise ValueError('Invalid quote item/price count')
+    owned_changes=0
     for index,item in enumerate(items):
-        end=items[index+1].start() if index+1<len(items) else len(span)
+        depth=1;end=None
+        for tag in re.finditer(rb'</?'+item[1]+rb'\b[^>]*>',span[item.end():]):
+            depth += -1 if tag.group().startswith(b'</') else 1
+            if depth==0:
+                end=item.end()+tag.start();break
+        if end is None or (index+1<len(items) and end>items[index+1].start()):raise ValueError('Invalid quote item boundary')
         group=span[item.end():end]
         fields=list(re.finditer(price,group));moves=list(re.finditer(change,group))
         if len(fields)!=1 or len(moves)>1:raise ValueError('Invalid quote field count')
         field=fields[0]
         if (b'style=' in field[1])!=bool(field[3]):raise ValueError('Invalid quote futures marker')
-        if not moves and item[1]!=b'flat':raise ValueError('Invalid quote missing change')
-        if moves and moves[0][2]!=item[1]:raise ValueError('Invalid quote change direction')
+        if field[3] and not re.search(rb'href="/markets/(?:sp500|dow|nasdaq)\.html"',item.group()):raise ValueError('Invalid quote futures instrument')
+        if not moves and item[2]!=b'flat':raise ValueError('Invalid quote missing change')
+        if moves and (moves[0][2]!=item[2] or moves[0].start()<field.end()):raise ValueError('Invalid quote change direction or order')
+        owned_changes+=len(moves)
+    if owned_changes!=len(changes):raise ValueError('Invalid quote unowned change field')
     # The unchanged quote writer can switch cash index values to labelled
     # futures values and omit an unavailable flat change. Retain all symbols,
     # links and surrounding bytes; no quote number is calculated here.

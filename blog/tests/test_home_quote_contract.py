@@ -4,10 +4,18 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import home_quote_contract as quotes
 
-BAR='''<div class="market-bar"><div class="market-track"><span class="market-item up">SPX <span class="market-price">100.25</span><span class='market-change up'>+0.25%</span></span></div></div>'''
+BAR='''<div class="market-bar"><div class="market-track"><a href="/markets/sp500.html" class="market-item up">SPX <span class="market-price">100.25</span><span class='market-change up'>+0.25%</span></a></div></div>'''
 PAGE=('<html><body>'+BAR+'<p>Bound article and manual pin</p></body></html>').encode()
 
 class HomeQuoteContractTests(unittest.TestCase):
+    def test_unowned_or_relocated_change_and_unsupported_futures_fail(self):
+        change=b"<span class='market-change up'>+0.25%</span>"
+        price=b'<span class="market-price">100.25</span>'
+        for bad in [PAGE.replace(b'<div class="market-bar">',b'<div class="market-bar">'+change),PAGE.replace(price,change+price).replace(change+b'</a>',b'</a>'),PAGE.replace(change,b'').replace(b'</a>',b'</a>'+change)]:
+            self.assertTrue(self.rejected(PAGE,bad))
+        future=PAGE.replace(price,b'<span class="market-price" style="color:#818cf8">104.00<sup style=\'font-size:9px;color:#6366f1;margin-left:1px\'>F</sup></span>')
+        for slug in [b'vix',b'gold',b'crude-oil']:
+            self.assertTrue(self.rejected(PAGE.replace(b'sp500',slug),future.replace(b'sp500',slug)))
     def test_actual_oct14_cash_to_futures_refresh_and_rollback(self):
         fixtures=Path(__file__).parent/'fixtures/oct14-home-quotes'
         candidate=(fixtures/'candidate-home.html').read_bytes()
