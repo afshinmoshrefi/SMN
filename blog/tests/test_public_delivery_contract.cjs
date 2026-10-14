@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const contract=require('../public_delivery_contract.cjs');
 const enc=new TextEncoder();
 const BEACON=`<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c01a94c73b74392e4234840661791215815920" integrity="sha512-L0ha0OXavK/8okipN9F8BtP84dg9DUhPERbBXzwI6dgTA55d2+yweo3pn5CSFYs45/r8md2+xvUPtTdvTNRfjA==" data-cf-beacon='{"version":"2024.11.0","token":"6c5153e7bcd94cb993504acb03b8923e","r":1,"spa":2}' crossorigin="anonymous"></script>\n`;
-const BAR=`<div class="market-bar"><div class="market-track"><span class="market-item up">SPX <span class="market-price">100.25</span><span class='market-change up'>+0.25%</span></span></div></div>`;
+const BAR=`<div class="market-bar"><div class="market-track"><a href="/markets/sp500.html" class="market-item up">SPX <span class="market-price">100.25</span><span class='market-change up'>+0.25%</span></a></div></div>`;
 const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`;
 (async()=>{
  assert.equal(await contract.sha(enc.encode(BEACON)),contract.ANALYTICS_SHA,'Exact observed public fixture');
@@ -31,6 +31,8 @@ const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`
  const future=PAGE.replace(price,`<span class="market-price" style="color:#818cf8">104.00<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F</sup></span>`);
  assert(contract.matches(frozen,await contract.quoteContract(enc.encode(future))));
  const change=`<span class='market-change up'>+0.25%</span>`;
+ for(const bad of [PAGE.replace('<div class="market-bar">','<div class="market-bar">'+change),PAGE.replace(price,change+price).replace(change+'</a>','</a>'),PAGE.replace(change,'').replace('</a>','</a>'+change)])assert(await rejected(frozen,bad),'Unowned or relocated quote fields fail');
+ for(const slug of ['vix','gold','crude-oil'])assert(await rejected(await contract.quoteContract(enc.encode(PAGE.replace('sp500',slug))),future.replace('sp500',slug)),'Unsupported futures instruments fail');
  const flat=future.replace('market-item up','market-item flat').replace(change,'');
  assert(contract.matches(frozen,await contract.quoteContract(enc.encode(flat))));
  for(const changed of [PAGE.replace(change,''),PAGE.replace(change,change+change),PAGE.replace('market-change up','market-change down'),PAGE.replace('class="market-price"','class="market-price" style="color:#818cf8"'),PAGE.replace('100.25',`100.25<sup style='font-size:9px;color:#6366f1;margin-left:1px'>X</sup>`)])assert(await rejected(frozen,changed));

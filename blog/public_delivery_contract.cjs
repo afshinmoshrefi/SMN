@@ -20,17 +20,28 @@ const SMNDeliveryContract=(()=>{
   for(const field of span.match(/<span\b[^>]*class="market-price"[^>]*>[\s\S]*?<\/span>/g)||[])if(!new RegExp('^(?:'+price.source+')$').test(field))throw Error('Invalid quote price field');
   for(const field of span.match(/<span\b[^>]*class='market-change [^']*'[^>]*>[\s\S]*?<\/span>/g)||[])if(!new RegExp('^(?:'+change.source+')$').test(field))throw Error('Invalid quote change field');
   for(const item of span.matchAll(/class="market-item ([^"]*)"/g))if(!['up','down','flat'].includes(item[1]))throw Error('Invalid quote item direction');
-  const items=[...span.matchAll(/<(?:a|span)\b[^>]*class="market-item (up|down|flat)"[^>]*>/g)];
-  const prices=[...span.matchAll(price)];
+  const items=[...span.matchAll(/<(a|span)\b[^>]*class="market-item (up|down|flat)"[^>]*>/g)];
+  const prices=[...span.matchAll(price)],changes=[...span.matchAll(change)];
   if(!items.length||prices.length!==items.length)throw Error('Invalid quote item/price count');
+  let ownedChanges=0;
   for(let i=0;i<items.length;i++){
-   const item=items[i],group=span.slice(item.index+item[0].length,i+1<items.length?items[i+1].index:span.length);
+   const item=items[i],start=item.index+item[0].length;
+   let depth=1,end=null;
+   for(const tag of span.slice(start).matchAll(new RegExp('</?'+item[1]+'\\b[^>]*>','g'))){
+    depth+=tag[0].startsWith('</')?-1:1;
+    if(depth===0){end=start+tag.index;break;}
+   }
+   if(end===null||(i+1<items.length&&end>items[i+1].index))throw Error('Invalid quote item boundary');
+   const group=span.slice(start,end);
    const fields=[...group.matchAll(price)],moves=[...group.matchAll(change)];
    if(fields.length!==1||moves.length>1)throw Error('Invalid quote field count');
    if(fields[0][1].includes('style=')!==!!fields[0][3])throw Error('Invalid quote futures marker');
-   if(!moves.length&&item[1]!=='flat')throw Error('Invalid quote missing change');
-   if(moves.length&&moves[0][2]!==item[1])throw Error('Invalid quote change direction');
+   if(fields[0][3]&&!/href="\/markets\/(?:sp500|dow|nasdaq)\.html"/.test(item[0]))throw Error('Invalid quote futures instrument');
+   if(!moves.length&&item[2]!=='flat')throw Error('Invalid quote missing change');
+   if(moves.length&&(moves[0][2]!==item[2]||moves[0].index<fields[0].index+fields[0][0].length))throw Error('Invalid quote change direction or order');
+   ownedChanges+=moves.length;
   }
+  if(ownedChanges!==changes.length)throw Error('Invalid quote unowned change field');
   const stable=span.replace(price,'<span class="market-price">PRICE</span>')
    .replace(change,'')
    .replace(/class="market-item (?:up|down|flat)"/g,'class="market-item DIRECTION"');
