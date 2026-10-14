@@ -1,14 +1,16 @@
 """Freeze verified digest data and reserve only while its publication still binds."""
-from contextlib import contextmanager
+from contextlib import contextmanager,ExitStack
 from dataclasses import dataclass
 from datetime import date,datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
-import hashlib,json,os,re
+import hashlib,json,os,re,time
 from urllib.parse import urlsplit
 
 CATALOG_LOCK=Path('/var/lib/smn-dashboard/posts.lock')
 RELEASE_STATE=Path('/var/lib/tradewave/release-state')
+PUBLICATION_LOCK_TIMEOUT=30.0
+PUBLICATION_LOCK_POLL=.1
 # These are the identity and content fields consumed by the verified digest.
 # Live quotes/volume metadata are intentionally absent: they are not email copy.
 FIELDS=('url','slug','symbol','source_commit','edition_id','published_date','publish_status',
@@ -19,13 +21,28 @@ def rows_json(rows):return encoded(sorted(rows,key=lambda row:row['url']))
 def digest(raw):return hashlib.sha256(raw).hexdigest()
 
 @contextmanager
+def _publication_lease(edition):
+    """Wait briefly for the scheduled publisher; never retry a protected body."""
+    from production_continuity import _lock
+    deadline=time.monotonic()+PUBLICATION_LOCK_TIMEOUT
+    with ExitStack() as stack:
+        while True:
+            try:
+                stack.enter_context(_lock(edition))
+                break
+            except BlockingIOError:
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise
+                time.sleep(min(PUBLICATION_LOCK_POLL,remaining))
+        yield
+
+@contextmanager
 def coordinated(root,day):
     date.fromisoformat(day)
     edition=Path(root)/day/'chatgpt'
     if not edition.is_dir() or edition.is_symlink():raise ValueError('Reader namespace missing or unsafe')
-    from production_continuity import _lock
     # Same order as the rolling publisher: edition lease, then catalog lease.
-    with _lock(edition):
+    with _publication_lease(edition):
         if CATALOG_LOCK.is_symlink():raise ValueError('Unsafe catalog lock')
         CATALOG_LOCK.parent.mkdir(parents=True,exist_ok=True)
         with CATALOG_LOCK.open('a+b') as handle:
