@@ -472,7 +472,7 @@ class NewsletterSafeRetryTests(unittest.TestCase):
         if sys.platform=='win32':self.skipTest('The Linux publication flock is qualified natively')
         from production_continuity import _lock
         saved=self.sender.STATE_FILE.read_bytes()
-        with _lock(self.root/'controller'/DAY/'chatgpt'):
+        with patch.object(snapshot,'PUBLICATION_LOCK_TIMEOUT',0), _lock(self.root/'controller'/DAY/'chatgpt'):
             with self.assertRaises(BlockingIOError):
                 self.sender.daily_send(verified_urls=self.urls,edition_date=date.fromisoformat(DAY))
         self.assertEqual(self.sender.STATE_FILE.read_bytes(),saved)
