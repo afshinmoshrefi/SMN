@@ -1,0 +1,2119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+    <link rel="icon" type="image/png" href="https://seasonalmarketnews.com/assets/smn_favicon2.png">
+    <title>Seasonal Market News | AI-Powered Market Intelligence</title>
+    <meta name="description" content="Daily, data-backed coverage of repeating market patterns. Institutional-grade seasonal analysis powered by TradeWave AI.">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://seasonalmarketnews.com/">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:title" content="Seasonal Market News | AI-Powered Market Intelligence">
+    <meta property="og:description" content="Daily, data-backed coverage of repeating market patterns. Institutional-grade seasonal analysis powered by TradeWave AI.">
+    <meta property="og:url" content="https://seasonalmarketnews.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Seasonal Market News">
+    <meta property="og:image" content="https://seasonalmarketnews.com/assets/smn-og-image.jpg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Seasonal Market News | AI-Powered Market Intelligence">
+    <meta name="twitter:description" content="Daily, data-backed coverage of repeating market patterns. Institutional-grade seasonal analysis powered by TradeWave AI.">
+    <meta name="twitter:image" content="https://seasonalmarketnews.com/assets/smn-og-image.jpg">
+    <script type="application/ld+json">
+    {"@context": "https://schema.org", "@type": "Organization", "name": "Seasonal Market News", "url": "https://seasonalmarketnews.com", "logo": "https://seasonalmarketnews.com/smnfav.png", "description": "AI-powered seasonal market analysis and data-driven financial news."}
+    </script>
+    <script type="application/ld+json">
+    {"@context": "https://schema.org", "@type": "WebSite", "name": "Seasonal Market News", "url": "https://seasonalmarketnews.com/", "potentialAction": {"@type": "SearchAction", "target": {"@type": "EntryPoint", "urlTemplate": "https://seasonalmarketnews.com/search.html?q={search_term_string}"}, "query-input": "required name=search_term_string"}}
+    </script>
+    
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-MEJCK6RNJK"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){ dataLayer.push(arguments); }
+      gtag('js', new Date());
+      gtag('config', 'G-MEJCK6RNJK');
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-tertiary: #e9ecef;
+            --text-primary: #1a1a1a;
+            --text-secondary: #4a4a4a;
+            --text-muted: #6c757d;
+            --accent-blue: #0066cc;
+            --accent-green: #0d7a3e;
+            --accent-red: #c41e3a;
+            --accent-amber: #d97706;
+            --border-color: #dee2e6;
+            --card-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            --card-hover-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            --badge-bullish-bg: rgba(13, 122, 62, 0.1);
+            --badge-bearish-bg: rgba(196, 30, 58, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* Market Bar */
+        .market-bar {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            padding: 10px 0;
+            overflow-x: auto;
+        }
+
+        .market-bar-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            gap: 24px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .market-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            white-space: nowrap;
+            padding: 6px 0;
+            border-top: 2px solid transparent;
+            border-bottom: 2px solid transparent;
+            text-decoration: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .market-item:hover {
+            opacity: 0.75;
+        }
+
+        .market-item.up {
+            border-image: linear-gradient(90deg, transparent, var(--accent-green), transparent) 1;
+        }
+
+        .market-item.down {
+            border-image: linear-gradient(90deg, transparent, var(--accent-red), transparent) 1;
+        }
+
+        .market-symbol {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .market-price {
+            color: var(--text-secondary);
+            font-weight: 700;
+        }
+
+        .market-change {
+            font-weight: 700;
+        }
+
+        .market-change.up {
+            color: var(--accent-green);
+        }
+
+        .market-change.down {
+            color: var(--accent-red);
+        }
+
+        /* Header */
+        header {
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-primary);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: baseline;
+            gap: 2px;
+            text-decoration: none;
+        }
+
+        .logo-seasonal {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--accent-blue);
+            letter-spacing: -0.5px;
+        }
+
+        .logo-market {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
+        }
+
+        .logo-news {
+            font-size: 22px;
+            font-weight: 400;
+            color: var(--text-muted);
+            letter-spacing: -0.5px;
+        }
+
+        nav {
+            display: flex;
+            gap: 28px;
+        }
+
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+
+        nav a:hover {
+            color: var(--text-primary);
+        }
+
+        /* Header Search */
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .header-search {
+            display: flex;
+            align-items: center;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+            transition: border-color 0.2s ease;
+        }
+
+        .header-search:focus-within {
+            border-color: var(--accent-blue);
+        }
+
+        .header-search-input {
+            padding: 8px 12px;
+            font-size: 13px;
+            font-family: inherit;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            outline: none;
+            width: 180px;
+        }
+
+        .header-search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .header-search-btn {
+            padding: 8px 10px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.2s ease;
+        }
+
+        .header-search-btn:hover {
+            color: var(--accent-blue);
+        }
+
+        /* Hero Section */
+        .hero {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 48px 24px 40px;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .hero h1 {
+            font-size: 36px;
+            font-weight: 700;
+            line-height: 1.2;
+            letter-spacing: -1px;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .hero h1 span {
+            color: var(--accent-blue);
+        }
+
+        .hero-subtitle {
+            font-size: 17px;
+            color: var(--text-secondary);
+            max-width: 580px;
+            margin: 0 auto 28px;
+            line-height: 1.6;
+        }
+
+        /* Email Form */
+        .email-form {
+            max-width: 480px;
+            margin: 0 auto;
+        }
+
+        .email-row {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .email-input {
+            flex: 1;
+            max-width: 280px;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-family: inherit;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .email-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .email-input:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+        }
+
+        .submit-btn {
+            padding: 12px 20px;
+            font-size: 14px;
+            font-family: inherit;
+            font-weight: 600;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.1s ease;
+            white-space: nowrap;
+        }
+
+        .submit-btn:hover {
+            background: #0052a3;
+        }
+
+        .submit-btn:active {
+            transform: scale(0.98);
+        }
+
+        .success-message {
+            display: none;
+            padding: 12px 20px;
+            background: rgba(13, 122, 62, 0.1);
+            border: 1px solid var(--accent-green);
+            border-radius: 6px;
+            color: var(--accent-green);
+            font-weight: 500;
+            max-width: 440px;
+            margin: 0 auto;
+        }
+
+        .success-message.show {
+            display: block;
+        }
+
+        .group-checkboxes {
+            display: flex;
+            gap: 24px;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .group-label {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .group-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--accent-blue);
+            flex-shrink: 0;
+        }
+
+        .group-error {
+            display: none;
+            font-size: 13px;
+            color: var(--accent-red);
+            text-align: center;
+            margin-top: 6px;
+        }
+
+        .group-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .info-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            border: 1.5px solid var(--text-muted);
+            color: var(--text-muted);
+            font-size: 10px;
+            font-style: italic;
+            font-weight: 700;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+            line-height: 1;
+            user-select: none;
+        }
+
+        .info-tooltip {
+            display: none;
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            font-size: 12px;
+            font-style: normal;
+            font-weight: 400;
+            padding: 10px 14px;
+            border-radius: 6px;
+            width: 230px;
+            line-height: 1.55;
+            z-index: 100;
+            white-space: normal;
+            pointer-events: none;
+        }
+
+        .info-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: var(--text-primary);
+        }
+
+        .info-icon.open .info-tooltip {
+            display: block;
+        }
+
+        /* Section Headers */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--text-primary);
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border-color);
+            padding: 28px 24px;
+            background: var(--bg-secondary);
+            margin-top: 40px;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .footer-left {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .footer-left a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .footer-left a:hover {
+            color: var(--text-secondary);
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 24px;
+        }
+
+        .footer-links a {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .footer-links a:hover {
+            color: var(--text-secondary);
+        }
+
+        .footer-generated {
+            width: 100%;
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 12px;
+            opacity: 0.6;
+        }
+
+        .no-articles {
+            color: var(--text-muted);
+            text-align: center;
+            padding: 48px;
+        }
+
+        /* Badge styles (shared) */
+        .bullish {
+            background: var(--badge-bullish-bg);
+            color: var(--accent-green);
+        }
+
+        .bearish {
+            background: var(--badge-bearish-bg);
+            color: var(--accent-red);
+        }
+
+        /* Base Responsive */
+        @media (max-width: 768px) {
+            .header-search-input {
+                width: 120px;
+            }
+            
+            .hero h1 {
+                font-size: 28px;
+            }
+
+            .hero-subtitle {
+                font-size: 15px;
+            }
+
+            .email-row {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .email-input {
+                max-width: 100%;
+                width: 100%;
+            }
+
+            .submit-btn {
+                width: 100%;
+            }
+
+            .group-checkboxes {
+                gap: 16px;
+            }
+
+            nav {
+                display: none;
+            }
+
+            .footer-content {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .market-bar {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+            .market-bar::-webkit-scrollbar {
+                display: none;
+            }
+            .market-bar-content {
+                justify-content: flex-start;
+                padding: 0 16px;
+                gap: 16px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header-search {
+                flex: 1;
+                margin-left: 12px;
+            }
+            .header-search-input {
+                width: 100%;
+            }
+        }
+        
+
+
+        /* Wire Template - Modular News Wire Style */
+        .wire-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Top Zone - Lead Story + Headlines Stack */
+        .wire-top {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 24px;
+            margin-bottom: 32px;
+            padding-bottom: 32px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* Lead Story - Large with image */
+        .wire-lead {
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--bg-tertiary);
+        }
+
+        .wire-lead-link {
+            display: block;
+            height: 100%;
+        }
+
+        .wire-lead-image {
+            width: 100%;
+            height: 100%;
+            min-height: 400px;
+            object-fit: cover;
+        }
+
+        .wire-lead-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 32px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.9));
+        }
+
+        .wire-lead-category {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent-amber);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+
+        .wire-lead h2 {
+            font-size: 32px;
+            font-weight: 700;
+            color: white;
+            line-height: 1.2;
+            margin-bottom: 12px;
+        }
+
+        .wire-lead-meta {
+            font-size: 13px;
+            color: rgba(255,255,255,0.7);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        /* Headlines Stack - Text Only */
+        .wire-headlines {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .wire-headlines-header {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent-red);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--accent-red);
+        }
+
+        .wire-headline-item {
+            display: block;
+            text-decoration: none;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border-color);
+            transition: all 0.15s ease;
+        }
+
+        .wire-headline-item:hover {
+            padding-left: 8px;
+            border-color: var(--accent-blue);
+        }
+
+        .wire-headline-item:last-child {
+            border-bottom: none;
+        }
+
+        .wire-headline-tag {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-right: 8px;
+        }
+
+        .wire-headline-tag.bullish {
+            color: var(--accent-green);
+        }
+
+        .wire-headline-tag.bearish {
+            color: var(--accent-red);
+        }
+
+        .wire-headline-symbol {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin-right: 8px;
+        }
+
+        .wire-headline-item h3 {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.4;
+            margin-top: 6px;
+        }
+
+        .wire-headline-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Pattern Data Bar */
+        .wire-data-bar {
+            display: flex;
+            gap: 16px;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 32px;
+            overflow-x: auto;
+        }
+
+        .wire-data-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-right: 16px;
+            border-right: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        .wire-data-item:last-child {
+            border-right: none;
+            padding-right: 0;
+        }
+
+        .wire-data-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .wire-data-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .wire-data-value.green {
+            color: var(--accent-green);
+        }
+
+        .wire-data-value.red {
+            color: var(--accent-red);
+        }
+
+        /* Mid Section - Mixed Grid */
+        .wire-section {
+            margin-bottom: 40px;
+        }
+
+        .wire-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--text-primary);
+        }
+
+        .wire-section-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .wire-section-more {
+            font-size: 12px;
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        /* Mixed Grid - 2 large + 4 small */
+        .wire-mixed-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            grid-template-rows: auto auto;
+            gap: 20px;
+        }
+
+        .wire-card {
+            display: block;
+            text-decoration: none;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .wire-card:hover {
+            border-color: var(--accent-blue);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .wire-card.large {
+            grid-column: span 3;
+        }
+
+        .wire-card.small {
+            grid-column: span 2;
+        }
+
+        .wire-card-image {
+            width: 100%;
+            aspect-ratio: 16/10;
+            background: var(--bg-tertiary);
+            overflow: hidden;
+        }
+
+        .wire-card.large .wire-card-image {
+            aspect-ratio: 16/9;
+        }
+
+        .wire-card-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+
+        .wire-card:hover .wire-card-image img {
+            transform: scale(1.03);
+        }
+
+        .wire-card-content {
+            padding: 16px;
+        }
+
+        .wire-card-top {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .wire-card-symbol {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent-blue);
+            background: rgba(0, 102, 204, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .wire-card-direction {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .wire-card-direction.bullish {
+            color: var(--accent-green);
+        }
+
+        .wire-card-direction.bearish {
+            color: var(--accent-red);
+        }
+
+        .wire-card h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.35;
+            margin-bottom: 8px;
+        }
+
+        .wire-card.large h3 {
+            font-size: 20px;
+        }
+
+        .wire-card-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .wire-card-excerpt {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-top: 10px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .wire-card.small .wire-card-excerpt {
+            display: none;
+        }
+
+        /* Bottom List - Compact */
+        .wire-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .wire-list-item {
+            display: flex;
+            gap: 14px;
+            text-decoration: none;
+            padding: 14px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .wire-list-item:hover {
+            border-color: var(--accent-blue);
+            background: var(--bg-secondary);
+        }
+
+        .wire-list-image {
+            width: 100px;
+            height: 70px;
+            flex-shrink: 0;
+            border-radius: 6px;
+            overflow: hidden;
+            background: var(--bg-tertiary);
+        }
+
+        .wire-list-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .wire-list-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .wire-list-top {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+
+        .wire-list-symbol {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .wire-list-direction {
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .wire-list-direction.bullish {
+            color: var(--accent-green);
+        }
+
+        .wire-list-direction.bearish {
+            color: var(--accent-red);
+        }
+
+        .wire-list-item h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .wire-list-meta {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Wire Responsive */
+        @media (max-width: 1024px) {
+            .wire-top {
+                grid-template-columns: 1fr;
+            }
+
+            .wire-lead-image {
+                min-height: 300px;
+            }
+
+            .wire-headlines {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 0 20px;
+            }
+
+            .wire-headlines-header {
+                grid-column: span 2;
+            }
+
+            .wire-mixed-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+
+            .wire-card.large {
+                grid-column: span 2;
+            }
+
+            .wire-card.small {
+                grid-column: span 2;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .wire-lead h2 {
+                font-size: 24px;
+            }
+
+            .wire-lead-overlay {
+                padding: 20px;
+            }
+
+            .wire-headlines {
+                grid-template-columns: 1fr;
+            }
+
+            .wire-headlines-header {
+                grid-column: auto;
+            }
+
+            .wire-data-bar {
+                flex-wrap: wrap;
+            }
+
+            .wire-data-item {
+                border-right: none;
+                padding-right: 0;
+            }
+
+            .wire-mixed-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .wire-card.large,
+            .wire-card.small {
+                grid-column: auto;
+            }
+
+            .wire-list {
+                grid-template-columns: 1fr;
+            }
+        }
+
+
+        /* Live search autocomplete */
+        .header-search-wrap {
+            position: relative;
+        }
+        .search-autocomplete {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            min-width: 340px;
+            max-height: 72vh;
+            overflow-y: auto;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+            z-index: 2000;
+            display: none;
+        }
+        .search-autocomplete.open {
+            display: block;
+        }
+        .sa-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 14px;
+            text-decoration: none;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .sa-item:last-child {
+            border-bottom: none;
+        }
+        .sa-item:hover,
+        .sa-item.active {
+            background: var(--bg-secondary);
+        }
+        .sa-symbol {
+            flex-shrink: 0;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent-blue);
+            background: var(--bg-tertiary);
+            padding: 3px 7px;
+            border-radius: 4px;
+            min-width: 48px;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .sa-text {
+            min-width: 0;
+        }
+        .sa-title {
+            font-size: 13px;
+            color: var(--text-primary);
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .sa-date {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 3px;
+        }
+        .sa-empty {
+            padding: 14px;
+            font-size: 13px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        @media (max-width: 768px) {
+            .search-autocomplete {
+                min-width: 0;
+                width: 84vw;
+                max-width: 340px;
+            }
+        }
+
+    </style>
+</head>
+<body><section id="coverage-status" role="status" style="padding:14px 24px;background:#f3f7fa;color:#183140"><strong>2026-10-14 coverage is being prepared. Previous articles retain their original dates.</strong></section>
+
+    <div class="market-bar">
+        <div class="market-bar-content">
+            
+            <a href="/markets/sp500.html" class="market-item down">
+                <span class="market-symbol">S&P 500</span>
+                <span class="market-price">7,805.45</span>
+                <span class='market-change down'>-0.02%</span>
+            </a>
+            <a href="/markets/dow.html" class="market-item down">
+                <span class="market-symbol">DOW</span>
+                <span class="market-price">51,670.10</span>
+                <span class='market-change down'>-0.35%</span>
+            </a>
+            <a href="/markets/nasdaq.html" class="market-item down">
+                <span class="market-symbol">NASDAQ</span>
+                <span class="market-price">27,204.38</span>
+                <span class='market-change down'>-0.15%</span>
+            </a>
+            <a href="/markets/vix.html" class="market-item up">
+                <span class="market-symbol">VIX</span>
+                <span class="market-price">15.27</span>
+                <span class='market-change up'>+0.39%</span>
+            </a>
+            <a href="/markets/crude-oil.html" class="market-item up">
+                <span class="market-symbol">CRUDE</span>
+                <span class="market-price">94.62</span>
+                <span class='market-change up'>+0.51%</span>
+            </a>
+            <a href="/markets/natural-gas.html" class="market-item up">
+                <span class="market-symbol">NAT GAS</span>
+                <span class="market-price">3.31</span>
+                <span class='market-change up'>+0.91%</span>
+            </a>
+            <a href="/markets/gold.html" class="market-item down">
+                <span class="market-symbol">GOLD</span>
+                <span class="market-price">4,170.70</span>
+                <span class='market-change down'>-0.16%</span>
+            </a>
+        </div>
+    </div>
+
+
+    <!-- Header -->
+    <header>
+        <div class="header-content">
+            <a href="./" class="logo">
+                <span class="logo-seasonal">Seasonal</span><span class="logo-market">Market</span><span class="logo-news">News</span>
+            </a>
+            <div class="header-right">
+                <div class="header-search-wrap">
+                    <form class="header-search" action="search.html" method="get" autocomplete="off">
+                        <input type="text" name="q" id="headerSearchInput" placeholder="Search symbols, topics..." class="header-search-input" autocomplete="off" aria-label="Search articles" aria-autocomplete="list" aria-controls="searchAutocomplete">
+                        <button type="submit" class="header-search-btn" aria-label="Search">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <path d="m21 21-4.35-4.35"></path>
+                            </svg>
+                        </button>
+                    </form>
+                    <div id="searchAutocomplete" class="search-autocomplete" role="listbox" aria-label="Search suggestions"></div>
+                </div>
+                <nav>
+                    <a href="https://tradewave.ai" target="_blank">TradeWave</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1>AI-Powered <span>Seasonal</span> Market Intelligence</h1>
+        <p class="hero-subtitle">Daily, data-backed coverage of repeating market patterns. Institutional-grade research powered by TradeWave analytics.</p>
+        
+        <form class="email-form" id="emailForm">
+            <div class="email-row">
+                <input type="email" id="emailInput" class="email-input" placeholder="Enter your email" required autocomplete="email">
+                <button type="submit" class="submit-btn">Get Updates</button>
+            </div>
+            <div class="group-row">
+                <div class="group-checkboxes">
+                    <label class="group-label">
+                        <input type="checkbox" id="chkDaily" value="1"> Daily Digest
+                    </label>
+                    <label class="group-label">
+                        <input type="checkbox" id="chkWeekly" value="1"> Weekly Summary
+                    </label>
+                </div>
+                <span class="info-icon" id="infoIcon">i
+                    <span class="info-tooltip">To update or pause your subscription, click the preferences link in any email we send you.</span>
+                </span>
+            </div>
+            <div class="group-error" id="groupError">Please select Daily Digest and/or Weekly Summary.</div>
+        </form>
+
+        <div class="success-message" id="successMessage">
+            Thanks! Please check your email to confirm your subscription.
+        </div>
+    </section>
+
+
+    <section class="wire-container">
+        <!-- Top Zone -->
+        <div class="wire-top">
+
+            <div class="wire-lead">
+                <a href="https://seasonalmarketnews.com/articles/INDX/2026/10/10/two-clocks-one-date-bullish-until-july-2027-then-cautious.html" class="wire-lead-link">
+                    <img src="https://seasonalmarketnews.com/articles/INDX/2026/10/10/assets/hero-two-clocks.jpg" alt="SPX" class="wire-lead-image">
+                    <div class="wire-lead-overlay">
+ 
+                        <h2>Two clocks, one date: bullish until July 2027, then cautious</h2>
+                        <div class="wire-lead-meta">Oct 10, 2026 • SPX • Activates Oct 10</div>
+                    </div>
+                </a>
+            </div>
+            <div class="wire-headlines">
+                <div class="wire-headlines-header">Latest Patterns</div>
+
+                <a href="https://seasonalmarketnews.com/editions/2026-10-13/WFC/article.html" class="wire-headline-item">
+                    <div>
+                        <span class="wire-headline-tag bullish">Bullish</span>
+                        <span class="wire-headline-symbol">WFC</span>
+                    </div>
+                    <h3>Wells Fargo earnings arrive in a historically favorable window</h3>
+                    <div class="wire-headline-time">Oct 13, 2026</div>
+                </a>
+
+                <a href="https://seasonalmarketnews.com/editions/2026-10-13/XLF/article.html" class="wire-headline-item">
+                    <div>
+                        <span class="wire-headline-tag bullish">Bullish</span>
+                        <span class="wire-headline-symbol">XLF</span>
+                    </div>
+                    <h3>How much weight should XLF’s favorable midterm window carry?</h3>
+                    <div class="wire-headline-time">Oct 13, 2026</div>
+                </a>
+
+                <a href="https://seasonalmarketnews.com/editions/2026-10-13/CSX/article.html" class="wire-headline-item">
+                    <div>
+                        <span class="wire-headline-tag bullish">Bullish</span>
+                        <span class="wire-headline-symbol">CSX</span>
+                    </div>
+                    <h3>CSX’s seasonal strength meets October’s service question</h3>
+                    <div class="wire-headline-time">Oct 13, 2026</div>
+                </a>
+
+                <a href="https://seasonalmarketnews.com/editions/2026-10-13/IWM/article.html" class="wire-headline-item">
+                    <div>
+                        <span class="wire-headline-tag bullish">Bullish</span>
+                        <span class="wire-headline-symbol">IWM</span>
+                    </div>
+                    <h3>IWM’s autumn seasonal record meets an inflation update</h3>
+                    <div class="wire-headline-time">Oct 13, 2026</div>
+                </a>
+
+                <a href="https://seasonalmarketnews.com/editions/2026-10-13/VIX/article.html" class="wire-headline-item">
+                    <div>
+                        <span class="wire-headline-tag bearish">Bearish</span>
+                        <span class="wire-headline-symbol">VIX</span>
+                    </div>
+                    <h3>VIX seasonality: how much comfort does a lower reading offer?</h3>
+                    <div class="wire-headline-time">Oct 13, 2026</div>
+                </a>
+            </div>
+        </div>
+
+
+        <div class="wire-section">
+            <div class="wire-section-header">
+                <span class="wire-section-title">Market Analysis</span>
+            </div>
+            <div class="wire-mixed-grid">
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-13/BLK/article.html" class="wire-card large">
+                <div class="wire-card-image"><img src="https://seasonalmarketnews.com/editions/2026-10-13/BLK/assets/hero-reused-ad8e25d02f3b.jpg" alt="BLK"></div>
+                <div class="wire-card-content">
+                    <div class="wire-card-top">
+                        <span class="wire-card-symbol">BLK</span>
+                        <span class="wire-card-direction bullish">Bullish</span>
+                    </div>
+                    <h3>BLK’s autumn gains: What can LifePath add?</h3>
+                    <div class="wire-card-meta">Oct 13, 2026 • 120D Pattern</div>
+                    <p class="wire-card-excerpt">A favorable midterm seasonal record meets BlackRock’s Q2 growth and LifePath launch, but broader histories temper confidence in a repeat.</p>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-12/JNJ/article.html" class="wire-card large">
+                <div class="wire-card-image"><img src="https://seasonalmarketnews.com/editions/2026-10-12/JNJ/assets/hero-reused-26f6d9329199.jpg" alt="JNJ"></div>
+                <div class="wire-card-content">
+                    <div class="wire-card-top">
+                        <span class="wire-card-symbol">JNJ</span>
+                        <span class="wire-card-direction bullish">Bullish</span>
+                    </div>
+                    <h3>JNJ’s midterm streak: how reassuring ahead of earnings?</h3>
+                    <div class="wire-card-meta">Oct 12, 2026 • 9D Pattern</div>
+                    <p class="wire-card-excerpt">The October window has favored JNJ in selected midterm years, but broader history offers less comfort before results.</p>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-12/XLK/article.html" class="wire-card small">
+                <div class="wire-card-image"><img src="https://seasonalmarketnews.com/editions/2026-10-12/XLK/assets/hero-reused-748fa7d51e26.jpg" alt="XLK"></div>
+                <div class="wire-card-content">
+                    <div class="wire-card-top">
+                        <span class="wire-card-symbol">XLK</span>
+                        <span class="wire-card-direction bullish">Bullish</span>
+                    </div>
+                    <h3>XLK’s favorable autumn window meets the AI profit question</h3>
+                    <div class="wire-card-meta">Oct 12, 2026 • 191D Pattern</div>
+                    
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-12/GS/article.html" class="wire-card small">
+                <div class="wire-card-image"><img src="https://seasonalmarketnews.com/editions/2026-10-12/GS/assets/hero-reused-d4e872c3bdd1.jpg" alt="GS"></div>
+                <div class="wire-card-content">
+                    <div class="wire-card-top">
+                        <span class="wire-card-symbol">GS</span>
+                        <span class="wire-card-direction bullish">Bullish</span>
+                    </div>
+                    <h3>Goldman Sachs: How convincing is October’s seasonal edge?</h3>
+                    <div class="wire-card-meta">Oct 12, 2026 • 18D Pattern</div>
+                    
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-12/JPM/article.html" class="wire-card small">
+                <div class="wire-card-image"><img src="https://seasonalmarketnews.com/editions/2026-10-12/JPM/assets/hero-reused-6c390d6fa3f4.jpg" alt="JPM"></div>
+                <div class="wire-card-content">
+                    <div class="wire-card-top">
+                        <span class="wire-card-symbol">JPM</span>
+                        <span class="wire-card-direction bullish">Bullish</span>
+                    </div>
+                    <h3>JPM’s earnings arrive as a favorable seasonal window opens</h3>
+                    <div class="wire-card-meta">Oct 12, 2026 • 83D Pattern</div>
+                    
+                </div>
+            </a>
+            </div>
+        </div>
+
+        <div class="wire-section">
+            <div class="wire-section-header">
+                <span class="wire-section-title">Recent Coverage</span>
+            </div>
+            <div class="wire-list">
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-12/APH/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-12/APH/assets/hero-reused-a9e315cac713.jpg" alt="APH"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">APH</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Amphenol’s seasonal edge: what to watch after the split</h4>
+                    <div class="wire-list-meta">Oct 12, 2026 • 193D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-12/CPRT/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-12/CPRT/assets/hero-reused-a5118cf2a80b.jpg" alt="CPRT"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">CPRT</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Copart’s autumn record meets an unfinished ACV deal</h4>
+                    <div class="wire-list-meta">Oct 12, 2026 • 35D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-09/RPM/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-09/RPM/assets/hero-f45e5cf455ed.jpg" alt="RPM"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">RPM</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>How reliable is RPM’s autumn winning streak?</h4>
+                    <div class="wire-list-meta">Oct 09, 2026 • 28D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-09/QQQ/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-09/QQQ/assets/hero-1df36505e259.jpg" alt="QQQ"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">QQQ</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>QQQ: how much support for an October entry?</h4>
+                    <div class="wire-list-meta">Oct 09, 2026 • 184D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-09/DJI/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-09/DJI/assets/hero-61e55c377bff.jpg" alt="DJI"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">DJI</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>How reassuring is the Dow’s seasonal record before CPI?</h4>
+                    <div class="wire-list-meta">Oct 09, 2026 • 285D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-09/SPY/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-09/SPY/assets/hero-ce721982c0c8.jpg" alt="SPY"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">SPY</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>How much weight should SPY’s autumn record carry after the Fed’s hike?</h4>
+                    <div class="wire-list-meta">Oct 09, 2026 • 35D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-09/DAL/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-09/DAL/assets/hero-c468c2aa05b1.jpg" alt="DAL"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">DAL</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>How much confidence does Delta’s seasonal record deserve?</h4>
+                    <div class="wire-list-meta">Oct 09, 2026 • 131D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-09/XLF/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-09/XLF/assets/hero-c2708be5a91c.jpg" alt="XLF"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">XLF</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>XLF’s seasonal record: What to watch before October 20</h4>
+                    <div class="wire-list-meta">Oct 09, 2026 • 256D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-08/HPQ/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-08/HPQ/assets/hero-b77769a73771.jpg" alt="HPQ"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">HPQ</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>HPQ's AI launch meets a strong midterm seasonal record</h4>
+                    <div class="wire-list-meta">Oct 08, 2026 • 125D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-08/NG/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-08/NG/assets/hero-af25780da2d0.jpg" alt="NG"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">NG</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Natural gas: Can storage temper the autumn seasonal rise?</h4>
+                    <div class="wire-list-meta">Oct 08, 2026 • 46D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-08/WMT/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-08/WMT/assets/hero-12b46a183c11.jpg" alt="WMT"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">WMT</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Walmart’s holiday rollout meets a favorable seasonal window</h4>
+                    <div class="wire-list-meta">Oct 08, 2026 • 33D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-08/VIX/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-08/VIX/assets/hero-091a19cc7953.jpg" alt="VIX"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">VIX</span>
+                        <span class="wire-list-direction bearish">• Bearish</span>
+                    </div>
+                    <h4>After soft jobs, can VIX’s autumn decline pattern hold?</h4>
+                    <div class="wire-list-meta">Oct 08, 2026 • 129D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-08/MRK/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-08/MRK/assets/hero-12e5aaaf3758.jpg" alt="MRK"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">MRK</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Merck’s seasonal strength before October earnings</h4>
+                    <div class="wire-list-meta">Oct 08, 2026 • 192D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-08/OMC/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-08/OMC/assets/hero-e3a120deced5.jpg" alt="OMC"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">OMC</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Omnicom’s October strength has limits as IPG integration advances</h4>
+                    <div class="wire-list-meta">Oct 08, 2026 • 34D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-07/SPX/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-07/SPX/assets/hero-831158569b65.jpg" alt="SPX"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">SPX</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>S&P 500 records meet a favorable midterm seasonal window</h4>
+                    <div class="wire-list-meta">Oct 07, 2026 • 265D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-07/PEP/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-07/PEP/assets/hero-c7a90ef8fd80.jpg" alt="PEP"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">PEP</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>PepsiCo: how much weight should investors give seasonal strength?</h4>
+                    <div class="wire-list-meta">Oct 07, 2026 • 223D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-07/GC/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-07/GC/assets/hero-88036fd7f2c4.jpg" alt="GC"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">GC</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>How much confidence does gold's seasonal strength deserve?</h4>
+                    <div class="wire-list-meta">Oct 07, 2026 • 102D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-07/IWM/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-07/IWM/assets/hero-4657e3de903c.jpg" alt="IWM"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">IWM</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>What IWM’s autumn record offers after the rate rise</h4>
+                    <div class="wire-list-meta">Oct 07, 2026 • 40D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-07/ALB/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-07/ALB/assets/hero-acf14896e67b.jpg" alt="ALB"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">ALB</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Albemarle: how much weight to give midterm gains before Q3?</h4>
+                    <div class="wire-list-meta">Oct 07, 2026 • 23D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-06/COST/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-06/COST/assets/hero-363a1a96e5e5.jpg" alt="COST"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">COST</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Costco after earnings: how convincing is November’s seasonal record?</h4>
+                    <div class="wire-list-meta">Oct 06, 2026 • 270D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-06/XLK/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-06/XLK/assets/hero-748fa7d51e26.jpg" alt="XLK"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">XLK</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>XLK’s October window: how much confidence does history earn?</h4>
+                    <div class="wire-list-meta">Oct 06, 2026 • 191D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-06/MSFT/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-06/MSFT/assets/hero-fa186518a42b.jpg" alt="MSFT"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">MSFT</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Microsoft’s October strength meets AI cost pressure</h4>
+                    <div class="wire-list-meta">Oct 06, 2026 • 10D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-06/IBM/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-06/IBM/assets/hero-96b6c72c71d7.jpg" alt="IBM"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">IBM</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>IBM’s autumn window approaches after its second-quarter shortfall</h4>
+                    <div class="wire-list-meta">Oct 06, 2026 • 114D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-06/APH/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-06/APH/assets/hero-a9e315cac713.jpg" alt="APH"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">APH</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Amphenol’s post-split outlook meets a favorable seasonal window</h4>
+                    <div class="wire-list-meta">Oct 06, 2026 • 193D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-06/CPRT/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-06/CPRT/assets/hero-a5118cf2a80b.jpg" alt="CPRT"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">CPRT</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>CPRT’s favorable seasonal record meets an unfinished ACV deal</h4>
+                    <div class="wire-list-meta">Oct 06, 2026 • 46D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-05/NVDA/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-05/NVDA/assets/hero-9b88122c2173.jpg" alt="NVDA"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">NVDA</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>NVIDIA’s buyback meets a favorable late-October record</h4>
+                    <div class="wire-list-meta">Oct 05, 2026 • 10D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-05/QQQ/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-05/QQQ/assets/hero-dacdcc6efc70.jpg" alt="QQQ"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">QQQ</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>QQQ’s autumn window: how much confidence does history offer?</h4>
+                    <div class="wire-list-meta">Oct 05, 2026 • 184D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-05/SI/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-05/SI/assets/hero-f0b7e4043160.jpg" alt="SI"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">SI</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Silver’s November window: how convincing is the strength?</h4>
+                    <div class="wire-list-meta">Oct 05, 2026 • 91D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-05/SPY/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-05/SPY/assets/hero-d6fa0116502b.jpg" alt="SPY"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">SPY</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>SPY’s favorable autumn window meets mixed economic data</h4>
+                    <div class="wire-list-meta">Oct 05, 2026 • 35D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-05/AMZN/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-05/AMZN/assets/hero-b81f2303c95c.jpg" alt="AMZN"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">AMZN</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>AMZN’s November window: weighing history and profit quality</h4>
+                    <div class="wire-list-meta">Oct 05, 2026 • 173D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/editions/2026-10-05/XLF/article.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/editions/2026-10-05/XLF/assets/hero-b9cceaeaa535.jpg" alt="XLF"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">XLF</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>How strong is XLF’s seasonal case after the rate rise?</h4>
+                    <div class="wire-list-meta">Oct 05, 2026 • 256D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/US/2026/10/11/microsoft-msft-has-rallied-in-9-of-9-midterm-oct-11-20-windows-averaging-4-5-gains.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/US/2026/10/11/hero_MSFT_af1729e0.jpg" alt="MSFT"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">MSFT</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Microsoft (MSFT) Has Rallied in 9 of 9 Midterm Oct 11-20 Windows, Averaging 4.5% Gains</h4>
+                    <div class="wire-list-meta">Oct 02, 2026 • 10D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/ETF/2026/10/25/s-p-500-technology-sector-spdr-xlk-has-risen-in-6-of-6-midterm-oct-may-windows-averaging-12-02.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/ETF/2026/10/25/hero_XLK_89b90712.jpg" alt="XLK"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">XLK</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>S&P 500 Technology Sector SPDR (XLK) Has Risen in 6 of 6 Midterm Oct-May Windows, Averaging 12.02%</h4>
+                    <div class="wire-list-meta">Oct 02, 2026 • 191D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/US/2026/10/29/factset-fds-eps-beat-and-higher-2027-guidance-align-with-bullish-late-fall-run.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/US/2026/10/29/hero_FDS_f57fb5f8.jpg" alt="FDS"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">FDS</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>FactSet (FDS) EPS Beat and Higher 2027 Guidance Align With Bullish Late-Fall Run</h4>
+                    <div class="wire-list-meta">Oct 02, 2026 • 45D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/ETF/2026/10/24/6-for-6-midterm-run-russell-2000-ishares-etf-iwm-eyes-bullish-40-day-late-october-window.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/ETF/2026/10/24/hero_IWM_be3471d6.jpg" alt="IWM"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">IWM</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>6-for-6 Midterm Run: Russell 2000 Ishares ETF (IWM) Eyes Bullish 40-Day Late-October Window</h4>
+                    <div class="wire-list-meta">Oct 02, 2026 • 40D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/INDX/2026/10/31/options-leverage-keeps-s-p-500-spx-fragile-heading-into-historically-bullish-oct-31-stretch.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/INDX/2026/10/31/hero_SPX_6f0cd118.jpg" alt="SPX"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">SPX</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Options Leverage Keeps S&P 500 (SPX) Fragile Heading Into Historically Bullish Oct 31 Stretch</h4>
+                    <div class="wire-list-meta">Oct 02, 2026 • 265D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/US/2026/10/11/automatic-data-processing-adp-has-rallied-in-9-of-10-midterm-oct-11-30-windows.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/US/2026/10/11/hero_ADP_e2565505.jpg" alt="ADP"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">ADP</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Automatic Data Processing (ADP) Has Rallied in 9 of 10 Midterm Oct 11-30 Windows</h4>
+                    <div class="wire-list-meta">Oct 02, 2026 • 20D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/US/2026/10/29/nvidia-nvda-rides-1-2t-ai-spending-wave-into-a-6-for-6-late-october-midterm-rally-window.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/US/2026/10/29/hero_NVDA_b20db065.jpg" alt="NVDA"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">NVDA</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Nvidia (NVDA) Rides $1.2T AI Spending Wave Into a 6-for-6 Late-October Midterm Rally Window</h4>
+                    <div class="wire-list-meta">Oct 01, 2026 • 10D</div>
+                </div>
+            </a>
+
+            <a href="https://seasonalmarketnews.com/articles/COMM/2026/10/03/geopolitical-jitters-and-call-buying-drive-gold-comex-gc-toward-its-bullish-oct-jan-stretch.html" class="wire-list-item">
+                <div class="wire-list-image"><img src="https://seasonalmarketnews.com/articles/COMM/2026/10/03/hero_GC_316ee9f8.jpg" alt="GC"></div>
+                <div class="wire-list-content">
+                    <div class="wire-list-top">
+                        <span class="wire-list-symbol">GC</span>
+                        <span class="wire-list-direction bullish">• Bullish</span>
+                    </div>
+                    <h4>Geopolitical Jitters and Call Buying Drive Gold (COMEX) (GC) Toward Its Bullish Oct-Jan Stretch</h4>
+                    <div class="wire-list-meta">Oct 01, 2026 • 106D</div>
+                </div>
+            </a>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-left">
+                © 2026 <a href="https://taradataresearch.com" target="_blank">Tara Data Research LLC</a>. All rights reserved.
+            </div>
+            <div class="footer-links">
+                <a href="https://tradewave.ai" target="_blank">TradeWave</a>
+            </div>
+            <div class="footer-generated">
+                Generated 2026-10-14 08:00 UTC • 50 of 99 articles
+            </div>
+        </div>
+    </footer>
+
+
+    <script>
+        // Info icon toggle
+        document.getElementById('infoIcon').addEventListener('click', function(e) {
+            e.stopPropagation();
+            this.classList.toggle('open');
+        });
+        document.addEventListener('click', function() {
+            document.getElementById('infoIcon').classList.remove('open');
+        });
+
+        document.getElementById('emailForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const email  = document.getElementById('emailInput').value.trim();
+            const daily  = document.getElementById('chkDaily').checked;
+            const weekly = document.getElementById('chkWeekly').checked;
+            const errorEl = document.getElementById('groupError');
+
+            if (!daily && !weekly) {
+                errorEl.style.display = 'block';
+                return;
+            }
+            errorEl.style.display = 'none';
+
+            const form = this;
+            const btn  = form.querySelector('.submit-btn');
+            btn.disabled    = true;
+            btn.textContent = 'Subscribing…';
+
+            const formData = new FormData();
+            formData.append('fields[email]', email);
+            formData.append('ml-submit', '1');
+            formData.append('anticsrf', 'true');
+            if ('173861448503526902')        formData.append('groups[]', '173861448503526902');
+            if (daily  && '179755084579604160')  formData.append('groups[]', '179755084579604160');
+            if (weekly && '179755091095454945') formData.append('groups[]', '179755091095454945');
+
+            fetch('https://assets.mailerlite.com/jsonp/489451/forms/173861813170996648/subscribe', {
+                method: 'POST',
+                body: formData,
+                mode: 'no-cors'
+            }).then(() => {
+                form.style.display = 'none';
+                document.getElementById('successMessage').classList.add('show');
+            }).catch(() => {
+                form.style.display = 'none';
+                document.getElementById('successMessage').classList.add('show');
+            });
+        });
+    </script>
+
+
+    <script>
+    (function () {
+        var input = document.getElementById('headerSearchInput');
+        var box = document.getElementById('searchAutocomplete');
+        if (!input || !box) return;
+
+        var posts = null, loading = false, results = [], activeIdx = -1;
+
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+            });
+        }
+
+        // suggest.json is the trimmed catalog (title/url/symbol/tickers/date) and is
+        // several times smaller than posts.json, which matters as the archive grows.
+        // posts.json is the fallback so the box still works on a box that has not
+        // regenerated its home page yet.
+        var SOURCES = ['suggest.json', 'posts.json'];
+
+        function load(srcIdx, isRetry) {
+            if (posts || loading) return;
+            srcIdx = srcIdx || 0;
+            if (srcIdx >= SOURCES.length) return;
+            loading = true;
+            fetch(SOURCES[srcIdx], { cache: 'no-cache' })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function (d) {
+                    posts = Array.isArray(d) ? d : [];
+                    loading = false;
+                    render(input.value);
+                })
+                .catch(function () {
+                    // Do NOT poison posts with []: leave it null so typing retries.
+                    // Try the next source, then retry once (slow tunnel / transient blip).
+                    loading = false;
+                    if (srcIdx + 1 < SOURCES.length) load(srcIdx + 1, isRetry);
+                    else if (!isRetry) setTimeout(function () { load(0, true); }, 900);
+                });
+        }
+
+        function rank(q) {
+            q = q.trim().toLowerCase();
+            if (!q || !posts) return [];
+            var qu = q.toUpperCase();
+            var scored = [];
+            for (var i = 0; i < posts.length; i++) {
+                var p = posts[i];
+                var sym = String(p.symbol || '').toUpperCase();
+                var tickers = (p.tickers || []).map(function (t) { return String(t).toUpperCase(); });
+                var title = String(p.title || '').toLowerCase();
+                var dek = String(p.dek || '').toLowerCase();
+                var score = -1;
+                if (sym === qu || tickers.indexOf(qu) !== -1) score = 0;
+                else if (sym.indexOf(qu) === 0 && qu.length > 0) score = 1;
+                else if (title.indexOf(q) !== -1) score = 2;
+                else if (dek.indexOf(q) !== -1) score = 3;
+                if (score >= 0) scored.push([score, p]);
+            }
+            scored.sort(function (a, b) {
+                if (a[0] !== b[0]) return a[0] - b[0];
+                var da = a[1].published_date || '', db = b[1].published_date || '';
+                return db < da ? -1 : (db > da ? 1 : 0);
+            });
+            return scored.slice(0, 8).map(function (x) { return x[1]; });
+        }
+
+        function render(q) {
+            activeIdx = -1;
+            if (!q || !q.trim()) { close(); return; }
+            if (!posts) { load(); return; }
+            results = rank(q);
+            if (!results.length) {
+                box.innerHTML = '<div class="sa-empty">No matches — press Enter to search all articles</div>';
+                box.classList.add('open');
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < results.length; i++) {
+                var p = results[i];
+                var date = String(p.published_date || '').slice(0, 10);
+                html += '<a class="sa-item" role="option" href="' + esc(p.url) + '" data-idx="' + i + '">' +
+                    '<span class="sa-symbol">' + esc(p.symbol || '—') + '</span>' +
+                    '<span class="sa-text"><span class="sa-title">' + esc(p.title) + '</span>' +
+                    (date ? '<span class="sa-date">' + esc(date) + '</span>' : '') +
+                    '</span></a>';
+            }
+            box.innerHTML = html;
+            box.classList.add('open');
+        }
+
+        function close() {
+            box.classList.remove('open');
+            box.innerHTML = '';
+            activeIdx = -1;
+        }
+
+        function setActive(idx) {
+            var items = box.querySelectorAll('.sa-item');
+            if (!items.length) return;
+            if (idx < 0) idx = items.length - 1;
+            if (idx >= items.length) idx = 0;
+            activeIdx = idx;
+            for (var i = 0; i < items.length; i++) items[i].classList.toggle('active', i === idx);
+            items[idx].scrollIntoView({ block: 'nearest' });
+        }
+
+        // Preload the catalog immediately so results are ready on the first keystroke.
+        load();
+        input.addEventListener('focus', function () { load(); });
+        input.addEventListener('input', function () { render(input.value); });
+        input.addEventListener('keydown', function (e) {
+            var items = box.querySelectorAll('.sa-item');
+            if (e.key === 'ArrowDown') {
+                if (items.length) { e.preventDefault(); setActive(activeIdx + 1); }
+            } else if (e.key === 'ArrowUp') {
+                if (items.length) { e.preventDefault(); setActive(activeIdx - 1); }
+            } else if (e.key === 'Enter') {
+                if (activeIdx >= 0 && items[activeIdx]) {
+                    e.preventDefault();
+                    window.location.href = items[activeIdx].getAttribute('href');
+                }
+            } else if (e.key === 'Escape') {
+                close();
+            }
+        });
+        document.addEventListener('click', function (e) {
+            if (!box.contains(e.target) && e.target !== input) close();
+        });
+    })();
+    </script>
+
+</body>
+</html>

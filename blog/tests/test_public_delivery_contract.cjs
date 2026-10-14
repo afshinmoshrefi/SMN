@@ -13,6 +13,14 @@ const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`
  await assert.rejects(()=>contract.normalizeAnalytics(enc.encode(PAGE+BEACON.replace('crossorigin="anonymous"','onclick="alert(1)"'))),/Unrecognized/);
  assert.notEqual(await contract.sha((await contract.normalizeAnalytics(enc.encode(PAGE+BEACON+'<script>unknown</script>'))).bytes),await contract.sha(enc.encode(PAGE)),'Unknown script cannot disappear');
  const frozen=await contract.quoteContract(enc.encode(PAGE));
+ const fs=require('node:fs'),path=require('node:path');
+ const fixtures=path.join(__dirname,'fixtures/oct14-home-quotes');
+ const candidate=fs.readFileSync(path.join(fixtures,'candidate-home.html'));
+ const live=fs.readFileSync(path.join(fixtures,'live-home.html'));
+ const backup=fs.readFileSync(path.join(fixtures,'backup-home.html'));
+ assert(contract.matches(await contract.quoteContract(candidate),await contract.quoteContract(live)),'Actual October14 cash/futures renderer transition');
+ assert(!contract.matches(await contract.quoteContract(candidate),await contract.quoteContract(backup)),'Other homepage content stays bound');
+ assert(!contract.matches({...frozen,version:2,kind:'market-bar-numeric-quotes-v2'},frozen),'Do not reinterpret v2 receipts');
  const price='<span class="market-price">100.25</span>';
  const linked=PAGE.replace('SPX ','<a href="/markets/sp500.html">SPX</a> ');
  const bound=await contract.quoteContract(enc.encode(linked));
@@ -20,6 +28,12 @@ const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`
  for(const changed of [linked.replace(price,''),linked.replace(price,price+price),linked.replace('/markets/sp500.html','/markets/sp 500.html')])assert(await rejected(bound,changed));
  for(const bad of ['--.','','1,00.25','PRICE'])assert(await rejected(bound,linked.replace('100.25',bad)));
  for(const changed of [linked.replace('market-item up','market-item DIRECTION'),linked.replace('market-change up','market-change DIRECTION'),linked.replace('+0.25%','CHANGE')])assert(await rejected(bound,changed));
+ const future=PAGE.replace(price,`<span class="market-price" style="color:#818cf8">104.00<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F</sup></span>`);
+ assert(contract.matches(frozen,await contract.quoteContract(enc.encode(future))));
+ const change=`<span class='market-change up'>+0.25%</span>`;
+ const flat=future.replace('market-item up','market-item flat').replace(change,'');
+ assert(contract.matches(frozen,await contract.quoteContract(enc.encode(flat))));
+ for(const changed of [PAGE.replace(change,''),PAGE.replace(change,change+change),PAGE.replace('market-change up','market-change down'),PAGE.replace('class="market-price"','class="market-price" style="color:#818cf8"'),PAGE.replace('100.25',`100.25<sup style='font-size:9px;color:#6366f1;margin-left:1px'>X</sup>`)])assert(await rejected(frozen,changed));
  assert(contract.matches(frozen,await contract.quoteContract(enc.encode(PAGE.replace('100.25','102.00')))));
  for(const change of [PAGE.replace('Bound article','Peer edit'),PAGE.replace('SPX','FAKE'),PAGE.replace('100.25','<script>alert(1)</script>')])assert(await rejected(frozen,change));
  await assert.rejects(()=>contract.quoteContract(enc.encode(PAGE+BAR)),/one complete/);
