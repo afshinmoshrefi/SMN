@@ -2,8 +2,8 @@
 import hashlib
 import re
 
-VERSION = 3
-KIND = 'market-bar-renderer-quotes-v3'
+VERSION = 4
+KIND = 'market-bar-renderer-quotes-v4'
 SPAN = re.compile(rb'<div class="market-bar">.*?</div>\s*</div>', re.S)
 NUMBER = rb'[-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?'
 
@@ -32,8 +32,8 @@ def contract(raw):
         if direction not in {b'up',b'down',b'flat'}:raise ValueError('Invalid quote item direction')
     items=list(re.finditer(rb'<(a|span)\b[^>]*class="market-item (up|down|flat)"[^>]*>',span))
     prices=list(re.finditer(price,span));changes=list(re.finditer(change,span))
-    if not items or len(prices)!=len(items):raise ValueError('Invalid quote item/price count')
-    owned_changes=0
+    if not items:raise ValueError('Invalid quote item/price count')
+    owned_changes=owned_prices=0
     for index,item in enumerate(items):
         depth=1;end=None
         for tag in re.finditer(rb'</?'+item[1]+rb'\b[^>]*>',span[item.end():]):
@@ -43,18 +43,26 @@ def contract(raw):
         if end is None or (index+1<len(items) and end>items[index+1].start()):raise ValueError('Invalid quote item boundary')
         group=span[item.end():end]
         fields=list(re.finditer(price,group));moves=list(re.finditer(change,group))
-        if len(fields)!=1 or len(moves)>1:raise ValueError('Invalid quote field count')
-        field=fields[0]
-        if (b'style=' in field[1])!=bool(field[3]):raise ValueError('Invalid quote futures marker')
-        if field[3] and not re.search(rb'href="/markets/(?:sp500|dow|nasdaq)\.html"',item.group()):raise ValueError('Invalid quote futures instrument')
+        if len(fields)>1 or len(moves)>1:raise ValueError('Invalid quote field count')
+        if not fields:
+            if item[2]!=b'flat' or moves:raise ValueError('Invalid quote unavailable fields')
+        else:
+            field=fields[0]
+            if (b'style=' in field[1])!=bool(field[3]):raise ValueError('Invalid quote futures marker')
+            if field[3] and not re.search(rb'href="/markets/(?:sp500|dow|nasdaq)\.html"',item.group()):raise ValueError('Invalid quote futures instrument')
+            if moves and (moves[0].start()<field.end() or group[field.end():moves[0].start()].strip()):raise ValueError('Invalid quote field order')
+            tail=moves[0].end() if moves else field.end()
+            if group[tail:].strip():raise ValueError('Invalid quote fields must follow label')
         if not moves and item[2]!=b'flat':raise ValueError('Invalid quote missing change')
-        if moves and (moves[0][2]!=item[2] or moves[0].start()<field.end()):raise ValueError('Invalid quote change direction or order')
+        if moves and moves[0][2]!=item[2]:raise ValueError('Invalid quote change direction or order')
         owned_changes+=len(moves)
+        owned_prices+=len(fields)
     if owned_changes!=len(changes):raise ValueError('Invalid quote unowned change field')
+    if owned_prices!=len(prices):raise ValueError('Invalid quote unowned price field')
     # The unchanged quote writer can switch cash index values to labelled
-    # futures values and omit an unavailable flat change. Retain all symbols,
+    # futures values and omit unavailable flat quote fields. Retain all symbols,
     # links and surrounding bytes; no quote number is calculated here.
-    stable = re.sub(price, b'<span class="market-price">PRICE</span>', span)
+    stable = re.sub(price, b'', span)
     stable = re.sub(change, b'', stable)
     stable = re.sub(rb'class="market-item (?:up|down|flat)"', b'class="market-item DIRECTION"', stable)
     return {'version': VERSION, 'kind': KIND,

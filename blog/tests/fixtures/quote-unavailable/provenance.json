@@ -1,0 +1,12 @@
+{
+  "producer_sha256": "f5e7c436ff61ce630364eca5dab3ac75742ec8d50f2adb970526157226f30657",
+  "fixture_prices": 100,
+  "fixture_change": 0,
+  "live_data_used": false,
+  "provider_calls": 0,
+  "production_writes": 0,
+  "files": {
+    "normal-futures.html": "1e86891074fa870fb4745dc6cf04a66637c78d492f7157c77d13cfc520bb6b8b",
+    "empty-futures.html": "a8ba2820c78ad538935836ff08b2e1e44ebbf676a45d31b92a147c2263e3a0c6"
+  }
+}
