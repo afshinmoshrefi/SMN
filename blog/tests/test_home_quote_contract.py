@@ -8,6 +8,31 @@ BAR='''<div class="market-bar"><div class="market-track"><a href="/markets/sp500
 PAGE=('<html><body>'+BAR+'<p>Bound article and manual pin</p></body></html>').encode()
 
 class HomeQuoteContractTests(unittest.TestCase):
+    def test_actual_quote_producer_empty_futures_payload_does_not_hold_content(self):
+        fixtures=Path(__file__).parent/'fixtures/quote-unavailable'
+        normal=(fixtures/'normal-futures.html').read_bytes();empty=(fixtures/'empty-futures.html').read_bytes()
+        self.assertTrue(quotes.matches(quotes.contract(normal),quotes.contract(empty)))
+        backup=normal.replace(b'Bound edition',b'Before publication')
+        restored=quotes.restore_with_current_quotes(backup,empty,quotes.contract(normal))
+        self.assertEqual(quotes.split(restored)[1],quotes.split(empty)[1])
+        self.assertIn(b'Before publication',restored)
+        self.assertTrue(self.rejected(normal,empty.replace(b'Bound edition',b'Peer edit')))
+
+    def test_unavailable_price_is_only_allowed_for_a_flat_item_without_change(self):
+        price=b'<span class="market-price">100.25</span>';change=b"<span class='market-change up'>+0.25%</span>"
+        unavailable=PAGE.replace(price,b'').replace(change,b'').replace(b'market-item up',b'market-item flat')
+        self.assertTrue(quotes.matches(quotes.contract(PAGE),quotes.contract(unavailable)))
+        for bad in [unavailable.replace(b'flat',b'up'),unavailable.replace(b'SPX ',b'SPX '+change),unavailable.replace(b'<div class="market-bar">',b'<div class="market-bar">'+price),unavailable.replace(b'</a>',b'</a>'+price)]:
+            self.assertTrue(self.rejected(PAGE,bad))
+
+    def test_quote_elision_cannot_hide_price_relocation_or_nonquote_markup(self):
+        price=b'<span class="market-price">100.25</span>';change=b"<span class='market-change up'>+0.25%</span>"
+        for bad in [PAGE.replace(price,b'').replace(b'SPX ',price+b'SPX '),PAGE.replace(price,price+b'<em>Injected</em>'),PAGE.replace(change,change+b'<em>Injected</em>')]:
+            self.assertTrue(self.rejected(PAGE,bad))
+
+    def test_previous_v3_contract_is_not_silently_reinterpreted(self):
+        current=quotes.contract(PAGE);old={**current,'version':3,'kind':'market-bar-renderer-quotes-v3'}
+        self.assertFalse(quotes.matches(old,current))
     def test_unowned_or_relocated_change_and_unsupported_futures_fail(self):
         change=b"<span class='market-change up'>+0.25%</span>"
         price=b'<span class="market-price">100.25</span>'

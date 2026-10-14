@@ -22,8 +22,8 @@ const SMNDeliveryContract=(()=>{
   for(const item of span.matchAll(/class="market-item ([^"]*)"/g))if(!['up','down','flat'].includes(item[1]))throw Error('Invalid quote item direction');
   const items=[...span.matchAll(/<(a|span)\b[^>]*class="market-item (up|down|flat)"[^>]*>/g)];
   const prices=[...span.matchAll(price)],changes=[...span.matchAll(change)];
-  if(!items.length||prices.length!==items.length)throw Error('Invalid quote item/price count');
-  let ownedChanges=0;
+  if(!items.length)throw Error('Invalid quote item/price count');
+  let ownedChanges=0,ownedPrices=0;
   for(let i=0;i<items.length;i++){
    const item=items[i],start=item.index+item[0].length;
    let depth=1,end=null;
@@ -34,20 +34,30 @@ const SMNDeliveryContract=(()=>{
    if(end===null||(i+1<items.length&&end>items[i+1].index))throw Error('Invalid quote item boundary');
    const group=span.slice(start,end);
    const fields=[...group.matchAll(price)],moves=[...group.matchAll(change)];
-   if(fields.length!==1||moves.length>1)throw Error('Invalid quote field count');
-   if(fields[0][1].includes('style=')!==!!fields[0][3])throw Error('Invalid quote futures marker');
-   if(fields[0][3]&&!/href="\/markets\/(?:sp500|dow|nasdaq)\.html"/.test(item[0]))throw Error('Invalid quote futures instrument');
+   if(fields.length>1||moves.length>1)throw Error('Invalid quote field count');
+   if(!fields.length){
+    if(item[2]!=='flat'||moves.length)throw Error('Invalid quote unavailable fields');
+   }else{
+    const field=fields[0],finish=field.index+field[0].length;
+    if(field[1].includes('style=')!==!!field[3])throw Error('Invalid quote futures marker');
+    if(field[3]&&!/href="\/markets\/(?:sp500|dow|nasdaq)\.html"/.test(item[0]))throw Error('Invalid quote futures instrument');
+    if(moves.length&&(moves[0].index<finish||group.slice(finish,moves[0].index).trim()))throw Error('Invalid quote field order');
+    const tail=moves.length?moves[0].index+moves[0][0].length:finish;
+    if(group.slice(tail).trim())throw Error('Invalid quote fields must follow label');
+   }
    if(!moves.length&&item[2]!=='flat')throw Error('Invalid quote missing change');
-   if(moves.length&&(moves[0][2]!==item[2]||moves[0].index<fields[0].index+fields[0][0].length))throw Error('Invalid quote change direction or order');
+   if(moves.length&&moves[0][2]!==item[2])throw Error('Invalid quote change direction or order');
    ownedChanges+=moves.length;
+   ownedPrices+=fields.length;
   }
   if(ownedChanges!==changes.length)throw Error('Invalid quote unowned change field');
-  const stable=span.replace(price,'<span class="market-price">PRICE</span>')
+  if(ownedPrices!==prices.length)throw Error('Invalid quote unowned price field');
+  const stable=span.replace(price,'')
    .replace(change,'')
    .replace(/class="market-item (?:up|down|flat)"/g,'class="market-item DIRECTION"');
-  return {version:3,kind:'market-bar-renderer-quotes-v3',outside_sha256:await sha(encoder.encode(text.slice(0,m.index)+text.slice(m.index+span.length))),markup_sha256:await sha(encoder.encode(stable)),observed_sha256:await sha(raw),quote_sha256:await sha(encoder.encode(span))};
+  return {version:4,kind:'market-bar-renderer-quotes-v4',outside_sha256:await sha(encoder.encode(text.slice(0,m.index)+text.slice(m.index+span.length))),markup_sha256:await sha(encoder.encode(stable)),observed_sha256:await sha(raw),quote_sha256:await sha(encoder.encode(span))};
  }
- function matches(expected,observed){return !!(expected&&observed&&expected.version===3&&expected.kind==='market-bar-renderer-quotes-v3'&&['version','kind','outside_sha256','markup_sha256'].every(k=>expected[k]===observed[k]));}
+ function matches(expected,observed){return !!(expected&&observed&&expected.version===4&&expected.kind==='market-bar-renderer-quotes-v4'&&['version','kind','outside_sha256','markup_sha256'].every(k=>expected[k]===observed[k]));}
  return {sha,normalizeAnalytics,quoteContract,matches,ANALYTICS_SHA};
 })();
 if(typeof module!=='undefined')module.exports=SMNDeliveryContract;

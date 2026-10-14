@@ -18,6 +18,11 @@ const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`
  const candidate=fs.readFileSync(path.join(fixtures,'candidate-home.html'));
  const live=fs.readFileSync(path.join(fixtures,'live-home.html'));
  const backup=fs.readFileSync(path.join(fixtures,'backup-home.html'));
+ const unavailableFixtures=path.join(__dirname,'fixtures/quote-unavailable');
+ const producerNormal=fs.readFileSync(path.join(unavailableFixtures,'normal-futures.html'));
+ const producerEmpty=fs.readFileSync(path.join(unavailableFixtures,'empty-futures.html'));
+ assert(contract.matches(await contract.quoteContract(producerNormal),await contract.quoteContract(producerEmpty)),'Actual unchanged quote producer can omit unavailable futures prices');
+ assert(!contract.matches(await contract.quoteContract(producerNormal),await contract.quoteContract(enc.encode(producerEmpty.toString().replace('Bound edition','Peer edit')))),'Unavailable quotes do not permit content drift');
  assert(contract.matches(await contract.quoteContract(candidate),await contract.quoteContract(live)),'Actual October14 cash/futures renderer transition');
  assert(!contract.matches(await contract.quoteContract(candidate),await contract.quoteContract(backup)),'Other homepage content stays bound');
  assert(!contract.matches({...frozen,version:2,kind:'market-bar-numeric-quotes-v2'},frozen),'Do not reinterpret v2 receipts');
@@ -31,6 +36,10 @@ const PAGE=`<html><body>${BAR}<p>Bound article and manual pin</p></body></html>`
  const future=PAGE.replace(price,`<span class="market-price" style="color:#818cf8">104.00<sup style='font-size:9px;color:#6366f1;margin-left:1px'>F</sup></span>`);
  assert(contract.matches(frozen,await contract.quoteContract(enc.encode(future))));
  const change=`<span class='market-change up'>+0.25%</span>`;
+ const unavailable=PAGE.replace(price,'').replace(change,'').replace('market-item up','market-item flat');
+ assert(contract.matches(frozen,await contract.quoteContract(enc.encode(unavailable))),'Unavailable flat quote fields are a legitimate renderer mode');
+ for(const bad of [unavailable.replace('flat','up'),unavailable.replace('SPX ','SPX '+change),unavailable.replace('<div class="market-bar">','<div class="market-bar">'+price),unavailable.replace('</a>','</a>'+price),PAGE.replace(price,'').replace('SPX ',price+'SPX '),PAGE.replace(price,price+'<em>Injected</em>'),PAGE.replace(change,change+'<em>Injected</em>')])assert(await rejected(frozen,bad),'Elision cannot hide unowned or moved quote fields');
+ assert(!contract.matches({...frozen,version:3,kind:'market-bar-renderer-quotes-v3'},frozen),'Do not reinterpret v3 receipts');
  for(const bad of [PAGE.replace('<div class="market-bar">','<div class="market-bar">'+change),PAGE.replace(price,change+price).replace(change+'</a>','</a>'),PAGE.replace(change,'').replace('</a>','</a>'+change)])assert(await rejected(frozen,bad),'Unowned or relocated quote fields fail');
  for(const slug of ['vix','gold','crude-oil'])assert(await rejected(await contract.quoteContract(enc.encode(PAGE.replace('sp500',slug))),future.replace('sp500',slug)),'Unsupported futures instruments fail');
  const flat=future.replace('market-item up','market-item flat').replace(change,'');
