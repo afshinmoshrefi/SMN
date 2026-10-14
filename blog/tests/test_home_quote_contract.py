@@ -8,6 +8,34 @@ BAR='''<div class="market-bar"><div class="market-track"><span class="market-ite
 PAGE=('<html><body>'+BAR+'<p>Bound article and manual pin</p></body></html>').encode()
 
 class HomeQuoteContractTests(unittest.TestCase):
+    def test_actual_oct14_cash_to_futures_refresh_and_rollback(self):
+        fixtures=Path(__file__).parent/'fixtures/oct14-home-quotes'
+        candidate=(fixtures/'candidate-home.html').read_bytes()
+        current=(fixtures/'live-home.html').read_bytes()
+        backup=(fixtures/'backup-home.html').read_bytes()
+        self.assertTrue(quotes.matches(quotes.contract(candidate),quotes.contract(current)))
+        restored=quotes.restore_with_current_quotes(backup,current,quotes.contract(candidate))
+        self.assertEqual(quotes.split(restored)[1],quotes.split(current)[1])
+        self.assertEqual(quotes.split(restored)[0]+quotes.split(restored)[2],quotes.split(backup)[0]+quotes.split(backup)[2])
+    def test_legitimate_futures_marker_and_unavailable_flat_change(self):
+        future=PAGE.replace(b'<span class="market-price">100.25</span>',b'<span class="market-price" style="color:#818cf8">104.00<sup style=\'font-size:9px;color:#6366f1;margin-left:1px\'>F</sup></span>')
+        self.assertTrue(quotes.matches(quotes.contract(PAGE),quotes.contract(future)))
+        flat=future.replace(b'market-item up',b'market-item flat').replace(b"<span class='market-change up'>+0.25%</span>",b'')
+        self.assertTrue(quotes.matches(quotes.contract(PAGE),quotes.contract(flat)))
+    def test_missing_nonflat_change_duplicate_change_and_marker_injection_fail(self):
+        change=b"<span class='market-change up'>+0.25%</span>"
+        for bad in [PAGE.replace(change,b''),PAGE.replace(change,change+change),PAGE.replace(b'market-change up',b'market-change down'),PAGE.replace(b'class="market-price"',b'class="market-price" style="color:#818cf8"'),PAGE.replace(b'100.25',b"100.25<sup style='font-size:9px;color:#6366f1;margin-left:1px'>X</sup>")]:
+            self.assertTrue(self.rejected(PAGE,bad))
+    def test_display_mode_does_not_authorize_other_markup(self):
+        fixtures=Path(__file__).parent/'fixtures/oct14-home-quotes'
+        candidate=(fixtures/'candidate-home.html').read_bytes();current=(fixtures/'live-home.html').read_bytes()
+        for old,new in [(b'/markets/dow.html',b'/markets/fake.html'),(b'>DOW<',b'>FAKE<'),(b'class="market-price"',b'class="market-price" onclick="bad()"')]:
+            self.assertTrue(self.rejected(candidate,current.replace(old,new)))
+        prefix,bar,suffix=quotes.split(current)
+        self.assertTrue(self.rejected(candidate,prefix+bar+suffix+b'<script>peer edit</script>'))
+    def test_old_contract_version_is_not_silently_reinterpreted(self):
+        current=quotes.contract(PAGE);old={**current,'version':2,'kind':'market-bar-numeric-quotes-v2'}
+        self.assertFalse(quotes.matches(old,current))
     def rejected(self,original,changed):
         try:return not quotes.matches(quotes.contract(original),quotes.contract(changed))
         except ValueError as error:

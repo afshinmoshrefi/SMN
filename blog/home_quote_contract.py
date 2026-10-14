@@ -1,9 +1,9 @@
-"""Allow only numeric market-bar refreshes; bind every other homepage byte."""
+"""Allow the existing quote renderer's typed display modes; bind other bytes."""
 import hashlib
 import re
 
-VERSION = 2
-KIND = 'market-bar-numeric-quotes-v2'
+VERSION = 3
+KIND = 'market-bar-renderer-quotes-v3'
 SPAN = re.compile(rb'<div class="market-bar">.*?</div>\s*</div>', re.S)
 NUMBER = rb'[-+]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?'
 
@@ -30,8 +30,23 @@ def contract(raw):
         if not re.fullmatch(change,field):raise ValueError('Invalid quote change field')
     for direction in re.findall(rb'class="market-item ([^"]*)"',span):
         if direction not in {b'up',b'down',b'flat'}:raise ValueError('Invalid quote item direction')
-    stable = re.sub(price, lambda m:m[1]+b'PRICE'+(m[3] or b'')+m[4], span)
-    stable = re.sub(change, lambda m:m[1]+b'DIRECTION'+m[3]+b'CHANGE'+m[5], stable)
+    items=list(re.finditer(rb'<(?:a|span)\b[^>]*class="market-item (up|down|flat)"[^>]*>',span))
+    prices=list(re.finditer(price,span));changes=list(re.finditer(change,span))
+    if not items or len(prices)!=len(items):raise ValueError('Invalid quote item/price count')
+    for index,item in enumerate(items):
+        end=items[index+1].start() if index+1<len(items) else len(span)
+        group=span[item.end():end]
+        fields=list(re.finditer(price,group));moves=list(re.finditer(change,group))
+        if len(fields)!=1 or len(moves)>1:raise ValueError('Invalid quote field count')
+        field=fields[0]
+        if (b'style=' in field[1])!=bool(field[3]):raise ValueError('Invalid quote futures marker')
+        if not moves and item[1]!=b'flat':raise ValueError('Invalid quote missing change')
+        if moves and moves[0][2]!=item[1]:raise ValueError('Invalid quote change direction')
+    # The unchanged quote writer can switch cash index values to labelled
+    # futures values and omit an unavailable flat change. Retain all symbols,
+    # links and surrounding bytes; no quote number is calculated here.
+    stable = re.sub(price, b'<span class="market-price">PRICE</span>', span)
+    stable = re.sub(change, b'', stable)
     stable = re.sub(rb'class="market-item (?:up|down|flat)"', b'class="market-item DIRECTION"', stable)
     return {'version': VERSION, 'kind': KIND,
             'outside_sha256': _sha(prefix + suffix),
