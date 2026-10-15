@@ -11,18 +11,28 @@ def override(result):
     result=Path(result);path=result/'decorative-hero-reuse.json'
     if not path.is_file():return None
     record=json.loads(path.read_text(encoding='utf-8'))
-    if record.get('kind')!='previously_published_decorative_illustration' or not record.get('actor') or not record.get('utc'):
+    fresh=record.get('kind')=='fresh_generated_decorative_illustration'
+    if (not fresh and record.get('kind')!='previously_published_decorative_illustration') or not record.get('actor') or not record.get('utc'):
         raise ValueError('Attributable decorative image reuse required')
     for name in ('article.json','hero-asset.json','article.html'):
         if sha((result/name).read_bytes())!=record.get('original_files',{}).get(name):
             raise ValueError('Decorative recovery base changed: '+name)
     hero=record.get('hero')
-    if not isinstance(hero,dict) or not record.get('source_publication_url','').startswith('https://seasonalmarketnews.com/'):
+    if not isinstance(hero,dict):raise ValueError('Hero metadata required')
+    if not fresh and not record.get('source_publication_url','').startswith('https://seasonalmarketnews.com/'):
         raise ValueError('Existing publication provenance required')
     source=result/'decorative-hero-source-receipt.json'
     if sha(source.read_bytes())!=record.get('source_receipt_sha256'):
         raise ValueError('Archived publication receipt changed')
     receipt=json.loads(source.read_text(encoding='utf-8'))
+    if fresh:
+        if (receipt.get('symbol')!=result.name or receipt.get('sha256')!=hero.get('sha256')
+                or receipt.get('provider')!='existing production hero_image_workflow'
+                or receipt.get('hero_check',{}).get('passed') is not True
+                or record.get('visual_inspection_passed') is not True
+                or hero.get('caption')!='AI-generated conceptual illustration.'):
+            raise ValueError('Inspected fresh generation receipt required')
+        return hero
     if receipt.get('status')!='live_verified' or receipt.get('production_written') is not True:
         raise ValueError('Verified publication provenance required')
     asset=urlsplit(record.get('source_asset_url',''));article=urlsplit(record['source_publication_url'])
@@ -40,9 +50,10 @@ def replace(original,hero):
     if re.search(r'<(?:table|p|section)|data-native-chart|data-figure',found.group(),re.I):
         raise ValueError('Hero figure contains nondecorative content')
     relative=hero['url']
-    if not re.fullmatch(r'assets/hero-reused-[a-f0-9]{12}\.(?:jpg|png|webp)',relative):
+    if not re.fullmatch(r'assets/hero-(?:reused|fresh)-[a-f0-9]{12}\.(?:jpg|png|webp)',relative):
         raise ValueError('Unsafe reused hero URL')
-    replacement='<figure class="hero"><img src="'+relative+'" alt="'+html.escape(hero['alt'],quote=True)+'" width="'+str(hero['width'])+'" height="'+str(hero['height'])+'"><figcaption>Conceptual illustration from the Seasonal Market News archive.</figcaption></figure>'
+    caption=hero.get('caption','Conceptual illustration from the Seasonal Market News archive.')
+    replacement='<figure class="hero"><img src="'+relative+'" alt="'+html.escape(hero['alt'],quote=True)+'" width="'+str(hero['width'])+'" height="'+str(hero['height'])+'"><figcaption>'+html.escape(caption)+'</figcaption></figure>'
     revised=original[:found.start()]+replacement+original[found.end():]
     if FIGURE.sub('',original)!=FIGURE.sub('',revised):raise ValueError('Nondecorative article bytes changed')
     return revised

@@ -324,10 +324,10 @@ class OptionalAssetRecovery(unittest.TestCase):
         from PIL import Image
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);inputs.capture(root,'2026-09-30',lambda _:package())
-            with patch.object(inputs,'generate_hero',side_effect=AssertionError('paid API')) as paid:
+            with patch.object(inputs,'generate_hero',side_effect=RuntimeError('generation failed')) as paid:
                 first=inputs.prepare_heroes(root,'2026-09-30',nonessential_fallback=True)
                 second=inputs.prepare_heroes(root,'2026-09-30',nonessential_fallback=True)
-            paid.assert_not_called();self.assertFalse(first['api_cost_stage']);self.assertTrue(second['idempotent'])
+            paid.assert_called_once();self.assertFalse(first['api_cost_stage']);self.assertTrue(second['idempotent'])
             receipt=load_json(root/'input-heroes.json');item=receipt['heroes']['VIX']
             self.assertEqual(item['asset_kind'],'neutral_placeholder');self.assertFalse(item['paid_generation_retried'])
             with Image.open(root/item['path']) as image:self.assertEqual(image.size,(1200,675));self.assertEqual(image.format,'JPEG')

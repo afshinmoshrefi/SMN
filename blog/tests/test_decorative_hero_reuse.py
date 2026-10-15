@@ -7,6 +7,25 @@ PAGE='<html><body><article><h1>Same factual title</h1><figure class="hero"><img 
 HERO={'url':'assets/hero-reused-aaaaaaaaaaaa.jpg','alt':'Conceptual vehicle auction illustration','width':1200,'height':675,'sha256':'a'*64}
 
 class DecorativeHeroReuseTests(unittest.TestCase):
+    def test_fresh_generation_requires_bound_receipt_and_visual_inspection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)/'SPX';root.mkdir()
+            for name,data in [('article.json',b'facts'),('hero-asset.json',b'old'),('article.html',PAGE.encode())]:(root/name).write_bytes(data)
+            hero={**HERO,'url':'assets/hero-fresh-aaaaaaaaaaaa.jpg','caption':'AI-generated conceptual illustration.'}
+            receipt={'symbol':'SPX','sha256':hero['sha256'],'provider':'existing production hero_image_workflow','hero_check':{'passed':True}}
+            source=root/'decorative-hero-source-receipt.json';source.write_text(json.dumps(receipt))
+            record={'kind':'fresh_generated_decorative_illustration','actor':'Codex','utc':'2026-10-15T00:00:00Z','visual_inspection_passed':True,'source_receipt_sha256':reuse.sha(source.read_bytes()),'original_files':{n:reuse.sha((root/n).read_bytes()) for n in ['article.json','hero-asset.json','article.html']},'hero':hero}
+            target=root/'decorative-hero-reuse.json';target.write_text(json.dumps(record))
+            self.assertEqual(reuse.override(root),hero)
+            changed=reuse.replace(PAGE,hero)
+            self.assertIn(hero['caption'],changed)
+            self.assertEqual(reuse.FIGURE.sub('',PAGE),reuse.FIGURE.sub('',changed))
+            record['visual_inspection_passed']=False;target.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError,'Inspected fresh'):reuse.override(root)
+            record['visual_inspection_passed']=True;target.write_text(json.dumps(record))
+            source.write_text('{}')
+            with self.assertRaisesRegex(ValueError,'receipt changed'):reuse.override(root)
+
     def test_only_decorative_figure_changes_and_all_fact_bytes_match(self):
         changed=reuse.replace(PAGE,HERO)
         self.assertEqual(reuse.FIGURE.sub('',PAGE),reuse.FIGURE.sub('',changed))

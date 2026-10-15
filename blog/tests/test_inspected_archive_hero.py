@@ -28,12 +28,18 @@ class InspectedArchiveHeroTests(unittest.TestCase):
         (self.web/'image.jpg').write_bytes(b'changed');self.assertIsNone(self.read())
         (self.web/'image.jpg').write_bytes(self.raw);(self.web/'article.html').write_bytes(b'changed article');self.assertIsNone(self.read())
         (self.web/'article.html').write_bytes(b'previously published');(self.web/'posts.json').write_text('[]');self.assertIsNone(self.read())
-    def test_input_preparation_keeps_selection_url_but_uses_correct_jpeg_extension(self):
+    def test_input_preparation_generates_fresh_hero_instead_of_reusing_archive(self):
         root=Path(self.temp.name)/'input';inputs.capture(root,'2026-09-30',lambda _:package())
-        with patch.object(archive,'available',return_value=self.read()),patch.object(inputs,'generate_hero') as paid:
-            first=inputs.prepare_heroes(root,'2026-09-30',nonessential_fallback=True)
-            second=inputs.prepare_heroes(root,'2026-09-30',nonessential_fallback=True)
-        paid.assert_not_called();self.assertTrue(first['hero_ready']);self.assertTrue(second['idempotent'])
-        receipt=json.loads((root/'input-heroes.json').read_text());self.assertTrue(receipt['heroes']['VIX']['path'].endswith('.jpg'))
+        blob=b'fresh generated hero'
+        generated={'image_base64':base64.b64encode(blob).decode(),'sha256':hashlib.sha256(blob).hexdigest(),
+                   'provider':'fresh fixture','api_cost_stage':True}
+        callback=Mock(return_value=generated)
+        with patch.object(archive,'available',side_effect=AssertionError('archive must not be primary')):
+            first=inputs.prepare_heroes(root,'2026-09-30',callback,nonessential_fallback=True)
+            second=inputs.prepare_heroes(root,'2026-09-30',callback,nonessential_fallback=True)
+        callback.assert_called_once_with(unittest.mock.ANY,'2026-09-30')
+        self.assertTrue(first['hero_ready']);self.assertTrue(second['idempotent'])
+        receipt=json.loads((root/'input-heroes.json').read_text());self.assertTrue(receipt['api_cost_stage'])
+        self.assertEqual(receipt['heroes']['VIX']['sha256'],generated['sha256'])
 
 if __name__=='__main__':unittest.main()

@@ -235,9 +235,11 @@ def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False)
             item=json.loads(one.read_bytes()); _verify(root,{'files':{item['path']:item['sha256']}})
         else:
             generated=None
-            if nonessential_fallback:
-                from inspected_archive_hero import available
-                generated=available(post)
+            try:
+                generated=(callback or generate_hero)(post,edition)
+            except Exception:
+                if not nonessential_fallback:
+                    raise
             if nonessential_fallback and generated is None:
                 # Compatibility bytes for private draft processing only. This is
                 # an unavailable hero, never usable published art or approval.
@@ -254,8 +256,6 @@ def prepare_heroes(root, edition, callback=None, *, nonessential_fallback=False)
                            'provider':'SMN deterministic neutral placeholder','api_cost_stage':False,
                            'asset_kind':'neutral_placeholder','method':'continuity-placeholder-v1',
                            'paid_generation_retried':False,'cost_usd':0}
-            elif not nonessential_fallback:
-                generated=(callback or generate_hero)(post,edition)
             blob=base64.b64decode(generated['image_base64'],validate=True)
             if _sha(blob)!=generated['sha256']:
                 raise Held('hero asset hash differs')
