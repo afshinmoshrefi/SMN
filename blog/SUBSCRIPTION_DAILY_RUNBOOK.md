@@ -312,3 +312,22 @@ Rehearse one/multiple held articles, cap exhaustion, provider failure, interrupt
 stale receipts and relay failure with synthetic evidence first. A delivered alert
 from an approved exercise and normal campaign evidence are needed before claiming
 working unattended monitoring. Offline mocks do not establish that result.
+
+### October 19 scheduled-command qualification
+
+`tests.test_scheduled_newsletter_entrypoints` launches the real
+`operational_schedule.py --target production --newsletter-only`, Sunday scheduler,
+sender restart, and operational-alert CLI in isolated Linux child processes.
+Only external provider/model boundaries and the test clock are faked. Canonical
+paths redirect to private fixtures; an audit hook rejects writes elsewhere and
+socket calls are disabled. Cases cover six ready articles, five ready and one
+pending, the actual 16-card weekly template with five missing images, uncertain
+campaign creation, duplicate suppression, alert acceptance versus delivery, and
+bounded relay failure retries. These tests send no messages and activate no units.
+
+The combined candidate preserves the installed fresh-hero implementation and
+contains the bounded shared publication/catalog lease wait, pre-POST HTML/media
+audit, and version-4 home quote contract. Effective scheduler ExecStart and
+WorkingDirectory must be checked together when activating an immutable release;
+changing only the current symlink leaves pinned newsletter units on old code.
+Live delivery and consecutive unattended scheduled runs remain separate checks.
