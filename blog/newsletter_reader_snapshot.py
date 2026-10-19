@@ -21,10 +21,10 @@ def rows_json(rows):return encoded(sorted(rows,key=lambda row:row['url']))
 def digest(raw):return hashlib.sha256(raw).hexdigest()
 
 @contextmanager
-def _publication_lease(edition):
+def _publication_lease(edition, *, deadline=None):
     """Wait briefly for the scheduled publisher; never retry a protected body."""
     from production_continuity import _lock
-    deadline=time.monotonic()+PUBLICATION_LOCK_TIMEOUT
+    if deadline is None:deadline=time.monotonic()+PUBLICATION_LOCK_TIMEOUT
     with ExitStack() as stack:
         while True:
             try:
@@ -42,7 +42,8 @@ def coordinated(root,day):
     edition=Path(root)/day/'chatgpt'
     if not edition.is_dir() or edition.is_symlink():raise ValueError('Reader namespace missing or unsafe')
     # Same order as the rolling publisher: edition lease, then catalog lease.
-    with _publication_lease(edition):
+    deadline=time.monotonic()+PUBLICATION_LOCK_TIMEOUT
+    with _publication_lease(edition,deadline=deadline):
         if CATALOG_LOCK.is_symlink():raise ValueError('Unsafe catalog lock')
         CATALOG_LOCK.parent.mkdir(parents=True,exist_ok=True)
         with CATALOG_LOCK.open('a+b') as handle:
@@ -52,7 +53,14 @@ def coordinated(root,day):
                 msvcrt.locking(handle.fileno(),msvcrt.LK_NBLCK,1)
             else:
                 import fcntl
-                fcntl.flock(handle,fcntl.LOCK_EX)
+                while True:
+                    try:
+                        fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        remaining=deadline-time.monotonic()
+                        if remaining<=0:raise
+                        time.sleep(min(PUBLICATION_LOCK_POLL,remaining))
             try:yield
             finally:
                 if os.name=='nt':

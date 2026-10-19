@@ -638,6 +638,18 @@ def _create_and_schedule(group_id, subject, html, campaign_name, state, kind, da
         raise ValueError(f'Campaign {key} already attempted; reconcile provider status before retry')
     record = {'name': campaign_name, 'slugs': [a['slug'] for a in articles],
               'phase': 'create_unknown', 'campaign_id': None, 'provider_status': None}
+    # Preserve the exact submitted body and optional media choices before POST.
+    # Provider tracking/personalization may change the eventual delivered MIME.
+    import hashlib
+    record['submitted_html'] = html
+    record['submitted_html_sha256'] = hashlib.sha256(html.encode('utf-8')).hexdigest()
+    record['submitted_media'] = [
+        {'slug':a['slug'], 'symbol':a.get('symbol'), 'article_url':_public_url(a),
+         'hero_status':a.get('hero_status'), 'hero_image':a.get('hero_image'),
+         'rendered_hero_url':_hero_url(a)} for a in articles]
+    record['media_warnings'] = [
+        {'slug':row['slug'], 'symbol':row['symbol'], 'reason':'hero_unavailable'}
+        for row in record['submitted_media'] if not row['rendered_hero_url']]
     def persist_intent(binding=None):
         if binding is not None:record['reader_snapshot']=binding
         state['campaigns'][key] = record

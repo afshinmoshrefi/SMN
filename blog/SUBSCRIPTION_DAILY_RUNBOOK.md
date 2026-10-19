@@ -146,9 +146,9 @@ No command in this runbook changes TradeWave mathematics or production.
 
 The isolated `codex/smn-oct19-newsletter-lock-repair` candidate reuses the prepared
 October 14 lease repair on the exact observed production baseline `2b0075c`.
-`newsletter_reader_snapshot.coordinated` waits up to 30 monotonic seconds, polling
-every 0.1 second, only while acquiring the existing publication lease. Capture and
-reservation each have that bound. Lease order, source/receipt revalidation, intent
+`newsletter_reader_snapshot.coordinated` uses one 30-second monotonic deadline,
+polling every 0.1 second, across publication and catalog lease acquisition on Linux.
+Capture and reservation each have that bound. Lease order, source/receipt revalidation, intent
 persistence before provider POST and duplicate prevention are unchanged. Exceptions
 inside an acquired protected body are propagated without replay. A live owner is
 never removed; exhaustion remains a pre-POST failure under the existing scheduler cap.
@@ -157,6 +157,13 @@ Linux tests use a separate process holding the actual publisher lease during bot
 capture and reservation, plus timeout, safe retry, three-attempt exhaustion and
 restart/unknown-POST cases. All providers and models are mocked and network is blocked.
 Windows msvcrt reports contention as EACCES; these native flock cases are Linux-only.
+Real-template tests exercise a 16-card weekly recap, its five unavailable heroes,
+eleven absolute image URLs, and a daily send rendered while the catalog is contended.
+The private campaign intent retains `submitted_html`, its UTF-8 SHA256, ordered
+`submitted_media` and nonblocking `media_warnings` before provider POST. This proves
+what was submitted; provider tracking and personalization may alter delivered MIME.
+Missing hero metadata still selects the truthful ticker fallback and never blocks
+factual publication or invents imagery. Existing journal entries need no migration.
 This is an isolated test candidate, not a production activation or subscriber retry.
 The effective newsletter service can pin a versioned release path: verify its
 ExecStart and WorkingDirectory after any separately authorized release, not only
