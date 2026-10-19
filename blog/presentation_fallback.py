@@ -57,7 +57,7 @@ class _ReadableHTML(HTMLParser):
             raise ValueError('Unexpected active content in article')
         values = dict(attrs)
         if self.hero_depth:
-            if tag not in {'img', 'figcaption'}:
+            if tag not in {'img', 'figcaption'} and not (tag == 'a' and self.hero_depth >= 2):
                 raise ValueError('Hero contains unexpected content')
             if tag == 'img':
                 self.hero_images += 1
